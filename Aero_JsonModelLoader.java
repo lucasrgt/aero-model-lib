@@ -12,27 +12,27 @@ import java.util.Map;
  * Loads Blockbench models directly at runtime — no conversion pipeline.
  *
  * Usage:
- *   Aero_Model model = Aero_ModelLoader.load("/models/my_machine.json");
+ *   Aero_JsonModel model = Aero_JsonModelLoader.load("/models/my_machine.json");
  *
  * Place JSONs in src/retronism/assets/models/ — the transpiler injects them
  * into the jar automatically. Export from Blockbench: File > Export > Export as JSON.
  */
-public class Aero_ModelLoader {
+public class Aero_JsonModelLoader {
 
     private static final Map cache = new HashMap();
 
     /** Loads and caches a Blockbench model from the classpath. */
-    public static Aero_Model load(String resourcePath) {
+    public static Aero_JsonModel load(String resourcePath) {
         return load(resourcePath, resourcePath);
     }
 
     /** Loads and caches a Blockbench model from the classpath with an explicit name. */
-    public static Aero_Model load(String resourcePath, String name) {
+    public static Aero_JsonModel load(String resourcePath, String name) {
         if (cache.containsKey(resourcePath)) {
-            return (Aero_Model) cache.get(resourcePath);
+            return (Aero_JsonModel) cache.get(resourcePath);
         }
         try {
-            InputStream is = Aero_ModelLoader.class.getResourceAsStream(resourcePath);
+            InputStream is = Aero_JsonModelLoader.class.getResourceAsStream(resourcePath);
             if (is == null) {
                 throw new RuntimeException("AeroModelLoader: resource not found: " + resourcePath);
             }
@@ -41,7 +41,7 @@ public class Aero_ModelLoader {
             int n;
             while ((n = is.read(tmp)) != -1) buf.write(tmp, 0, n);
             is.close();
-            Aero_Model model = fromJson(parseJson(buf.toString("UTF-8"), new int[]{0}), name);
+            Aero_JsonModel model = fromJson(parseJson(buf.toString("UTF-8"), new int[]{0}), name);
             cache.put(resourcePath, model);
             return model;
         } catch (Exception e) {
@@ -50,10 +50,10 @@ public class Aero_ModelLoader {
     }
 
     // -----------------------------------------------------------------------
-    // JSON → Aero_Model conversion
+    // JSON → Aero_JsonModel conversion
     // -----------------------------------------------------------------------
 
-    private static Aero_Model fromJson(Object root, String name) {
+    private static Aero_JsonModel fromJson(Object root, String name) {
         Map obj = (Map) root;
 
         // textureSize: resolution.width → fallback 128
@@ -105,12 +105,12 @@ public class Aero_ModelLoader {
                         continue;
                     }
                 }
-                // Missing face or no UV — sentinel -1 (Aero_ModelRenderer skips)
+                // Missing face or no UV — sentinel -1 (Aero_JsonModelRenderer skips)
                 p[base] = p[base+1] = p[base+2] = p[base+3] = -1.0f;
             }
         }
 
-        return new Aero_Model(name, parts, textureSize, 16.0f);
+        return new Aero_JsonModel(name, parts, textureSize, 16.0f);
     }
 
     private static float toFloat(Object o) {

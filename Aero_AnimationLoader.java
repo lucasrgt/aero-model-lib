@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Loads .anim.json files and returns a cached Aero_AnimBundle.
+ * Loads .anim.json files and returns a cached Aero_AnimationBundle.
  *
  * .anim.json format (inspired by Blockbench's Bedrock Animation JSON):
  * <pre>
@@ -44,9 +44,9 @@ public class Aero_AnimationLoader {
     private static final Map cache = new HashMap();
 
     /** Loads and caches a .anim.json from the classpath. */
-    public static Aero_AnimBundle load(String resourcePath) {
+    public static Aero_AnimationBundle load(String resourcePath) {
         if (cache.containsKey(resourcePath)) {
-            return (Aero_AnimBundle) cache.get(resourcePath);
+            return (Aero_AnimationBundle) cache.get(resourcePath);
         }
         try {
             InputStream is = Aero_AnimationLoader.class.getResourceAsStream(resourcePath);
@@ -60,7 +60,7 @@ public class Aero_AnimationLoader {
             is.close();
 
             Map root = (Map) new JsonParser(sb.toString()).parseValue();
-            Aero_AnimBundle bundle = buildBundle(root);
+            Aero_AnimationBundle bundle = buildBundle(root);
             cache.put(resourcePath, bundle);
             return bundle;
         } catch (Exception e) {
@@ -72,7 +72,7 @@ public class Aero_AnimationLoader {
     // Bundle builder
     // -----------------------------------------------------------------------
 
-    private static Aero_AnimBundle buildBundle(Map root) {
+    private static Aero_AnimationBundle buildBundle(Map root) {
         // --- Pivots ---
         Map pivotsOut = new HashMap();
         if (root.containsKey("pivots")) {
@@ -115,10 +115,10 @@ public class Aero_AnimationLoader {
             }
         }
 
-        return new Aero_AnimBundle(clipsOut, pivotsOut, childMapOut);
+        return new Aero_AnimationBundle(clipsOut, pivotsOut, childMapOut);
     }
 
-    private static Aero_AnimClip buildClip(String clipName, Map clipData) {
+    private static Aero_AnimationClip buildClip(String clipName, Map clipData) {
         boolean loop   = clipData.containsKey("loop") && Boolean.TRUE.equals(clipData.get("loop"));
         float   length = clipData.containsKey("length") ? toFloat(clipData.get("length")) : 1f;
 
@@ -160,7 +160,7 @@ public class Aero_AnimationLoader {
             bi++;
         }
 
-        return new Aero_AnimClip(clipName, loop, length,
+        return new Aero_AnimationClip(clipName, loop, length,
             boneNames, rotTimes, rotValues, posTimes, posValues);
     }
 

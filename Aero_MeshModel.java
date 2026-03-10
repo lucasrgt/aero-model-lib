@@ -6,7 +6,7 @@ import java.util.Map;
  * AeroMesh Model — container for triangulated OBJ models.
  *
  * Triangles are pre-classified into 4 brightness groups at parse time
- * (same directional system as Aero_ModelRenderer):
+ * (same directional system as Aero_JsonModelRenderer):
  *
  *   GROUP_TOP    (dominant ny, positive) → factor 1.0
  *   GROUP_BOTTOM (dominant ny, negative) → factor 0.5

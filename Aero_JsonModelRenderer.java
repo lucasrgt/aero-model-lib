@@ -5,15 +5,15 @@ import org.lwjgl.opengl.GL11;
 
 /**
  * AeroModel Renderer API by lucasrgt - aerocoding.dev
- * Handles high-performance rendering of Aero_Models.
+ * Handles high-performance rendering of Aero_JsonModels.
  */
-public class Aero_ModelRenderer {
+public class Aero_JsonModelRenderer {
 
-    public static void renderModel(Aero_Model model, double x, double y, double z, float rotation, float brightness) {
+    public static void renderModel(Aero_JsonModel model, double x, double y, double z, float rotation, float brightness) {
         Tessellator tessellator = Tessellator.instance;
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
-        
+
         if (rotation != 0) {
             GL11.glTranslatef(0.5f, 0.5f, 0.5f);
             GL11.glRotatef(rotation, 0.0f, 1.0f, 0.0f);
@@ -31,7 +31,7 @@ public class Aero_ModelRenderer {
             float[] p = model.elements[i];
             float minX = p[0] / model.scale; float minY = p[1] / model.scale; float minZ = p[2] / model.scale;
             float maxX = p[3] / model.scale; float maxY = p[4] / model.scale; float maxZ = p[5] / model.scale;
-            
+
             // DOWN
             if (p[6] != -1) {
                 tessellator.setNormal(0.0F, -1.0F, 0.0F);
@@ -93,7 +93,7 @@ public class Aero_ModelRenderer {
                 tessellator.addVertexWithUV(maxX, maxY, maxZ, u1, v1);
             }
         }
-        
+
         tessellator.draw();
         GL11.glPopMatrix();
     }
@@ -102,9 +102,9 @@ public class Aero_ModelRenderer {
      * Inventory Thumbnail Rendering with the AeroModel API.
      * Auto-scales the model to fit within 1x1.
      */
-    public static void renderInventory(RenderBlocks rb, Aero_Model model, float metadata) {
+    public static void renderInventory(RenderBlocks rb, Aero_JsonModel model, float metadata) {
         GL11.glPushMatrix();
-        
+
         // 1. Find the center and actual size
         float minX = 999, minY = 999, minZ = 999;
         float maxX = -999, maxY = -999, maxZ = -999;
@@ -112,12 +112,12 @@ public class Aero_ModelRenderer {
             minX = Math.min(minX, p[0]); minY = Math.min(minY, p[1]); minZ = Math.min(minZ, p[2]);
             maxX = Math.max(maxX, p[3]); maxY = Math.max(maxY, p[4]); maxZ = Math.max(maxZ, p[5]);
         }
-        
+
         float sizeX = (maxX - minX) / model.scale;
         float sizeY = (maxY - minY) / model.scale;
         float sizeZ = (maxZ - minZ) / model.scale;
         float maxDim = Math.max(sizeX, Math.max(sizeY, sizeZ));
-        
+
         // 2. Absolute centering at the rotation point
         float centerX = (minX + maxX) / 2.0F / model.scale;
         float centerY = (minY + maxY) / 2.0F / model.scale;
@@ -127,15 +127,15 @@ public class Aero_ModelRenderer {
         // We use 0.7 to ensure rotated corners don't clip the slot
         float scale = 0.7F / maxDim;
         GL11.glScalef(scale, scale, scale);
-        
+
         GL11.glRotatef(30.0F, 1.0F, 0.0F, 0.0F);
         GL11.glRotatef(45.0F, 0.0F, 1.0F, 0.0F);
-        
+
         // Ensure lighting works even with the "squeezed" model
         GL11.glEnable(32826); // GL_RESCALE_NORMAL_EXT
-        
+
         renderModel(model, -centerX, -centerY, -centerZ, 0, 1.0f);
-        
+
         GL11.glPopMatrix();
     }
 }

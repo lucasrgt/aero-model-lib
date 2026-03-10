@@ -4,7 +4,7 @@ package aero.modellib;
  * AeroModel API by lucasrgt - aerocoding.dev
  * Ultra-lightweight 3D model container for Minecraft Beta 1.7.3.
  */
-public class Aero_Model {
+public class Aero_JsonModel {
 
     public final String name;
     public final float[][] elements;
@@ -17,14 +17,14 @@ public class Aero_Model {
      * @param textureSize - Texture size (e.g. 128.0f)
      * @param scale - Model scale (e.g. 16.0f for 1 block = 16 units)
      */
-    public Aero_Model(String name, float[][] elements, float textureSize, float scale) {
+    public Aero_JsonModel(String name, float[][] elements, float textureSize, float scale) {
         this.name = name;
         this.elements = elements;
         this.textureSize = textureSize;
         this.scale = scale;
     }
 
-    public Aero_Model(String name, float[][] elements) {
+    public Aero_JsonModel(String name, float[][] elements) {
         this(name, elements, 128.0f, 16.0f);
     }
 }

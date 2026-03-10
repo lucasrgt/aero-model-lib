@@ -30,15 +30,15 @@
 
 ```java
 // 1. Load the model (static field — cached automatically)
-public static final Aero_Model MODEL = Aero_ModelLoader.load("/models/MyMachine.json");
+public static final Aero_JsonModel MODEL = Aero_JsonModelLoader.load("/models/MyMachine.json");
 
 // 2. In your TileEntitySpecialRenderer:
 bindTextureByName("/block/my_texture.png");
 float brightness = tileEntity.worldObj.getLightBrightness(x, y + 1, z);
-Aero_ModelRenderer.renderModel(MODEL, d, d1, d2, 0f, brightness);
+Aero_JsonModelRenderer.renderModel(MODEL, d, d1, d2, 0f, brightness);
 
 // 3. In your BlockRenderer (inventory):
-Aero_ModelRenderer.renderInventory(renderer, MODEL, metadata);
+Aero_JsonModelRenderer.renderInventory(renderer, MODEL, metadata);
 ```
 
 ### Animated OBJ model in 5 steps
@@ -47,8 +47,8 @@ Aero_ModelRenderer.renderInventory(renderer, MODEL, metadata);
 // === TileEntity ===
 
 // 1. Load animation and define states
-public static final Aero_AnimBundle   BUNDLE   = Aero_AnimationLoader.load("/models/MyMachine.anim.json");
-public static final Aero_AnimationDef ANIM_DEF = new Aero_AnimationDef()
+public static final Aero_AnimationBundle   BUNDLE   = Aero_AnimationLoader.load("/models/MyMachine.anim.json");
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
     .state(0, "idle")    // STATE_OFF = 0
     .state(1, "working"); // STATE_ON = 1
 
@@ -84,22 +84,22 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 mindmap
   root((AeroModelLib))
     Loading
-      Aero_ModelLoader
-        Aero_Model
+      Aero_JsonModelLoader
+        Aero_JsonModel
       Aero_ObjLoader
         Aero_MeshModel
       Aero_AnimationLoader
-        Aero_AnimBundle
-          Aero_AnimClip
+        Aero_AnimationBundle
+          Aero_AnimationClip
     Definition
-      Aero_AnimationDef
+      Aero_AnimationDefinition
         state ID to clip name
       Aero_AnimationState
         per instance
         tick and setState
         NBT persistence
     Rendering
-      Aero_ModelRenderer
+      Aero_JsonModelRenderer
         renderModel cubes
         renderInventory
       Aero_MeshRenderer
@@ -120,20 +120,20 @@ flowchart TD
     end
 
     subgraph Loading
-        ML[Aero_ModelLoader.load]
+        ML[Aero_JsonModelLoader.load]
         OL[Aero_ObjLoader.load]
         AL[Aero_AnimationLoader.load]
     end
 
     subgraph Data
-        M[Aero_Model]
+        M[Aero_JsonModel]
         MM[Aero_MeshModel]
-        AB[Aero_AnimBundle]
-        AC[Aero_AnimClip]
+        AB[Aero_AnimationBundle]
+        AC[Aero_AnimationClip]
     end
 
     subgraph Setup
-        AD[Aero_AnimationDef]
+        AD[Aero_AnimationDefinition]
         AS[Aero_AnimationState]
     end
 
@@ -143,7 +143,7 @@ flowchart TD
     end
 
     subgraph Rendering
-        RM["Aero_ModelRenderer.renderModel()"]
+        RM["Aero_JsonModelRenderer.renderModel()"]
         MR["Aero_MeshRenderer.renderAnimated()"]
         SG[Static geometry: 4 brightness groups]
         NG[Named groups: keyframe transforms]
@@ -203,11 +203,11 @@ sequenceDiagram
 
 | Layer | Classes | Responsibility |
 |-------|---------|---------------|
-| **Data (immutable)** | `Aero_Model`, `Aero_MeshModel`, `Aero_AnimBundle`, `Aero_AnimClip` | Store loaded data. Thread-safe. Store as `static final`. |
-| **Loading (cached)** | `Aero_ModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path. |
-| **Definition** | `Aero_AnimationDef` | Maps state IDs to clip names. One per machine/entity type. |
+| **Data (immutable)** | `Aero_JsonModel`, `Aero_MeshModel`, `Aero_AnimationBundle`, `Aero_AnimationClip` | Store loaded data. Thread-safe. Store as `static final`. |
+| **Loading (cached)** | `Aero_JsonModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path. |
+| **Definition** | `Aero_AnimationDefinition` | Maps state IDs to clip names. One per machine/entity type. |
 | **State (mutable)** | `Aero_AnimationState` | Per-instance playback. Tick, setState, interpolation, NBT. |
-| **Rendering** | `Aero_ModelRenderer`, `Aero_MeshRenderer` | Static methods for OpenGL drawing. |
+| **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer` | Static methods for OpenGL drawing. |
 
 ---
 
@@ -222,11 +222,11 @@ sequenceDiagram
 ### Loading
 
 ```java
-public static final Aero_Model MODEL = Aero_ModelLoader.load("/models/MyMachine.json");
+public static final Aero_JsonModel MODEL = Aero_JsonModelLoader.load("/models/MyMachine.json");
 ```
 
 - Automatically cached by path
-- Returns an immutable `Aero_Model`
+- Returns an immutable `Aero_JsonModel`
 
 ### World rendering
 
@@ -234,7 +234,7 @@ public static final Aero_Model MODEL = Aero_ModelLoader.load("/models/MyMachine.
 // In TileEntitySpecialRenderer.renderTileEntityAt():
 bindTextureByName("/block/my_texture.png");
 float brightness = world.getLightBrightness(x, y + 1, z);
-Aero_ModelRenderer.renderModel(MODEL, d, d1, d2, rotation, brightness);
+Aero_JsonModelRenderer.renderModel(MODEL, d, d1, d2, rotation, brightness);
 ```
 
 **Parameters:**
@@ -248,12 +248,12 @@ Aero_ModelRenderer.renderModel(MODEL, d, d1, d2, rotation, brightness);
 // In BlockRenderer.renderInventory():
 int texID = ModLoader.getMinecraftInstance().renderEngine.getTexture("/block/my_texture.png");
 ModLoader.getMinecraftInstance().renderEngine.bindTexture(texID);
-Aero_ModelRenderer.renderInventory(renderer, MODEL, metadata);
+Aero_JsonModelRenderer.renderInventory(renderer, MODEL, metadata);
 ```
 
 Auto-scales and centers with isometric rotation (30 X, 45 Y).
 
-### Internal format (Aero_Model)
+### Internal format (Aero_JsonModel)
 
 Each element is a `float[30]`:
 
@@ -457,7 +457,7 @@ Each channel is a `"time": [x, y, z]` map with keyframes. **Linear** interpolati
 ### Loading
 
 ```java
-public static final Aero_AnimBundle BUNDLE = Aero_AnimationLoader.load("/models/MyMachine.anim.json");
+public static final Aero_AnimationBundle BUNDLE = Aero_AnimationLoader.load("/models/MyMachine.anim.json");
 ```
 
 ### Defining states
@@ -466,7 +466,7 @@ public static final Aero_AnimBundle BUNDLE = Aero_AnimationLoader.load("/models/
 public static final int STATE_OFF = 0;  // Convention: 0 = off
 public static final int STATE_ON  = 1;
 
-public static final Aero_AnimationDef ANIM_DEF = new Aero_AnimationDef()
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
     .state(STATE_OFF, "idle")
     .state(STATE_ON,  "working");
 ```
@@ -553,7 +553,7 @@ See the [Architecture section](#sequence-diagram-per-frame) for the full Mermaid
 
 ## 6. API Reference
 
-### Aero_Model
+### Aero_JsonModel
 
 Cube-based model container (Blockbench JSON).
 
@@ -566,8 +566,8 @@ Cube-based model container (Blockbench JSON).
 
 | Constructor | Description |
 |-------------|-------------|
-| `Aero_Model(name, elements, textureSize, scale)` | Full constructor |
-| `Aero_Model(name, elements)` | textureSize=128, scale=16 |
+| `Aero_JsonModel(name, elements, textureSize, scale)` | Full constructor |
+| `Aero_JsonModel(name, elements)` | textureSize=128, scale=16 |
 
 ---
 
@@ -596,24 +596,24 @@ Triangulated model container (OBJ).
 
 ---
 
-### Aero_AnimBundle
+### Aero_AnimationBundle
 
 Immutable container with animation data loaded from `.anim.json`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `clips` | `Map<String, Aero_AnimClip>` | Clips indexed by name |
+| `clips` | `Map<String, Aero_AnimationClip>` | Clips indexed by name |
 | `pivots` | `Map<String, float[]>` | Pivots in block units (already divided by 16) |
 | `childMap` | `Map<String, String>` | childName → parentBoneName |
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `getClip(name)` | `Aero_AnimClip` | Clip by name, or `null` |
+| `getClip(name)` | `Aero_AnimationClip` | Clip by name, or `null` |
 | `getPivot(boneName)` | `float[3]` | Pivot in block units, or `[0,0,0]` |
 
 ---
 
-### Aero_AnimClip
+### Aero_AnimationClip
 
 Immutable animation clip data with keyframes.
 
@@ -633,7 +633,7 @@ Interpolation: **linear**, with binary search. Clamped outside keyframe bounds.
 
 ---
 
-### Aero_AnimationDef
+### Aero_AnimationDefinition
 
 State ID → clip name mapping. One per machine/entity type.
 
@@ -658,22 +658,22 @@ Mutable per-instance animation state.
 | `tick()` | `void` | Advances 1/20s. Call BEFORE setState() |
 | `setState(stateId)` | `void` | Changes state. Resets time if clip changed. Call AFTER tick() |
 | `getInterpolatedTime(partialTick)` | `float` | Smoothed time between ticks (for renderer) |
-| `getCurrentClip()` | `Aero_AnimClip` | Active clip, or `null` |
-| `getBundle()` | `Aero_AnimBundle` | Linked bundle |
-| `getDef()` | `Aero_AnimationDef` | Linked def |
+| `getCurrentClip()` | `Aero_AnimationClip` | Active clip, or `null` |
+| `getBundle()` | `Aero_AnimationBundle` | Linked bundle |
+| `getDef()` | `Aero_AnimationDefinition` | Linked def |
 | `writeToNBT(nbt)` | `void` | Saves "Anim_state" and "Anim_time" |
 | `readFromNBT(nbt)` | `void` | Restores (prev=current to avoid first-frame jump) |
 
 ---
 
-### Aero_ModelLoader
+### Aero_JsonModelLoader
 
 Loads Blockbench JSON models from classpath.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `load(resourcePath)` | `Aero_Model` | Loads and caches |
-| `load(resourcePath, name)` | `Aero_Model` | Loads with explicit name |
+| `load(resourcePath)` | `Aero_JsonModel` | Loads and caches |
+| `load(resourcePath, name)` | `Aero_JsonModel` | Loads with explicit name |
 
 **Export:** Blockbench > File > Export > Export as JSON
 
@@ -702,19 +702,19 @@ Loads `.anim.json` from classpath.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `load(resourcePath)` | `Aero_AnimBundle` | Loads and caches |
+| `load(resourcePath)` | `Aero_AnimationBundle` | Loads and caches |
 
 Built-in JSON parser (recursive descent). No external dependencies.
 
 ---
 
-### Aero_ModelRenderer
+### Aero_JsonModelRenderer
 
-Renders `Aero_Model` (cubes) with OpenGL.
+Renders `Aero_JsonModel` (cubes) with OpenGL.
 
 | Method | Parameters | Description |
 |--------|------------|-------------|
-| `renderModel(model, x, y, z, rotation, brightness)` | `Aero_Model`, position, Y rotation degrees, brightness 0-1 | World render |
+| `renderModel(model, x, y, z, rotation, brightness)` | `Aero_JsonModel`, position, Y rotation degrees, brightness 0-1 | World render |
 | `renderInventory(rb, model, metadata)` | `RenderBlocks`, model, metadata | Inventory render (auto-scale + isometric) |
 
 **Per-face brightness:** Top=1.0, Bottom=0.5, N/S=0.8, E/W=0.6 (hardcoded, matches MeshModel).
@@ -820,8 +820,8 @@ Custom format inspired by Bedrock Animation:
 ```java
 // GOOD: loaded once, cached
 public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/X.obj");
-public static final Aero_AnimBundle BUNDLE = Aero_AnimationLoader.load("/models/X.anim.json");
-public static final Aero_AnimationDef ANIM_DEF = new Aero_AnimationDef()...;
+public static final Aero_AnimationBundle BUNDLE = Aero_AnimationLoader.load("/models/X.anim.json");
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()...;
 
 // BAD: reloads per instance (works due to cache, but wrong semantics)
 public Aero_MeshModel model = Aero_ObjLoader.load("/models/X.obj");
@@ -896,7 +896,7 @@ The Aero Engine is **not limited to tile entities**. The core engine (loaders, m
 |------|---------------|-------|
 | `Aero_AnimationState` | `NBTTagCompound` | Persistence — works with `writeEntityToNBT()` too |
 | `Aero_MeshRenderer` | `Tessellator`, `RenderBlocks`, `World` | GL rendering — same API in entity renderers |
-| `Aero_ModelRenderer` | `Tessellator`, `RenderBlocks` | Same |
+| `Aero_JsonModelRenderer` | `Tessellator`, `RenderBlocks` | Same |
 
 ### Entity integration pattern
 
@@ -904,10 +904,10 @@ The Aero Engine is **not limited to tile entities**. The core engine (loaders, m
 // === Custom Entity ===
 public class MyMob extends EntityCreature {
 
-    public static final Aero_AnimBundle BUNDLE =
+    public static final Aero_AnimationBundle BUNDLE =
         Aero_AnimationLoader.load("/models/MyMob.anim.json");
 
-    public static final Aero_AnimationDef ANIM_DEF = new Aero_AnimationDef()
+    public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
         .state(0, "idle")
         .state(1, "walk")
         .state(2, "attack");
@@ -1064,10 +1064,10 @@ public class Retronism_TileSimpleCrusher extends TileEntity {
     public static final int STATE_OFF = 0;
     public static final int STATE_ON  = 1;
 
-    public static final Aero_AnimBundle BUNDLE =
+    public static final Aero_AnimationBundle BUNDLE =
         Aero_AnimationLoader.load("/models/SimpleCrusher.anim.json");
 
-    public static final Aero_AnimationDef ANIM_DEF = new Aero_AnimationDef()
+    public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
         .state(STATE_OFF, "idle")
         .state(STATE_ON,  "spinning");
 
@@ -1150,8 +1150,8 @@ import retronism.aero.*;
 
 public class Retronism_RenderSimpleCrusher implements Retronism_IBlockRenderer {
 
-    public static final Aero_Model MODEL =
-        Aero_ModelLoader.load("/models/SimpleCrusher.aero.json");
+    public static final Aero_JsonModel MODEL =
+        Aero_JsonModelLoader.load("/models/SimpleCrusher.aero.json");
 
     public boolean renderWorld(RenderBlocks rb, IBlockAccess world, int x, int y, int z, Block block) {
         // TileEntitySpecialRenderer handles world rendering
@@ -1162,7 +1162,7 @@ public class Retronism_RenderSimpleCrusher implements Retronism_IBlockRenderer {
         int texID = ModLoader.getMinecraftInstance().renderEngine
             .getTexture("/block/retronism_simplecrusher.png");
         ModLoader.getMinecraftInstance().renderEngine.bindTexture(texID);
-        Aero_ModelRenderer.renderInventory(rb, MODEL, metadata);
+        Aero_JsonModelRenderer.renderInventory(rb, MODEL, metadata);
     }
 }
 ```
@@ -1182,25 +1182,25 @@ ModLoader.registerTileEntity(Retronism_TileSimpleCrusher.class, "SimpleCrusher",
 ```mermaid
 graph LR
     subgraph Loaders
-        ML[Aero_ModelLoader]
+        ML[Aero_JsonModelLoader]
         OL[Aero_ObjLoader]
         AL[Aero_AnimationLoader]
     end
 
     subgraph Data
-        M[Aero_Model]
+        M[Aero_JsonModel]
         MM[Aero_MeshModel]
-        AB[Aero_AnimBundle]
-        AC[Aero_AnimClip]
+        AB[Aero_AnimationBundle]
+        AC[Aero_AnimationClip]
     end
 
     subgraph Animation
-        AD[Aero_AnimationDef]
+        AD[Aero_AnimationDefinition]
         AS[Aero_AnimationState]
     end
 
     subgraph Renderers
-        MR[Aero_ModelRenderer]
+        MR[Aero_JsonModelRenderer]
         MSR[Aero_MeshRenderer]
     end
 
