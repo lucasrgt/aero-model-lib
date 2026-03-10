@@ -172,8 +172,8 @@ public class Aero_MeshRenderer {
      * @param partialTick tick fraction (0.0-1.0) from TileEntitySpecialRenderer
      */
     public static void renderAnimated(Aero_MeshModel model,
-                                       Aero_AnimBundle bundle,
-                                       Aero_AnimationDef def,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
                                        Aero_AnimationState state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
@@ -181,7 +181,7 @@ public class Aero_MeshRenderer {
         renderModel(model, x, y, z, 0, brightness);
 
         // 2. Named groups with clip transforms
-        Aero_AnimClip clip = state.getCurrentClip();
+        Aero_AnimationClip clip = state.getCurrentClip();
         float time = state.getInterpolatedTime(partialTick);
 
         Tessellator tess = Tessellator.instance;
@@ -387,7 +387,7 @@ public class Aero_MeshRenderer {
      * E.g.: groupName="turbine_l_blade_0" → finds bone "turbine_l"
      * Returns the index of the longest bone that is a prefix, or -1.
      */
-    private static int findParentBone(Aero_AnimClip clip, String groupName) {
+    private static int findParentBone(Aero_AnimationClip clip, String groupName) {
         int bestIdx = -1;
         int bestLen = 0;
         for (int i = 0; i < clip.boneNames.length; i++) {

@@ -11,7 +11,7 @@ package aero.modellib;
  *   - Rotation: Euler degrees [X, Y, Z] — applied in Z→Y→X order (Bedrock/GeckoLib compatible)
  *   - Position: Blockbench pixels (divide by 16 for block units in the renderer)
  */
-public class Aero_AnimClip {
+public class Aero_AnimationClip {
 
     public final String  name;
     public final boolean loop;
@@ -24,7 +24,7 @@ public class Aero_AnimClip {
     final float[][]   posTimes;
     final float[][][] posValues;    // posValues[bi][ki] = float[3] {px, py, pz}
 
-    Aero_AnimClip(String name, boolean loop, float length,
+    Aero_AnimationClip(String name, boolean loop, float length,
                   String[] boneNames,
                   float[][] rotTimes, float[][][] rotValues,
                   float[][] posTimes, float[][][] posValues) {

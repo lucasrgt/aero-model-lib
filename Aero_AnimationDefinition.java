@@ -2,7 +2,7 @@ package aero.modellib;
 
 /**
  * Immutable animation definition for a machine type.
- * Maps state IDs (int) to clip names in the Aero_AnimBundle.
+ * Maps state IDs (int) to clip names in the Aero_AnimationBundle.
  *
  * Single instance per machine type — store as a static field.
  *
@@ -11,10 +11,10 @@ package aero.modellib;
  *   public static final int STATE_OFF = 0;
  *   public static final int STATE_ON  = 1;
  *
- *   public static final Aero_AnimBundle BUNDLE =
+ *   public static final Aero_AnimationBundle BUNDLE =
  *       Aero_AnimationLoader.load("/models/MyMachine.anim.json");
  *
- *   public static final Aero_AnimationDef ANIM_DEF = new Aero_AnimationDef()
+ *   public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
  *       .state(STATE_OFF, "idle")
  *       .state(STATE_ON,  "spin");
  *
@@ -24,14 +24,14 @@ package aero.modellib;
  *
  * Convention: STATE_OFF should be 0 (default when NBT has no "Anim_state" key).
  */
-public class Aero_AnimationDef {
+public class Aero_AnimationDefinition {
 
     // Sparse array: stateClips[stateId] = clip name (null = no animation)
     private String[] stateClips;
 
     private static final int INITIAL_CAPACITY = 4;
 
-    public Aero_AnimationDef() {
+    public Aero_AnimationDefinition() {
         stateClips = new String[INITIAL_CAPACITY];
     }
 
@@ -41,7 +41,7 @@ public class Aero_AnimationDef {
      * @param stateId   state ID (integer >= 0; STATE_OFF should be 0)
      * @param clipName  clip name in the .anim.json (e.g. "spin", "idle")
      */
-    public Aero_AnimationDef state(int stateId, String clipName) {
+    public Aero_AnimationDefinition state(int stateId, String clipName) {
         if (stateId < 0) throw new IllegalArgumentException("stateId must be >= 0");
         if (stateId >= stateClips.length) {
             int newLen = Math.max(stateId + 1, stateClips.length * 2);
@@ -65,7 +65,7 @@ public class Aero_AnimationDef {
      * Creates a new Aero_AnimationState for this definition, linked to the bundle.
      * Call once per tile entity, in the instance field.
      */
-    public Aero_AnimationState createState(Aero_AnimBundle bundle) {
+    public Aero_AnimationState createState(Aero_AnimationBundle bundle) {
         return new Aero_AnimationState(this, bundle);
     }
 }

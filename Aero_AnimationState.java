@@ -27,14 +27,14 @@ public class Aero_AnimationState {
     /** Current state (public for the renderer and machine logic). */
     public int currentState;
 
-    private final Aero_AnimationDef def;
-    private final Aero_AnimBundle   bundle;
+    private final Aero_AnimationDefinition def;
+    private final Aero_AnimationBundle   bundle;
 
     private float playbackTime;      // seconds, current time in clip
     private float prevPlaybackTime;  // seconds, time at previous tick (for interpolation)
 
-    /** Built by Aero_AnimationDef.createState(). */
-    Aero_AnimationState(Aero_AnimationDef def, Aero_AnimBundle bundle) {
+    /** Built by Aero_AnimationDefinition.createState(). */
+    Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle) {
         this.def          = def;
         this.bundle       = bundle;
         this.currentState = 0;
@@ -54,7 +54,7 @@ public class Aero_AnimationState {
     public void tick() {
         prevPlaybackTime = playbackTime;
 
-        Aero_AnimClip clip = getCurrentClip();
+        Aero_AnimationClip clip = getCurrentClip();
         if (clip == null || clip.length <= 0f) {
             playbackTime = 0f;
             return;
@@ -116,7 +116,7 @@ public class Aero_AnimationState {
      * @param partialTick  tick fraction (0.0-1.0) provided by TileEntitySpecialRenderer
      */
     public float getInterpolatedTime(float partialTick) {
-        Aero_AnimClip clip = getCurrentClip();
+        Aero_AnimationClip clip = getCurrentClip();
         if (clip == null || clip.length <= 0f) return 0f;
 
         float cur  = playbackTime;
@@ -133,17 +133,17 @@ public class Aero_AnimationState {
     }
 
     /** Returns the currently active clip, or null if the state has no clip defined. */
-    public Aero_AnimClip getCurrentClip() {
+    public Aero_AnimationClip getCurrentClip() {
         String clipName = def.getClipName(currentState);
         if (clipName == null) return null;
         return bundle.getClip(clipName);
     }
 
     /** Exposes the bundle for the renderer to access pivots and clips. */
-    public Aero_AnimBundle getBundle() { return bundle; }
+    public Aero_AnimationBundle getBundle() { return bundle; }
 
     /** Exposes the def for the renderer to access clip names. */
-    public Aero_AnimationDef getDef() { return def; }
+    public Aero_AnimationDefinition getDef() { return def; }
 
     // -----------------------------------------------------------------------
     // NBT
