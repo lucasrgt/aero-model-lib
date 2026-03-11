@@ -1,0 +1,41 @@
+@echo off
+REM ─────────────────────────────────────────────────────────────────────
+REM AeroModelLib — convert.bat
+REM Converts Blockbench .bbmodel files to AeroModelLib .anim.json format
+REM
+REM Usage:
+REM   scripts\convert.bat MyMachine.bbmodel
+REM   scripts\convert.bat MyMachine.bbmodel output.anim.json
+REM
+REM Requires: Java 8+ (JDK to recompile, JRE to run pre-compiled .class)
+REM
+REM by lucasrgt — aerocoding.dev
+REM ─────────────────────────────────────────────────────────────────────
+
+setlocal enabledelayedexpansion
+
+set "SCRIPT_DIR=%~dp0"
+
+if "%~1"=="" (
+    echo AeroModelLib Converter
+    echo.
+    echo Usage: convert.bat ^<input.bbmodel^> [output.anim.json]
+    echo.
+    echo Converts Blockbench .bbmodel files to .anim.json format
+    echo for use with AeroModelLib's animation system.
+    echo.
+    echo The OBJ model must be exported manually from Blockbench:
+    echo   File ^> Export ^> Export OBJ Model
+    echo.
+    echo See README.md for the full workflow.
+    exit /b 1
+)
+
+REM Compile if .class is missing or outdated
+if not exist "%SCRIPT_DIR%Aero_Convert.class" (
+    javac "%SCRIPT_DIR%Aero_Convert.java"
+)
+
+java -cp "%SCRIPT_DIR%." Aero_Convert %*
+
+endlocal
