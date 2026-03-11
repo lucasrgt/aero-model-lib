@@ -82,6 +82,7 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 | `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |
 | `Aero_AnimationState` | Per-instance playback state with tick/setState/NBT |
 | `Aero_AnimationLoader` | Loads + caches `.anim.json` files from classpath |
+| `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
 
 ## File Formats
 
@@ -144,9 +145,16 @@ Use `o` or `g` directives in the OBJ to define named groups that match your bone
 ### 3. Convert animations
 
 ```bash
-bash convert.sh MyMachine.bbmodel
+# Linux / macOS
+bash scripts/convert.sh MyMachine.bbmodel
+
+# Windows
+scripts\convert.bat MyMachine.bbmodel
+
 # → MyMachine.anim.json
 ```
+
+Requires JDK 8+ (same as RetroMCP — no extra dependencies).
 
 The converter extracts from your `.bbmodel`:
 - **Pivots** — bone origins (Blockbench pixels)
