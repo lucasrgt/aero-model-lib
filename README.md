@@ -128,6 +128,35 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 
 Standard Wavefront OBJ. Use `o` or `g` directives to create named groups for animated parts.
 
+## Asset Workflow
+
+### 1. Create your model in Blockbench
+
+Design your machine with named bone groups for animated parts (e.g. `fan`, `piston`, `gear`).
+Add animations in the **Animation** tab — rotation and position keyframes are supported.
+
+### 2. Export OBJ
+
+In Blockbench: **File → Export → Export OBJ Model**
+
+Use `o` or `g` directives in the OBJ to define named groups that match your bone names.
+
+### 3. Convert animations
+
+```bash
+bash convert.sh MyMachine.bbmodel
+# → MyMachine.anim.json
+```
+
+The converter extracts from your `.bbmodel`:
+- **Pivots** — bone origins (Blockbench pixels)
+- **ChildMap** — parent→child bone hierarchy
+- **Animations** — all clips with rotation/position keyframes
+
+### 4. Integrate in Java
+
+Place both `.obj` and `.anim.json` in your resources folder (e.g. `/models/`), then use the Quick Start code above.
+
 ## Best Practices
 
 - Store loaders as `static final` fields — caching is automatic
