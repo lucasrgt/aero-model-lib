@@ -197,6 +197,7 @@ public class Aero_MeshRenderer {
 
             // Rotation and position from clip (null = no keyframe → neutral values)
             float rx = 0, ry = 0, rz = 0;
+            float sx = 1, sy = 1, sz = 1;
             float dx = 0, dy = 0, dz = 0;
 
             if (clip != null) {
@@ -229,6 +230,9 @@ public class Aero_MeshRenderer {
                     float[] pos = clip.samplePos(bi, time);
                     // Position in pixels → block units
                     if (pos != null) { dx = pos[0] / 16f; dy = pos[1] / 16f; dz = pos[2] / 16f; }
+
+                    float[] scl = clip.sampleScl(bi, time);
+                    if (scl != null) { sx = scl[0]; sy = scl[1]; sz = scl[2]; }
                 }
             }
 
@@ -240,6 +244,10 @@ public class Aero_MeshRenderer {
             GL11.glRotatef(rz, 0f, 0f, 1f);
             GL11.glRotatef(ry, 0f, 1f, 0f);
             GL11.glRotatef(rx, 1f, 0f, 0f);
+            // Scale (if animated)
+            if (sx != 1f || sy != 1f || sz != 1f) {
+                GL11.glScalef(sx, sy, sz);
+            }
             // Move back from pivot
             GL11.glTranslatef(-px, -py, -pz);
 
