@@ -15,13 +15,14 @@
 3. [Static Models (Blockbench JSON)](#3-static-models-blockbench-json)
 4. [OBJ Models (Mesh)](#4-obj-models-mesh)
 5. [Animations](#5-animations)
-6. [API Reference](#6-api-reference)
-7. [File Formats](#7-file-formats)
-8. [Asset Workflow & Converter](#8-asset-workflow--converter)
-9. [Patterns & Best Practices](#9-patterns--best-practices)
-10. [Using with Entities (Mobs)](#10-using-with-entities-mobs)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Full End-to-End Example](#12-full-end-to-end-example)
+6. [State Machine](#6-state-machine)
+7. [API Reference](#7-api-reference)
+8. [File Formats](#8-file-formats)
+9. [Asset Workflow & Converter](#9-asset-workflow--converter)
+10. [Patterns & Best Practices](#10-patterns--best-practices)
+11. [Using with Entities (Mobs)](#11-using-with-entities-mobs)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Full End-to-End Example](#13-full-end-to-end-example)
 
 ---
 
@@ -554,7 +555,117 @@ See the [Architecture section](#sequence-diagram-per-frame) for the full Mermaid
 
 ---
 
-## 6. API Reference
+## 6. State Machine
+
+### Overview
+
+The animation system includes a built-in **state machine** that manages transitions between animation clips. It is intentionally simple: immediate transitions with no blending or crossfade — designed for discrete machine modes (idle/processing, on/off, etc.).
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> STATE_OFF: default (0)
+    STATE_OFF --> STATE_ON: setState(1)
+    STATE_ON --> STATE_OFF: setState(0)
+
+    note right of STATE_OFF: clip = "idle"
+    note right of STATE_ON: clip = "working"
+```
+
+### Components
+
+| Class | Role | Lifecycle |
+|-------|------|-----------|
+| `Aero_AnimationDefinition` | Maps state IDs → clip names (blueprint) | `static final`, one per machine/entity type |
+| `Aero_AnimationState` | Per-instance playback + current state | Instance field, one per TileEntity/Entity |
+
+### Defining states
+
+```java
+public static final int STATE_OFF  = 0;  // Convention: 0 = off/idle
+public static final int STATE_ON   = 1;
+public static final int STATE_FAST = 2;
+
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
+    .state(STATE_OFF,  "idle")
+    .state(STATE_ON,   "working")
+    .state(STATE_FAST, "working_fast");
+```
+
+- State IDs are non-negative integers (0, 1, 2, ...)
+- Convention: `0` = off/idle (NBT default when key is absent)
+- Internally stored as a sparse array — IDs don't need to be sequential
+- Multiple states **can** map to the same clip name
+
+### Transition behavior
+
+When `setState(newState)` is called:
+
+```mermaid
+flowchart TD
+    A["setState(newState)"] --> B{same state?}
+    B -- Yes --> C[No-op, return]
+    B -- No --> D[Look up old clip name]
+    D --> E[Look up new clip name]
+    E --> F{clip changed?}
+    F -- Yes --> G["Reset playback to 0.0s<br/>(animation restarts)"]
+    F -- No --> H["Keep playback time<br/>(animation continues)"]
+```
+
+Key behaviors:
+- **Same state** → no-op (calling `setState(1)` while already in state 1 does nothing)
+- **Different state, different clip** → playback resets to 0 (new animation starts from beginning)
+- **Different state, same clip** → playback continues (useful for semantic states that share an animation)
+
+### No blending
+
+Transitions are **instantaneous** — there is no crossfade, interpolation, or transition duration between clips. The new clip starts immediately on the next frame. This keeps the system simple and predictable for machine animations.
+
+### Edge cases
+
+| Scenario | Behavior |
+|----------|----------|
+| Unknown state ID (not registered) | `currentState` updates, clip resolves to `null` → animation stops |
+| Negative state ID | `getClipName()` returns `null` → same as unknown |
+| Clip name not in `.anim.json` | `getCurrentClip()` returns `null` → renderer skips animation |
+| `tick()` with null clip | Playback time resets to `0.0` → safe no-op |
+
+### Multiple states, same clip
+
+```java
+// Both "overdrive" states use the same fast animation
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
+    .state(0, "idle")
+    .state(1, "working")
+    .state(2, "working")   // same clip as state 1
+    .state(3, "overdrive");
+```
+
+Switching between state 1 and 2 **does not** reset the animation — the clip is the same so playback continues uninterrupted. The state ID still changes, so your logic can distinguish them.
+
+### Loop boundary handling
+
+For looping clips, the state machine handles the wrap-around correctly during partial-tick interpolation:
+
+- When `playbackTime` wraps (resets past clip end), the interpolation detects `current < previous`
+- It extends the current time past `clip.length` to interpolate smoothly across the boundary
+- Then applies modulo to bring back into range
+- Result: **no visible stutter** at loop boundaries
+
+### Integration with tick cycle
+
+```java
+public void updateEntity() {
+    animState.tick();                              // 1. Advance time
+    animState.setState(isRunning ? 1 : 0);         // 2. Evaluate state
+}
+```
+
+**Order matters:** `tick()` saves `prevPlaybackTime` for interpolation. If `setState()` is called first, a clip change would reset time before `tick()` saves it, causing interpolation artifacts on the transition frame.
+
+---
+
+## 7. API Reference
 
 ### Aero_JsonModel
 
@@ -752,7 +863,7 @@ Constants: `SLOT_SCALE = 1.3`, `Y_NUDGE = 0.12`
 
 ---
 
-## 7. File Formats
+## 8. File Formats
 
 ### Blockbench JSON (`.json`)
 
@@ -827,7 +938,7 @@ Custom format inspired by Bedrock Animation:
 
 ---
 
-## 8. Asset Workflow & Converter
+## 9. Asset Workflow & Converter
 
 AeroModelLib includes a converter in `scripts/` that converts Blockbench `.bbmodel` files to the `.anim.json` format used by the animation system. A pre-compiled `.class` is included so only a JRE is needed to run it. Wrapper scripts are provided for both platforms: `scripts/convert.sh` (Linux/macOS) and `scripts/convert.bat` (Windows).
 
@@ -923,7 +1034,7 @@ The converter preserves names exactly as they appear in Blockbench. If you renam
 
 ---
 
-## 9. Patterns & Best Practices
+## 10. Patterns & Best Practices
 
 ### Static final for loaded data
 
@@ -998,7 +1109,7 @@ The renderer resolves bones in this order:
 
 ---
 
-## 10. Using with Entities (Mobs)
+## 11. Using with Entities (Mobs)
 
 The Aero Engine is **not limited to tile entities**. The core engine (loaders, models, animation clips, keyframe sampling) is fully generic. Minecraft-specific dependencies are minimal:
 
@@ -1082,7 +1193,7 @@ Everything else (loading, AnimationDef, AnimationState, renderAnimated) works id
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### Model invisible
 - **Texture not bound:** Call `bindTextureByName()` before rendering
@@ -1114,7 +1225,7 @@ Everything else (loading, AnimationDef, AnimationState, renderAnimated) works id
 
 ---
 
-## 12. Full End-to-End Example
+## 13. Full End-to-End Example
 
 Complete animated machine: a simple crusher with a spinning fan.
 

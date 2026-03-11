@@ -167,6 +167,35 @@ The converter extracts from your `.bbmodel`:
 
 Place both `.obj` and `.anim.json` in your resources folder (e.g. `/models/`), then use the Quick Start code above.
 
+## State Machine
+
+The animation system includes a built-in state machine for managing clip transitions. It maps integer state IDs to clip names and handles playback automatically.
+
+```java
+// Define states (one per machine type — static final)
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
+    .state(0, "idle")       // STATE_OFF
+    .state(1, "working")    // STATE_ON
+    .state(2, "overdrive"); // STATE_FAST
+
+// Create per-instance state
+public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+
+// In updateEntity():
+animState.tick();                              // 1. Advance time (ALWAYS first)
+animState.setState(isRunning ? 1 : 0);         // 2. Evaluate state (AFTER tick)
+```
+
+**Transition rules:**
+- **Same state** → no-op
+- **Different state, different clip** → playback resets to 0 (new animation starts)
+- **Different state, same clip** → playback continues (animation uninterrupted)
+- **No blending** — transitions are instantaneous, no crossfade
+
+**Edge cases are safe:** unknown state IDs resolve to `null` clip (animation stops gracefully). Looping clips handle wrap-around without stutter.
+
+See [DOC.md § State Machine](DOC.md#6-state-machine) for flowcharts, diagrams, and detailed behavior.
+
 ## Best Practices
 
 - Store loaders as `static final` fields — caching is automatic
