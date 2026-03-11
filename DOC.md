@@ -17,10 +17,11 @@
 5. [Animations](#5-animations)
 6. [API Reference](#6-api-reference)
 7. [File Formats](#7-file-formats)
-8. [Patterns & Best Practices](#8-patterns--best-practices)
-9. [Using with Entities (Mobs)](#9-using-with-entities-mobs)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Full End-to-End Example](#11-full-end-to-end-example)
+8. [Asset Workflow & Converter](#8-asset-workflow--converter)
+9. [Patterns & Best Practices](#9-patterns--best-practices)
+10. [Using with Entities (Mobs)](#10-using-with-entities-mobs)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Full End-to-End Example](#12-full-end-to-end-example)
 
 ---
 
@@ -826,7 +827,101 @@ Custom format inspired by Bedrock Animation:
 
 ---
 
-## 8. Patterns & Best Practices
+## 8. Asset Workflow & Converter
+
+AeroModelLib includes `convert.sh`, a script that converts Blockbench `.bbmodel` files to the `.anim.json` format used by the animation system.
+
+### Full Workflow
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│  Blockbench  │────→│  convert.sh  │────→│ .anim.json  │
+│  (.bbmodel)  │     └──────────────┘     └─────────────┘
+│              │
+│  File →      │     ┌─────────────┐
+│  Export OBJ  │────→│    .obj      │
+└─────────────┘     └─────────────┘
+```
+
+### Step 1: Design in Blockbench
+
+1. Create your model with named bone groups for each animated part (e.g. `fan`, `piston`, `gear`)
+2. Set the **origin** (pivot point) of each bone — this is where rotations happen
+3. Use the **Animation** tab to create clips with rotation and/or position keyframes
+4. Group hierarchy matters: child bones inherit parent transforms automatically
+
+### Step 2: Export OBJ
+
+In Blockbench: **File → Export → Export OBJ Model**
+
+The OBJ export preserves named groups from your bone structure. These group names must match the bone names used in your animations.
+
+> **Note:** OBJ export is manual because Blockbench's triangulation is needed for correct geometry. The converter only handles animation data.
+
+### Step 3: Convert Animations
+
+```bash
+# Basic usage
+bash convert.sh MyMachine.bbmodel
+# → MyMachine.anim.json
+
+# Custom output path
+bash convert.sh MyMachine.bbmodel models/output.anim.json
+```
+
+**Requires:** Node.js v14+
+
+The converter extracts:
+
+| Field | Source in .bbmodel | Description |
+|-------|--------------------|-------------|
+| `pivots` | `groups[].origin` via `outliner` hierarchy | Bone pivot points (Blockbench pixels) |
+| `childMap` | `outliner` parent→child tree | Maps each child bone/element to its parent |
+| `animations` | `animations[].animators[].keyframes` | Rotation and position keyframes per bone |
+
+**What it does NOT extract:**
+- Geometry (vertices, faces, UVs) — use OBJ export
+- Scale keyframes — not supported by AeroModelLib
+- Bezier/step interpolation — all keyframes use linear interpolation
+
+### Step 4: Integrate
+
+Place both files in your mod resources and use the Java API:
+
+```java
+// TileEntity
+public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/MyMachine.obj");
+public static final Aero_AnimationBundle BUNDLE = Aero_AnimationLoader.load("/models/MyMachine.anim.json");
+public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
+    .state(0, "idle")
+    .state(1, "working");
+public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+
+// updateEntity()
+animState.tick();
+animState.setState(isRunning ? 1 : 0);
+
+// TileEntitySpecialRenderer
+Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
+    d, d1, d2, brightness, partialTick);
+```
+
+### Naming Conventions
+
+For the animation system to work correctly, bone names must be consistent across all files:
+
+| File | Where names appear |
+|------|--------------------|
+| `.bbmodel` | Bone/group names in the outliner panel |
+| `.obj` | `o` or `g` directives (e.g. `o fan`, `g piston`) |
+| `.anim.json` | Keys in `pivots`, `childMap`, and `animations.bones` |
+| Java | `Aero_AnimationDefinition.state()` clip names |
+
+The converter preserves names exactly as they appear in Blockbench. If you rename a bone in Blockbench after exporting OBJ, re-export both files.
+
+---
+
+## 9. Patterns & Best Practices
 
 ### Static final for loaded data
 
@@ -901,7 +996,7 @@ The renderer resolves bones in this order:
 
 ---
 
-## 9. Using with Entities (Mobs)
+## 10. Using with Entities (Mobs)
 
 The Aero Engine is **not limited to tile entities**. The core engine (loaders, models, animation clips, keyframe sampling) is fully generic. Minecraft-specific dependencies are minimal:
 
@@ -985,7 +1080,7 @@ Everything else (loading, AnimationDef, AnimationState, renderAnimated) works id
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### Model invisible
 - **Texture not bound:** Call `bindTextureByName()` before rendering
@@ -1017,7 +1112,7 @@ Everything else (loading, AnimationDef, AnimationState, renderAnimated) works id
 
 ---
 
-## 11. Full End-to-End Example
+## 12. Full End-to-End Example
 
 Complete animated machine: a simple crusher with a spinning fan.
 
