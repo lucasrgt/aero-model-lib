@@ -14,30 +14,13 @@ import java.util.Map;
 /**
  * Loads .anim.json files and returns a cached Aero_AnimationBundle.
  *
- * .anim.json format (inspired by Blockbench's Bedrock Animation JSON):
- * <pre>
- * {
- *   "format_version": "1.0",
- *   "pivots": {
- *     "fan": [24.0, 44.5, 47.0]
- *   },
- *   "animations": {
- *     "spin": {
- *       "loop": true,
- *       "length": 1.0,
- *       "bones": {
- *         "fan": {
- *           "rotation": { "0.0": [0,0,0], "1.0": [0,0,360] },
- *           "position": { "0.0": [0,0,0] }
- *         }
- *       }
- *     }
- *   }
- * }
- * </pre>
+ * Supports two keyframe formats (backward compatible):
+ *   Legacy:  "0.0": [rx, ry, rz]
+ *   New:     "0.0": { "value": [rx, ry, rz], "interp": "linear" }
  *
- * Pivots in Blockbench pixels — divided by 16 in the loader to get block units.
- * Rotation in Euler degrees [X, Y, Z]. Position in pixels (divided by 16 in the renderer).
+ * Interpolation modes: "linear" (default), "catmullrom" (smooth), "step"
+ *
+ * Channels: rotation, position, scale
  */
 public class Aero_AnimationLoader {
 
@@ -82,7 +65,6 @@ public class Aero_AnimationLoader {
                 Map.Entry entry = (Map.Entry) it.next();
                 String boneName = (String) entry.getKey();
                 List arr = (List) entry.getValue();
-                // Divide by 16: Blockbench pixels → block units
                 pivotsOut.put(boneName, new float[]{
                     toFloat(arr.get(0)) / 16f,
                     toFloat(arr.get(1)) / 16f,
@@ -122,15 +104,19 @@ public class Aero_AnimationLoader {
         boolean loop   = clipData.containsKey("loop") && Boolean.TRUE.equals(clipData.get("loop"));
         float   length = clipData.containsKey("length") ? toFloat(clipData.get("length")) : 1f;
 
-        // bones: Map<boneName, Map<channel, Map<time, [x,y,z]>>>
         Map bonesIn = clipData.containsKey("bones") ? (Map) clipData.get("bones") : new HashMap();
 
         int n = bonesIn.size();
-        String[]    boneNames = new String[n];
-        float[][]   rotTimes  = new float[n][];
-        float[][][] rotValues = new float[n][][];
-        float[][]   posTimes  = new float[n][];
-        float[][][] posValues = new float[n][][];
+        String[]    boneNames  = new String[n];
+        float[][]   rotTimes   = new float[n][];
+        float[][][] rotValues  = new float[n][][];
+        int[][]     rotInterps = new int[n][];
+        float[][]   posTimes   = new float[n][];
+        float[][][] posValues  = new float[n][][];
+        int[][]     posInterps = new int[n][];
+        float[][]   sclTimes   = new float[n][];
+        float[][][] sclValues  = new float[n][][];
+        int[][]     sclInterps = new int[n][];
 
         int bi = 0;
         Iterator it = bonesIn.entrySet().iterator();
@@ -140,46 +126,77 @@ public class Aero_AnimationLoader {
             Map channels  = (Map) entry.getValue();
 
             if (channels.containsKey("rotation")) {
-                float[] times  = new float[0];
-                float[][] vals = new float[0][];
-                float[][] kf   = parseKeyframes((Map) channels.get("rotation"));
-                times = kf[0];
-                vals  = buildVec3Array(kf);
-                rotTimes[bi]  = times;
-                rotValues[bi] = vals;
+                ParsedChannel ch = parseChannel((Map) channels.get("rotation"));
+                rotTimes[bi]   = ch.times;
+                rotValues[bi]  = ch.values;
+                rotInterps[bi] = ch.interps;
             }
             if (channels.containsKey("position")) {
-                float[] times  = new float[0];
-                float[][] vals = new float[0][];
-                float[][] kf   = parseKeyframes((Map) channels.get("position"));
-                times = kf[0];
-                vals  = buildVec3Array(kf);
-                posTimes[bi]  = times;
-                posValues[bi] = vals;
+                ParsedChannel ch = parseChannel((Map) channels.get("position"));
+                posTimes[bi]   = ch.times;
+                posValues[bi]  = ch.values;
+                posInterps[bi] = ch.interps;
+            }
+            if (channels.containsKey("scale")) {
+                ParsedChannel ch = parseChannel((Map) channels.get("scale"));
+                sclTimes[bi]   = ch.times;
+                sclValues[bi]  = ch.values;
+                sclInterps[bi] = ch.interps;
             }
             bi++;
         }
 
         return new Aero_AnimationClip(clipName, loop, length,
-            boneNames, rotTimes, rotValues, posTimes, posValues);
+            boneNames,
+            rotTimes, rotValues, rotInterps,
+            posTimes, posValues, posInterps,
+            sclTimes, sclValues, sclInterps);
+    }
+
+    /** Parsed channel data with times, values and interp modes */
+    private static class ParsedChannel {
+        float[] times;
+        float[][] values;
+        int[] interps;
     }
 
     /**
-     * Converts a keyframe map {"time": [x,y,z]} into 4 parallel arrays:
-     * result[0] = float[] times
-     * result[1] = float[] x-values
-     * result[2] = float[] y-values
-     * result[3] = float[] z-values
-     * Keyframes are sorted by ascending time.
+     * Parses a channel map. Supports two formats:
+     *   Legacy:  "0.0": [x, y, z]
+     *   New:     "0.0": { "value": [x, y, z], "interp": "catmullrom" }
      */
-    private static float[][] parseKeyframes(Map kfMap) {
-        List entries = new ArrayList();
+    private static ParsedChannel parseChannel(Map kfMap) {
+        List entries = new ArrayList(); // float[] {time, x, y, z, interpMode}
         Iterator it = kfMap.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry entry = (Map.Entry) it.next();
             float t = Float.parseFloat((String) entry.getKey());
-            List  v = (List) entry.getValue();
-            entries.add(new float[]{t, toFloat(v.get(0)), toFloat(v.get(1)), toFloat(v.get(2))});
+            Object val = entry.getValue();
+
+            float x, y, z;
+            int interp = Aero_AnimationClip.INTERP_LINEAR;
+
+            if (val instanceof Map) {
+                // New format: { "value": [x,y,z], "interp": "catmullrom" }
+                Map kfObj = (Map) val;
+                List v = (List) kfObj.get("value");
+                x = toFloat(v.get(0));
+                y = toFloat(v.get(1));
+                z = toFloat(v.get(2));
+                if (kfObj.containsKey("interp")) {
+                    String mode = (String) kfObj.get("interp");
+                    if ("catmullrom".equals(mode)) interp = Aero_AnimationClip.INTERP_CATMULLROM;
+                    else if ("step".equals(mode)) interp = Aero_AnimationClip.INTERP_STEP;
+                }
+            } else {
+                // Legacy format: [x, y, z]
+                List v = (List) val;
+                x = toFloat(v.get(0));
+                y = toFloat(v.get(1));
+                z = toFloat(v.get(2));
+            }
+
+            entries.add(new float[]{t, x, y, z, (float) interp});
         }
 
         Collections.sort(entries, new Comparator() {
@@ -189,28 +206,17 @@ public class Aero_AnimationLoader {
         });
 
         int count = entries.size();
-        float[] times = new float[count];
-        float[] xs    = new float[count];
-        float[] ys    = new float[count];
-        float[] zs    = new float[count];
+        ParsedChannel ch = new ParsedChannel();
+        ch.times   = new float[count];
+        ch.values  = new float[count][];
+        ch.interps = new int[count];
         for (int i = 0; i < count; i++) {
             float[] row = (float[]) entries.get(i);
-            times[i] = row[0]; xs[i] = row[1]; ys[i] = row[2]; zs[i] = row[3];
+            ch.times[i]   = row[0];
+            ch.values[i]  = new float[]{row[1], row[2], row[3]};
+            ch.interps[i] = (int) row[4];
         }
-        return new float[][]{times, xs, ys, zs};
-    }
-
-    /**
-     * Builds float[n][3] from the result of parseKeyframes.
-     * kf[0]=times, kf[1]=xs, kf[2]=ys, kf[3]=zs.
-     */
-    private static float[][] buildVec3Array(float[][] kf) {
-        int count = kf[0].length;
-        float[][] out = new float[count][];
-        for (int i = 0; i < count; i++) {
-            out[i] = new float[]{kf[1][i], kf[2][i], kf[3][i]};
-        }
-        return out;
+        return ch;
     }
 
     private static float toFloat(Object o) {
@@ -258,9 +264,9 @@ public class Aero_AnimationLoader {
                 map.put(key, val);
                 skipWs();
                 if (pos >= s.length()) break;
-                char c = s.charAt(pos);
-                if (c == '}') { pos++; break; }
-                if (c == ',') { pos++; continue; }
+                char ch = s.charAt(pos);
+                if (ch == '}') { pos++; break; }
+                if (ch == ',') { pos++; continue; }
                 throw new RuntimeException("Expected ',' or '}' at pos " + pos);
             }
             return map;
@@ -275,9 +281,9 @@ public class Aero_AnimationLoader {
                 list.add(parseValue());
                 skipWs();
                 if (pos >= s.length()) break;
-                char c = s.charAt(pos);
-                if (c == ']') { pos++; break; }
-                if (c == ',') { pos++; continue; }
+                char ch = s.charAt(pos);
+                if (ch == ']') { pos++; break; }
+                if (ch == ',') { pos++; continue; }
                 throw new RuntimeException("Expected ',' or ']' at pos " + pos);
             }
             return list;

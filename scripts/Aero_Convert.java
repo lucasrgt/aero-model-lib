@@ -129,7 +129,7 @@ public class Aero_Convert {
                     for (int k = 0; k < keyframes.size(); k++) {
                         Map kf = (Map) keyframes.get(k);
                         String channel = (String) kf.get("channel");
-                        if (!"rotation".equals(channel) && !"position".equals(channel)) continue;
+                        if (!"rotation".equals(channel) && !"position".equals(channel) && !"scale".equals(channel)) continue;
 
                         if (!boneData.containsKey(channel)) boneData.put(channel, new LinkedHashMap());
                         Map channelMap = (Map) boneData.get(channel);
@@ -140,9 +140,19 @@ public class Aero_Convert {
                         double y = parseCoord(dp.get("y"));
                         double z = parseCoord(dp.get("z"));
 
+                        // Resolve interpolation mode
+                        String interp = "linear";
+                        Object interpObj = kf.get("interpolation");
+                        if ("catmullrom".equals(interpObj)) interp = "catmullrom";
+                        else if ("step".equals(interpObj)) interp = "step";
+
                         Object timeObj = kf.get("time");
                         String timeKey = formatTime(toNumber(timeObj));
-                        channelMap.put(timeKey, new double[]{x, y, z});
+
+                        Map kfData = new LinkedHashMap();
+                        kfData.put("value", new double[]{x, y, z});
+                        kfData.put("interp", interp);
+                        channelMap.put(timeKey, kfData);
                     }
 
                     if (!boneData.isEmpty()) {
@@ -343,10 +353,12 @@ public class Aero_Convert {
                     while (kit.hasNext()) {
                         Map.Entry ke = (Map.Entry) kit.next();
                         String time = (String) ke.getKey();
-                        double[] val = (double[]) ke.getValue();
-                        sb.append("            \"").append(time).append("\": [");
+                        Map kfData = (Map) ke.getValue();
+                        double[] val = (double[]) kfData.get("value");
+                        String interp = (String) kfData.get("interp");
+                        sb.append("            \"").append(time).append("\": { \"value\": [");
                         sb.append(fmtNum(val[0])).append(", ").append(fmtNum(val[1])).append(", ").append(fmtNum(val[2]));
-                        sb.append("]");
+                        sb.append("], \"interp\": \"").append(interp).append("\" }");
                         if (kit.hasNext()) sb.append(",");
                         sb.append("\n");
                     }
