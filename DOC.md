@@ -38,7 +38,7 @@ float brightness = tileEntity.worldObj.getLightBrightness(x, y + 1, z);
 Aero_JsonModelRenderer.renderModel(MODEL, d, d1, d2, 0f, brightness);
 
 // 3. In your BlockRenderer (inventory):
-Aero_JsonModelRenderer.renderInventory(renderer, MODEL, metadata);
+Aero_InventoryRenderer.render(renderer, MODEL);
 ```
 
 ### Animated OBJ model in 5 steps
@@ -101,13 +101,14 @@ mindmap
     Rendering
       Aero_JsonModelRenderer
         renderModel cubes
-        renderInventory
       Aero_MeshRenderer
         renderModel triangles
         renderAnimated
         renderGroup
         renderGroupRotated
-        renderInventory
+      Aero_InventoryRenderer
+        render JsonModel
+        render MeshModel
 ```
 
 ### Full pipeline
@@ -145,6 +146,7 @@ flowchart TD
     subgraph Rendering
         RM["Aero_JsonModelRenderer.renderModel()"]
         MR["Aero_MeshRenderer.renderAnimated()"]
+        IR2["Aero_InventoryRenderer.render()"]
         SG[Static geometry: 4 brightness groups]
         NG[Named groups: keyframe transforms]
     end
@@ -207,7 +209,7 @@ sequenceDiagram
 | **Loading (cached)** | `Aero_JsonModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path. |
 | **Definition** | `Aero_AnimationDefinition` | Maps state IDs to clip names. One per machine/entity type. |
 | **State (mutable)** | `Aero_AnimationState` | Per-instance playback. Tick, setState, interpolation, NBT. |
-| **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer` | Static methods for OpenGL drawing. |
+| **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer`, `Aero_InventoryRenderer` | Static methods for OpenGL drawing. |
 
 ---
 
@@ -248,10 +250,10 @@ Aero_JsonModelRenderer.renderModel(MODEL, d, d1, d2, rotation, brightness);
 // In BlockRenderer.renderInventory():
 int texID = ModLoader.getMinecraftInstance().renderEngine.getTexture("/block/my_texture.png");
 ModLoader.getMinecraftInstance().renderEngine.bindTexture(texID);
-Aero_JsonModelRenderer.renderInventory(renderer, MODEL, metadata);
+Aero_InventoryRenderer.render(renderer, MODEL);
 ```
 
-Auto-scales and centers with isometric rotation (30 X, 45 Y).
+Auto-scales to fit the slot and centers at origin. The caller (RenderItem) already applies isometric rotation.
 
 ### Internal format (Aero_JsonModel)
 
@@ -358,7 +360,7 @@ Aero_MeshRenderer.renderGroupRotated(MODEL, "fan",
 
 #### Inventory
 ```java
-Aero_MeshRenderer.renderInventory(renderer, MODEL);
+Aero_InventoryRenderer.render(renderer, MODEL);
 ```
 
 ---
@@ -715,7 +717,6 @@ Renders `Aero_JsonModel` (cubes) with OpenGL.
 | Method | Parameters | Description |
 |--------|------------|-------------|
 | `renderModel(model, x, y, z, rotation, brightness)` | `Aero_JsonModel`, position, Y rotation degrees, brightness 0-1 | World render |
-| `renderInventory(rb, model, metadata)` | `RenderBlocks`, model, metadata | Inventory render (auto-scale + isometric) |
 
 **Per-face brightness:** Top=1.0, Bottom=0.5, N/S=0.8, E/W=0.6 (hardcoded, matches MeshModel).
 
@@ -732,7 +733,19 @@ Renders `Aero_MeshModel` (OBJ triangles) with OpenGL.
 | `renderGroup(model, groupName, brightness)` | Named group, NO push/pop (caller controls GL) |
 | `renderGroupRotated(model, groupName, x, y, z, brightness, pivotX/Y/Z, angle, axisX/Y/Z)` | Group with pivot rotation |
 | `renderAnimated(model, bundle, def, state, x, y, z, brightness, partialTick)` | Full keyframe-animated render |
-| `renderInventory(rb, model)` | Inventory (auto-scale + isometric, includes named groups) |
+
+---
+
+### Aero_InventoryRenderer
+
+Centralized inventory thumbnail rendering for all Aero model types. Auto-scales to fit the slot, centers at origin, and applies a Y nudge for visual alignment. The caller (RenderItem) already applies isometric rotation.
+
+| Method | Description |
+|--------|-------------|
+| `render(rb, Aero_JsonModel)` | Renders a Blockbench JSON model as inventory thumbnail |
+| `render(rb, Aero_MeshModel)` | Renders an OBJ model as inventory thumbnail (static + named groups at rest) |
+
+Constants: `SLOT_SCALE = 1.3`, `Y_NUDGE = 0.12`
 
 ---
 
@@ -995,7 +1008,7 @@ Everything else (loading, AnimationDef, AnimationState, renderAnimated) works id
 ### Performance
 - **Too many triangles:** Each group is drawn in one GL_TRIANGLES draw call. Simplify the model if FPS drops
 - **Display Lists (future):** The 4 brightness group architecture is ready for display lists, but not yet implemented
-- **Slow inventory:** `renderInventory()` computes bounding box every call — for large lists, consider caching
+- **Slow inventory:** `Aero_InventoryRenderer.render()` computes bounding box every call — for large lists, consider caching
 
 ### Common errors
 - `RuntimeException: resource not found` — Wrong path. Must start with `/` (e.g. `/models/X.obj`). The transpiler copies from `src/retronism/assets/` into the jar
@@ -1162,7 +1175,7 @@ public class Retronism_RenderSimpleCrusher implements Retronism_IBlockRenderer {
         int texID = ModLoader.getMinecraftInstance().renderEngine
             .getTexture("/block/retronism_simplecrusher.png");
         ModLoader.getMinecraftInstance().renderEngine.bindTexture(texID);
-        Aero_JsonModelRenderer.renderInventory(rb, MODEL, metadata);
+        Aero_InventoryRenderer.render(rb, MODEL);
     }
 }
 ```
@@ -1202,6 +1215,7 @@ graph LR
     subgraph Renderers
         MR[Aero_JsonModelRenderer]
         MSR[Aero_MeshRenderer]
+        IR[Aero_InventoryRenderer]
     end
 
     ML --> M
@@ -1220,4 +1234,8 @@ graph LR
     MSR --> AD
     MSR --> AS
     MSR --> AC
+    IR --> M
+    IR --> MM
+    IR --> MR
+    IR --> MSR
 ```

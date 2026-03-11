@@ -256,61 +256,14 @@ public class Aero_MeshRenderer {
     // Inventory render
     // -----------------------------------------------------------------------
 
-    /**
-     * Renders a model thumbnail for inventory display.
-     * Auto-scales and centers with classic isometric rotation.
-     * Renders all geometry: static groups + all named groups.
-     */
-    public static void renderInventory(RenderBlocks rb, Aero_MeshModel model) {
-        GL11.glPushMatrix();
-
-        float sc = model.scale;
-        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
-        float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
-
-        // Compute bounding box over all geometry (static + named groups)
-        minX = computeBounds(model.groups, sc, minX, maxX, 0);
-        maxX = computeBounds(model.groups, sc, minX, maxX, 1);
-        minY = computeBounds(model.groups, sc, minY, maxY, 2);
-        maxY = computeBounds(model.groups, sc, minY, maxY, 3);
-        minZ = computeBounds(model.groups, sc, minZ, maxZ, 4);
-        maxZ = computeBounds(model.groups, sc, minZ, maxZ, 5);
-
-        float maxDim = Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ));
-        float scale = 0.7f / maxDim;
-        GL11.glScalef(scale, scale, scale);
-        GL11.glRotatef(30.0f, 1.0f, 0.0f, 0.0f);
-        GL11.glRotatef(45.0f, 0.0f, 1.0f, 0.0f);
-        GL11.glEnable(32826); // GL_RESCALE_NORMAL_EXT
-
-        float cx = (minX + maxX) / 2.0f;
-        float cy = (minY + maxY) / 2.0f;
-        float cz = (minZ + maxZ) / 2.0f;
-
-        GL11.glDisable(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_LIGHTING);
-        Tessellator tess = Tessellator.instance;
-
-        // Draw static geometry
-        GL11.glTranslatef(-cx, -cy, -cz);
-        drawGroups(tess, model.groups, sc, 1.0f);
-
-        // Draw all named groups at their rest position (no animation in inventory)
-        java.util.Iterator it = model.namedGroups.entrySet().iterator();
-        while (it.hasNext()) {
-            java.util.Map.Entry entry = (java.util.Map.Entry) it.next();
-            float[][][] ng = (float[][][]) entry.getValue();
-            drawGroups(tess, ng, sc, 1.0f);
-        }
-
-        GL11.glEnable(GL11.GL_LIGHTING);
-        GL11.glEnable(GL11.GL_CULL_FACE);
-        GL11.glPopMatrix();
-    }
-
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /** Draws triangle groups at full brightness — used by Aero_InventoryRenderer. */
+    static void drawGroupsForInventory(Tessellator tess, float[][][] groups, float sc) {
+        drawGroups(tess, groups, sc, 1.0f);
+    }
 
     /** Draws triangle groups with flat lighting (uniform brightness per group). */
     private static void drawGroups(Tessellator tess, float[][][] groups, float sc, float brightness) {
@@ -359,27 +312,6 @@ public class Aero_MeshRenderer {
             }
         }
         tess.draw();
-    }
-
-    /**
-     * Computes one component of the bounding box over all triangles in a group array.
-     * axis: 0=minX, 1=maxX, 2=minY, 3=maxY, 4=minZ, 5=maxZ
-     */
-    private static float computeBounds(float[][][] groups, float sc, float minVal, float maxVal, int axis) {
-        float result = (axis % 2 == 0) ? minVal : maxVal;
-        int coord = (axis / 2); // 0=x, 1=y, 2=z
-        for (int g = 0; g < 4; g++) {
-            float[][] tris = groups[g];
-            for (int i = 0; i < tris.length; i++) {
-                float[] t = tris[i];
-                for (int v = 0; v < 3; v++) {
-                    float val = t[v * 5 + coord] / sc;
-                    if (axis % 2 == 0) { if (val < result) result = val; }
-                    else               { if (val > result) result = val; }
-                }
-            }
-        }
-        return result;
     }
 
     /**

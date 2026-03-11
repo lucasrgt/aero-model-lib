@@ -30,7 +30,7 @@ float brightness = tile.worldObj.getLightBrightness(x, y + 1, z);
 Aero_JsonModelRenderer.renderModel(MODEL, d, d1, d2, 0f, brightness);
 
 // Render in inventory
-Aero_JsonModelRenderer.renderInventory(renderer, MODEL, metadata);
+Aero_InventoryRenderer.render(renderer, MODEL);
 ```
 
 ### Animated OBJ Model
@@ -72,10 +72,11 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 |-------|------|
 | `Aero_JsonModel` | Parsed Blockbench JSON model (elements as float[30] arrays) |
 | `Aero_JsonModelLoader` | Loads + caches `.json` models from classpath |
-| `Aero_JsonModelRenderer` | Renders JSON models (world + inventory) |
+| `Aero_JsonModelRenderer` | Renders JSON models (world) |
+| `Aero_InventoryRenderer` | Renders any model type as inventory thumbnail (auto-scale + center) |
 | `Aero_MeshModel` | Parsed OBJ model with named groups + brightness classification |
 | `Aero_ObjLoader` | Loads + caches `.obj` models from classpath |
-| `Aero_MeshRenderer` | Renders OBJ models (static, animated, per-group, inventory) |
+| `Aero_MeshRenderer` | Renders OBJ models (static, animated, per-group) |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone |
 | `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |
@@ -138,6 +139,10 @@ Standard Wavefront OBJ. Use `o` or `g` directives to create named groups for ani
 ## Documentation
 
 See [DOC.md](DOC.md) for the full API reference, architecture diagrams, and end-to-end examples.
+
+## Author
+
+**lucasrgt** — [aerocoding.dev](https://aerocoding.dev)
 
 ## License
 
