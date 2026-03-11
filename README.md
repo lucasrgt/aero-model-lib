@@ -2,7 +2,12 @@
 
 3D rendering and animation library for Minecraft Beta 1.7.3 — like GeckoLib, but for RetroMCP's OpenGL 1.1 pipeline.
 
-[![Demo](https://img.youtube.com/vi/ewJ0XgnOSHE/maxresdefault.jpg)](https://www.youtube.com/watch?v=ewJ0XgnOSHE)
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=ewJ0XgnOSHE">
+    <img src="https://img.youtube.com/vi/ewJ0XgnOSHE/0.jpg" alt="AeroModelLib Demo" width="480">
+  </a>
+  <p><i>Click to watch demo</i></p>
+</div>
 
 > **Compatibility:** Java 8 | Minecraft Beta 1.7.3 | RetroMCP | ModLoader / Forge 1.0.6 | LWJGL (OpenGL 1.1+)
 
