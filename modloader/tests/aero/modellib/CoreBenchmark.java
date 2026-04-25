@@ -17,6 +17,7 @@ public final class CoreBenchmark {
         Aero_JsonModel json = buildJsonModel(2048);
         Aero_MeshModel mesh = buildMeshModel(32768);
         Aero_AnimationClip clip = buildClip(128, 16);
+        Aero_EntityModelTransform entityTransform = Aero_EntityModelTransform.of(0.1f, 0.2f, -0.3f, 1.25f, 12.5f);
 
         mesh.getStaticSmoothLightData();
 
@@ -31,6 +32,9 @@ public final class CoreBenchmark {
         });
         bench("anim.index.linear+sample.reference", 20, 200, new Bench() {
             public float run() { return sampleWithLinearLookup(clip); }
+        });
+        bench("entity.transform.yaw", 500, 50000, new Bench() {
+            public float run() { return resolveEntityYaw(entityTransform); }
         });
 
         System.out.println("sink=" + sink);
@@ -96,6 +100,14 @@ public final class CoreBenchmark {
             if (names[i].equals(name)) return i;
         }
         return -1;
+    }
+
+    private static float resolveEntityYaw(Aero_EntityModelTransform transform) {
+        float sum = transform.offsetX + transform.offsetY + transform.offsetZ + transform.scale;
+        for (int i = 0; i < 256; i++) {
+            sum += transform.modelYaw(i * 1.40625f);
+        }
+        return sum;
     }
 
     private static Aero_JsonModel buildJsonModel(int cubes) {

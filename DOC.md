@@ -77,6 +77,33 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
     d, d1, d2, brightness, partialTick);
 ```
 
+### Entity model quick start
+
+```java
+// Entity field
+public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+
+// Entity tick
+public void onLivingUpdate() {
+    super.onLivingUpdate();
+    animState.tick();
+    animState.setState(isSwinging ? STATE_ATTACK : isMoving() ? STATE_WALK : STATE_IDLE);
+}
+
+// Renderer field: allocate once, not per frame
+private static final Aero_EntityModelTransform MODEL_TRANSFORM =
+    Aero_EntityModelTransform.DEFAULT.withOffset(-0.5f, 0f, -0.5f).withScale(1f);
+
+// Renderer method
+public void doRender(Entity entity, double x, double y, double z,
+                     float yaw, float partialTick) {
+    MyMob mob = (MyMob) entity;
+    loadTexture("/mob/my_mob.png");
+    Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
+        entity, x, y, z, yaw, partialTick, MODEL_TRANSFORM);
+}
+```
+
 ---
 
 ## 2. Architecture
@@ -109,6 +136,10 @@ mindmap
         renderAnimated
         renderGroup
         renderGroupRotated
+      Aero_EntityModelRenderer
+        render entity-origin models
+      Aero_EntityModelTransform
+        offset scale yaw conversion
       Aero_InventoryRenderer
         render JsonModel
         render MeshModel
@@ -217,7 +248,8 @@ sequenceDiagram
 | **Definition** | `Aero_AnimationDefinition` | Maps state IDs to clip names. One per machine/entity type. |
 | **Playback (mutable)** | `Aero_AnimationPlayback` | Platform-neutral tick, setState, interpolation, clip cache. |
 | **State (mutable)** | `Aero_AnimationState` | Loader-specific NBT wrapper around playback. |
-| **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer`, `Aero_InventoryRenderer` | Static methods for OpenGL drawing. |
+| **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer`, `Aero_EntityModelRenderer`, `Aero_InventoryRenderer` | Static methods for OpenGL drawing. |
+| **Transforms** | `Aero_EntityModelTransform` | Immutable offset/scale/yaw settings for entity-origin rendering. |
 
 ---
 
@@ -876,6 +908,38 @@ Renders `Aero_MeshModel` (OBJ triangles) with OpenGL.
 | `renderGroup(model, groupName, brightness)` | Named group, NO push/pop (caller controls GL) |
 | `renderGroupRotated(model, groupName, x, y, z, brightness, pivotX/Y/Z, angle, axisX/Y/Z)` | Group with pivot rotation |
 | `renderAnimated(model, bundle, def, state, x, y, z, brightness, partialTick)` | Full keyframe-animated render |
+| `renderAnimated(model, bundle, def, playback, x, y, z, brightness, partialTick)` | Same renderer with platform-neutral `Aero_AnimationPlayback` |
+| `renderAnimated(model, playback, x, y, z, brightness, partialTick)` | Short form; playback already owns its definition and bundle |
+
+---
+
+### Aero_EntityModelRenderer
+
+Entity-specific renderer wrapper for `Render` / `EntityRenderer` implementations. It keeps texture binding in the caller, rotates around the entity origin and delegates to the optimized JSON/Mesh renderers.
+
+| Method | Description |
+|--------|-------------|
+| `render(jsonModel, entity, x, y, z, yaw, partialTick[, transform])` | Static JSON model, brightness read from entity |
+| `render(meshModel, entity, x, y, z, yaw, partialTick[, transform])` | Static OBJ model, brightness read from entity |
+| `renderAnimated(meshModel, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model using `playback.getBundle()` / `playback.getDef()` |
+| `renderAnimated(meshModel, bundle, def, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model with explicit bundle/definition |
+| `render(..., brightness[, transform])` | Brightness-explicit overloads for custom lighting |
+
+The ModLoader adapter uses `entity.getBrightness(partialTick)`. The StationAPI adapter uses `entity.getBrightnessAtEyes(partialTick)`.
+
+---
+
+### Aero_EntityModelTransform
+
+Immutable entity transform. Store as `static final`; do not allocate it inside render methods.
+
+| Field / Method | Description |
+|----------------|-------------|
+| `DEFAULT` | Offset `(0,0,0)`, scale `1`, yaw offset `0` |
+| `withOffset(x, y, z)` | Returns a copy with model-local offset |
+| `withScale(scale)` | Returns a copy with uniform scale; scale must be finite and non-zero |
+| `withYawOffset(degrees)` | Returns a copy with extra yaw adjustment |
+| `modelYaw(entityYaw)` | Converts vanilla entity yaw to model-space yaw (`180 - entityYaw + yawOffset`) |
 
 ---
 
@@ -1142,15 +1206,22 @@ The renderer resolves bones in this order:
 
 ## 11. Using with Entities (Mobs)
 
-The Aero Engine is **not limited to tile entities**. The core engine (loaders, models, animation clips, keyframe sampling) is fully generic. Minecraft-specific dependencies are minimal:
+Yes: AeroModelLib supports entity models through `Aero_EntityModelRenderer`.
+The helper wraps the existing optimized renderers with the pieces entity renderers need:
+entity-origin translation, vanilla yaw conversion, entity brightness and optional model offset/scale.
 
-| File | MC Dependency | Usage |
-|------|---------------|-------|
-| `Aero_AnimationState` | `NBTTagCompound` | Persistence — works with `writeEntityToNBT()` too |
-| `Aero_MeshRenderer` | `Tessellator`, `RenderBlocks`, `World` | GL rendering — same API in entity renderers |
-| `Aero_JsonModelRenderer` | `Tessellator`, `RenderBlocks` | Same |
+The lower-level renderers still work directly, but use this helper for mobs and other entities.
 
-### Entity integration pattern
+### Supported paths
+
+| Model type | Helper |
+|------------|--------|
+| Static Blockbench JSON | `Aero_EntityModelRenderer.render(Aero_JsonModel, ...)` |
+| Static OBJ mesh | `Aero_EntityModelRenderer.render(Aero_MeshModel, ...)` |
+| Animated OBJ mesh | `Aero_EntityModelRenderer.renderAnimated(Aero_MeshModel, ...)` |
+| Custom lighting | Brightness-explicit overloads |
+
+### Animated ModLoader entity pattern
 
 ```java
 // === Custom Entity ===
@@ -1192,6 +1263,12 @@ public class RenderMyMob extends Render {
     public static final Aero_MeshModel MODEL =
         Aero_ObjLoader.load("/models/MyMob.obj");
 
+    // Allocate once. Offset is model-local and rotates with the entity.
+    private static final Aero_EntityModelTransform MODEL_TRANSFORM =
+        Aero_EntityModelTransform.DEFAULT
+            .withOffset(-0.5f, 0f, -0.5f)
+            .withScale(1f);
+
     public void doRender(Entity entity, double x, double y, double z,
                          float yaw, float partialTick) {
         MyMob mob = (MyMob) entity;
@@ -1199,14 +1276,54 @@ public class RenderMyMob extends Render {
         loadTexture("/mob/my_mob.png");
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
-        float brightness = entity.getBrightness(partialTick);
-
-        Aero_MeshRenderer.renderAnimated(
-            MODEL, MyMob.BUNDLE, MyMob.ANIM_DEF, mob.animState,
-            x, y, z, brightness, partialTick);
+        Aero_EntityModelRenderer.renderAnimated(
+            MODEL, mob.animState,
+            entity, x, y, z, yaw, partialTick,
+            MODEL_TRANSFORM);
     }
 }
 ```
+
+### Static entity models
+
+```java
+// JSON model
+Aero_EntityModelRenderer.render(JSON_MODEL, entity, x, y, z, yaw, partialTick);
+
+// OBJ mesh
+Aero_EntityModelRenderer.render(MESH_MODEL, entity, x, y, z, yaw, partialTick);
+
+// Custom brightness, useful for glow/overlay passes
+Aero_EntityModelRenderer.render(MESH_MODEL, x, y, z, yaw, 1.0f, MODEL_TRANSFORM);
+```
+
+### StationAPI notes
+
+Use the same Aero helper class and method names. The StationAPI adapter imports `net.minecraft.entity.Entity` and reads brightness with `entity.getBrightnessAtEyes(partialTick)` internally.
+
+```java
+import aero.modellib.Aero_EntityModelRenderer;
+import aero.modellib.Aero_EntityModelTransform;
+import net.minecraft.entity.Entity;
+
+private static final Aero_EntityModelTransform MODEL_TRANSFORM =
+    Aero_EntityModelTransform.DEFAULT.withOffset(-0.5f, 0f, -0.5f);
+
+public void render(Entity entity, double x, double y, double z,
+                   float yaw, float tickDelta) {
+    MyMob mob = (MyMob) entity;
+    Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
+        entity, x, y, z, yaw, tickDelta, MODEL_TRANSFORM);
+}
+```
+
+### Transform rules
+
+- `Aero_EntityModelTransform.DEFAULT` applies vanilla entity yaw as `180 - yaw`
+- `withOffset(x, y, z)` moves the model in model-local units after yaw/scale
+- `withScale(scale)` applies uniform scale; scale must be finite and non-zero
+- `withYawOffset(degrees)` adjusts models exported facing a different direction
+- Store transforms as `static final` fields to avoid per-frame allocations
 
 ### Key differences from tile entities
 
@@ -1218,9 +1335,9 @@ public class RenderMyMob extends Render {
 | Renderer base | `TileEntitySpecialRenderer` | `Render` or `RenderLiving` |
 | Render method | `renderTileEntityAt()` | `doRender()` or `doRenderLiving()` |
 | Position | `d, d1, d2` (block offset) | `x, y, z` (world-relative) |
-| Brightness | `world.getLightBrightness(x, y, z)` | `entity.getBrightness(partialTick)` |
+| Brightness | `world.getLightBrightness(x, y, z)` | Helper reads entity brightness; explicit brightness overloads are available |
 
-Everything else (loading, AnimationDef, AnimationState, renderAnimated) works identically.
+Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT persistence) works identically.
 
 ---
 
@@ -1444,8 +1561,8 @@ powershell -ExecutionPolicy Bypass -File modloader/tests/run.ps1
 ```
 
 The pure-Java suite covers animation sampling/playback, JSON quad baking, mesh bounds,
-smooth-light metadata, named group resolution and invalid-index safety. It does not
-need a Minecraft runtime.
+smooth-light metadata, named group resolution, entity transform math and invalid-index
+safety. It does not need a Minecraft runtime.
 
 The legacy shell runner is still available:
 
@@ -1464,6 +1581,7 @@ powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
 - pre-baked JSON quad walks
 - cached smooth-light metadata walks
 - animation bone lookup + sampling
+- entity yaw transform math
 - a linear lookup reference for comparison
 
 This benchmark is meant for regression checks. Final render performance should still
@@ -1481,6 +1599,32 @@ cd test
 
 The StationAPI projects require a JDK 17+ runtime for Gradle/Loom. The shared core
 and ModLoader test suite remain Java 8-compatible.
+
+### In-game entity smoke test
+
+The StationAPI test mod includes an `AeroTestEntity` probe that uses
+`Aero_EntityModelRenderer.renderAnimated(...)` with the MegaCrusher OBJ +
+animation bundle.
+
+```powershell
+cd stationapi
+.\gradlew.bat build
+
+cd test
+.\gradlew.bat runClient
+```
+
+Create a new singleplayer world. The test mod places the normal block probes in
+every generated chunk and spawns one animated entity probe every 4x4 chunks.
+Near spawn, check around chunk-aligned coordinates such as `x ~= 8, z ~= 4,
+y ~= 72`.
+
+Validation checklist:
+- The entity probe renders as a scaled MegaCrusher mesh, separate from block entities
+- The whole model turns around the entity origin instead of the block center
+- Animated OBJ groups keep spinning while the entity yaw changes
+- Texture and brightness follow the normal entity render path
+- No GL state bleed: nearby blocks/items remain correctly lit and textured
 
 ---
 
@@ -1510,7 +1654,12 @@ graph LR
     subgraph Renderers
         MR[Aero_JsonModelRenderer]
         MSR[Aero_MeshRenderer]
+        ER[Aero_EntityModelRenderer]
         IR[Aero_InventoryRenderer]
+    end
+
+    subgraph Transforms
+        ET[Aero_EntityModelTransform]
     end
 
     ML --> M
@@ -1530,6 +1679,9 @@ graph LR
     MSR --> AD
     MSR --> AS
     MSR --> AC
+    ER --> MR
+    ER --> MSR
+    ER --> ET
     IR --> M
     IR --> MM
     IR --> MR
