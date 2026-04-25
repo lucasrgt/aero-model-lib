@@ -1,18 +1,43 @@
 {
   "format_version": 1.0,
   "pivots": {
-    "core": [8, 10, 8]
+    "core": [
+      8,
+      10,
+      8
+    ]
   },
   "animations": {
     "pulse": {
-      "loop": true,
+      "loop": "loop",
       "length": 1.0,
       "bones": {
         "core": {
           "scale": {
-            "0":   [1.0, 1.0, 1.0],
-            "0.5": [1.4, 1.4, 1.4],
-            "1.0": [1.0, 1.0, 1.0]
+            "0": {
+              "value": [
+                1.0,
+                1.0,
+                1.0
+              ],
+              "interp": "linear"
+            },
+            "0.5": {
+              "value": [
+                1.4,
+                1.4,
+                1.4
+              ],
+              "interp": "linear"
+            },
+            "1.0": {
+              "value": [
+                1.0,
+                1.0,
+                1.0
+              ],
+              "interp": "linear"
+            }
           }
         }
       }

@@ -64,16 +64,19 @@
   },
   "animations": {
     "wave": {
-      "loop": true,
+      "loop": "loop",
       "length": 2.0,
       "bones": {
         "easeInCirc": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -94,11 +97,14 @@
         },
         "easeOutCirc": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -119,11 +125,14 @@
         },
         "easeInOutCirc": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -144,11 +153,14 @@
         },
         "easeInBounce": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -169,11 +181,14 @@
         },
         "easeInOutBounce": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -194,11 +209,14 @@
         },
         "easeInOutElastic": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -219,11 +237,14 @@
         },
         "linear": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -244,11 +265,14 @@
         },
         "step": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -269,11 +293,14 @@
         },
         "catmullrom": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -294,11 +321,14 @@
         },
         "easeOutBounce": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -319,11 +349,14 @@
         },
         "easeOutElastic": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,
@@ -344,11 +377,14 @@
         },
         "easeInElastic": {
           "position": {
-            "0": [
-              0,
-              0,
-              0
-            ],
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
             "1.0": {
               "value": [
                 0,

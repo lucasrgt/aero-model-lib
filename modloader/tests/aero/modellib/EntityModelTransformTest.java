@@ -47,6 +47,25 @@ public class EntityModelTransformTest {
     }
 
     @Test
+    public void builderCreatesFullTransform() {
+        Aero_EntityModelTransform transform = Aero_EntityModelTransform.builder()
+            .offset(1f, 2f, 3f)
+            .scale(0.75f)
+            .yawOffset(15f)
+            .cullingRadius(4f)
+            .maxRenderDistance(96f)
+            .build();
+
+        assertEquals(1f, transform.offsetX, DELTA);
+        assertEquals(2f, transform.offsetY, DELTA);
+        assertEquals(3f, transform.offsetZ, DELTA);
+        assertEquals(0.75f, transform.scale, DELTA);
+        assertEquals(15f, transform.yawOffset, DELTA);
+        assertEquals(4f, transform.cullingRadius, DELTA);
+        assertEquals(96f, transform.maxRenderDistance, DELTA);
+    }
+
+    @Test
     public void rejectsInvalidNumbers() {
         expectInvalidScale(0f);
         expectInvalidScale(Float.NaN);

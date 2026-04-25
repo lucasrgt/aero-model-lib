@@ -10,7 +10,7 @@ package aero.modellib;
 public final class Aero_EntityModelTransform {
 
     public static final Aero_EntityModelTransform DEFAULT =
-        new Aero_EntityModelTransform(0f, 0f, 0f, 1f, 0f);
+        builder().build();
 
     public final float offsetX;
     public final float offsetY;
@@ -20,10 +20,8 @@ public final class Aero_EntityModelTransform {
     public final float cullingRadius;
     public final float maxRenderDistance;
 
-    public Aero_EntityModelTransform(float offsetX, float offsetY, float offsetZ,
-                                      float scale, float yawOffset) {
-        this(offsetX, offsetY, offsetZ, scale, yawOffset, 0f,
-            (float) Aero_RenderDistanceCulling.DEFAULT_SPECIAL_RENDER_RADIUS);
+    public static Builder builder() {
+        return new Builder();
     }
 
     private Aero_EntityModelTransform(float offsetX, float offsetY, float offsetZ,
@@ -52,32 +50,40 @@ public final class Aero_EntityModelTransform {
 
     public static Aero_EntityModelTransform of(float offsetX, float offsetY, float offsetZ,
                                                 float scale, float yawOffset) {
-        return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ, scale, yawOffset);
+        return builder()
+            .offset(offsetX, offsetY, offsetZ)
+            .scale(scale)
+            .yawOffset(yawOffset)
+            .build();
     }
 
     public Aero_EntityModelTransform withOffset(float offsetX, float offsetY, float offsetZ) {
-        return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ, scale, yawOffset,
-            cullingRadius, maxRenderDistance);
+        return toBuilder().offset(offsetX, offsetY, offsetZ).build();
     }
 
     public Aero_EntityModelTransform withScale(float scale) {
-        return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ, scale, yawOffset,
-            cullingRadius, maxRenderDistance);
+        return toBuilder().scale(scale).build();
     }
 
     public Aero_EntityModelTransform withYawOffset(float yawOffset) {
-        return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ, scale, yawOffset,
-            cullingRadius, maxRenderDistance);
+        return toBuilder().yawOffset(yawOffset).build();
     }
 
     public Aero_EntityModelTransform withCullingRadius(float cullingRadius) {
-        return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ, scale, yawOffset,
-            cullingRadius, maxRenderDistance);
+        return toBuilder().cullingRadius(cullingRadius).build();
     }
 
     public Aero_EntityModelTransform withMaxRenderDistance(float maxRenderDistance) {
-        return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ, scale, yawOffset,
-            cullingRadius, maxRenderDistance);
+        return toBuilder().maxRenderDistance(maxRenderDistance).build();
+    }
+
+    public Builder toBuilder() {
+        return builder()
+            .offset(offsetX, offsetY, offsetZ)
+            .scale(scale)
+            .yawOffset(yawOffset)
+            .cullingRadius(cullingRadius)
+            .maxRenderDistance(maxRenderDistance);
     }
 
     /**
@@ -91,6 +97,51 @@ public final class Aero_EntityModelTransform {
     private static void requireFinite(String name, float value) {
         if (Float.isNaN(value) || Float.isInfinite(value)) {
             throw new IllegalArgumentException(name + " must be finite");
+        }
+    }
+
+    public static final class Builder {
+        private float offsetX;
+        private float offsetY;
+        private float offsetZ;
+        private float scale = 1f;
+        private float yawOffset;
+        private float cullingRadius;
+        private float maxRenderDistance =
+            (float) Aero_RenderDistanceCulling.DEFAULT_SPECIAL_RENDER_RADIUS;
+
+        private Builder() {}
+
+        public Builder offset(float x, float y, float z) {
+            this.offsetX = x;
+            this.offsetY = y;
+            this.offsetZ = z;
+            return this;
+        }
+
+        public Builder scale(float scale) {
+            this.scale = scale;
+            return this;
+        }
+
+        public Builder yawOffset(float yawOffset) {
+            this.yawOffset = yawOffset;
+            return this;
+        }
+
+        public Builder cullingRadius(float cullingRadius) {
+            this.cullingRadius = cullingRadius;
+            return this;
+        }
+
+        public Builder maxRenderDistance(float maxRenderDistance) {
+            this.maxRenderDistance = maxRenderDistance;
+            return this;
+        }
+
+        public Aero_EntityModelTransform build() {
+            return new Aero_EntityModelTransform(offsetX, offsetY, offsetZ,
+                scale, yawOffset, cullingRadius, maxRenderDistance);
         }
     }
 }

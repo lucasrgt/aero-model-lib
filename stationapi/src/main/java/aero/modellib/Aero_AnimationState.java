@@ -34,7 +34,7 @@ public class Aero_AnimationState extends Aero_AnimationPlayback {
      * Keys: "Anim_state", "Anim_time"
      */
     public void writeToNBT(NbtCompound nbt) {
-        nbt.putInt("Anim_state", currentState);
+        nbt.putInt("Anim_state", getCurrentState());
         nbt.putFloat("Anim_time", getPlaybackTime());
     }
 

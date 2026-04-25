@@ -29,7 +29,7 @@ public class AnimationStateRouterTest {
         Aero_AnimationPlayback pb = playback();
         router.applyTo(pb);
 
-        assertEquals(2, pb.currentState);
+        assertEquals(2, pb.getCurrentState());
     }
 
     @Test
@@ -43,7 +43,7 @@ public class AnimationStateRouterTest {
         Aero_AnimationPlayback pb = playback();
         router.applyTo(pb);
 
-        assertEquals(99, pb.currentState);
+        assertEquals(99, pb.getCurrentState());
     }
 
     @Test
@@ -60,7 +60,7 @@ public class AnimationStateRouterTest {
         pb.setState(7);   // pre-existing state we want preserved
         router.applyTo(pb);
 
-        assertEquals(7, pb.currentState);
+        assertEquals(7, pb.getCurrentState());
     }
 
     @Test
@@ -76,7 +76,7 @@ public class AnimationStateRouterTest {
         Aero_AnimationPlayback pb = playback();   // starts at state 0 → "a"
         router.applyTo(pb);   // → state 1 → "b", with a 4-tick transition
 
-        assertEquals(1, pb.currentState);
+        assertEquals(1, pb.getCurrentState());
         assertTrue("router with withTransition should engage the blend",
                    pb.inTransition());
     }
@@ -94,11 +94,15 @@ public class AnimationStateRouterTest {
     }
 
     private static Aero_AnimationClip clip(String name) {
-        return new Aero_AnimationClip(
-            name, Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
-            new String[]{"x"},
-            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
-            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
-            null, null, null);
+        return Aero_AnimationClip.builder(name)
+            .loop(Aero_AnimationLoop.LOOP)
+            .length(1f)
+            .bone("x")
+                .rotation(
+                    new float[]{0f},
+                    new float[][]{{0f, 0f, 0f}},
+                    new Aero_Easing[]{Aero_Easing.LINEAR})
+                .endBone()
+            .build();
     }
 }

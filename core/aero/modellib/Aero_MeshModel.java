@@ -259,32 +259,41 @@ public class Aero_MeshModel {
         BoneRef[] refs = new BoneRef[entries.length];
         for (int i = 0; i < entries.length; i++) {
             String groupName = entries[i].name;
-            float[] basePivot = bundle.getPivot(groupName);
+            float[] basePivot = bundle.pivotOrZero(groupName);
             int boneIdx = -1;
             float[] pivot = basePivot;
+            String resolvedBoneName = null;
 
             if (clip != null) {
                 boneIdx = clip.indexOfBone(groupName);
+                if (boneIdx >= 0) resolvedBoneName = groupName;
                 if (boneIdx < 0) {
                     // Hierarchy: try childMap (explicit Blockbench parent) first,
                     // walking up one level if the direct parent has no keyframes.
                     String parentName = bundle.getParentBoneName(groupName);
                     if (parentName != null) {
                         boneIdx = clip.indexOfBone(parentName);
+                        if (boneIdx >= 0) resolvedBoneName = parentName;
                         if (boneIdx < 0) {
                             String grandParent = bundle.getParentBoneName(parentName);
-                            if (grandParent != null) boneIdx = clip.indexOfBone(grandParent);
+                            if (grandParent != null) {
+                                boneIdx = clip.indexOfBone(grandParent);
+                                if (boneIdx >= 0) resolvedBoneName = grandParent;
+                            }
                         }
                     }
                     // Fallback: longest bone name that is a "<bone>_" prefix of groupName.
-                    if (boneIdx < 0) boneIdx = findParentBone(clip, groupName);
+                    if (boneIdx < 0) {
+                        boneIdx = findParentBone(clip, groupName);
+                        if (boneIdx >= 0) resolvedBoneName = clip.boneNames[boneIdx];
+                    }
                     if (boneIdx >= 0) {
                         // Use the resolved parent's pivot, not the child group's.
-                        pivot = bundle.getPivot(clip.boneNames[boneIdx]);
+                        pivot = bundle.pivotOrZero(clip.boneNames[boneIdx]);
                     }
                 }
             }
-            refs[i] = new BoneRef(boneIdx, pivot);
+            refs[i] = new BoneRef(boneIdx, resolvedBoneName, pivot);
         }
 
         cachedClip     = clip;
@@ -328,9 +337,11 @@ public class Aero_MeshModel {
     /** Resolved bone index + effective pivot for a named group against a clip. */
     public static final class BoneRef {
         public final int boneIdx;     // -1 if no bone resolved
+        public final String boneName; // resolved animation bone name, or null
         public final float[] pivot;   // never null (falls back to bundle's zero-pivot)
-        BoneRef(int boneIdx, float[] pivot) {
+        BoneRef(int boneIdx, String boneName, float[] pivot) {
             this.boneIdx = boneIdx;
+            this.boneName = boneName;
             this.pivot   = pivot;
         }
     }

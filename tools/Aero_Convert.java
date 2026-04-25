@@ -103,7 +103,8 @@ public class Aero_Convert {
 
                 Map clip = new LinkedHashMap();
                 Object loopVal = bbAnim.get("loop");
-                clip.put("loop", "loop".equals(loopVal) || Boolean.TRUE.equals(loopVal));
+                clip.put("loop", ("loop".equals(loopVal) || Boolean.TRUE.equals(loopVal))
+                    ? "loop" : "play_once");
                 clip.put("length", bbAnim.containsKey("length") ? toNumber(bbAnim.get("length")) : 1.0);
 
                 Map bones = new LinkedHashMap();
@@ -318,7 +319,7 @@ public class Aero_Convert {
             Map clip = (Map) ae.getValue();
 
             sb.append("    \"").append(clipName).append("\": {\n");
-            sb.append("      \"loop\": ").append(clip.get("loop")).append(",\n");
+            sb.append("      \"loop\": \"").append(clip.get("loop")).append("\",\n");
             sb.append("      \"length\": ").append(fmtNum(((Number) clip.get("length")).doubleValue())).append(",\n");
             sb.append("      \"bones\": {\n");
 

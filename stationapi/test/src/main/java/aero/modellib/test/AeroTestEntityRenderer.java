@@ -16,10 +16,11 @@ public class AeroTestEntityRenderer extends EntityRenderer {
         Aero_ObjLoader.load("/models/MegaCrusher.obj");
 
     private static final Aero_EntityModelTransform TRANSFORM =
-        Aero_EntityModelTransform.DEFAULT
-            .withOffset(-1.5f, 0f, -1.5f)
-            .withScale(0.45f)
-            .withCullingRadius(3f);
+        Aero_EntityModelTransform.builder()
+            .offset(-1.5f, 0f, -1.5f)
+            .scale(0.45f)
+            .cullingRadius(3f)
+            .build();
 
     public AeroTestEntityRenderer() {
         shadowRadius = 0.8f;

@@ -1,18 +1,43 @@
 {
   "format_version": 1.0,
   "pivots": {
-    "piston": [8, 8, 8]
+    "piston": [
+      8,
+      8,
+      8
+    ]
   },
   "animations": {
     "stroke": {
-      "loop": true,
+      "loop": "loop",
       "length": 2.0,
       "bones": {
         "piston": {
           "position": {
-            "0":   [0, 0, 0],
-            "1.0": [0, 6, 0],
-            "2.0": [0, 0, 0]
+            "0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            },
+            "1.0": {
+              "value": [
+                0,
+                6,
+                0
+              ],
+              "interp": "linear"
+            },
+            "2.0": {
+              "value": [
+                0,
+                0,
+                0
+              ],
+              "interp": "linear"
+            }
           }
         }
       }

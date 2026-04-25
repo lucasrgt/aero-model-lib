@@ -42,13 +42,14 @@ public class Aero_MeshRenderer {
 
     private static final int MESH_ATTRIB_BITS =
         GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT;
-    private static final float PIXEL_TO_BLOCK = 1f / 16f;
 
     // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
     private static float[] LIGHT_CACHE = new float[64];
     private static final float[] SCRATCH_ROT = new float[3];
     private static final float[] SCRATCH_POS = new float[3];
     private static final float[] SCRATCH_SCL = new float[3];
+    private static final float[] SCRATCH_PIVOT = new float[3];
+    private static final Aero_BoneRenderPose SCRATCH_POSE = new Aero_BoneRenderPose();
 
     // -----------------------------------------------------------------------
     // Full model render
@@ -61,13 +62,19 @@ public class Aero_MeshRenderer {
      */
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, float brightness) {
+        renderModel(model, x, y, z, rotation, brightness, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderModel(Aero_MeshModel model, double x, double y, double z,
+                                    float rotation, float brightness,
+                                    Aero_RenderOptions options) {
         Tessellator tess = Tessellator.instance;
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
         beginMeshState();
 
-        drawGroups(tess, model.groups, model.invScale, brightness);
+        drawGroups(tess, model.groups, model.invScale, brightness, options);
 
         endMeshState();
         GL11.glPopMatrix();
@@ -80,16 +87,22 @@ public class Aero_MeshRenderer {
      */
     public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
                                          float rotation, float brightness) {
+        renderModelAtRest(model, x, y, z, rotation, brightness, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
+                                         float rotation, float brightness,
+                                         Aero_RenderOptions options) {
         Tessellator tess = Tessellator.instance;
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
         beginMeshState();
 
-        drawGroups(tess, model.groups, model.invScale, brightness);
+        drawGroups(tess, model.groups, model.invScale, brightness, options);
         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
         for (int e = 0; e < entries.length; e++) {
-            drawGroups(tess, entries[e].tris, model.invScale, brightness);
+            drawGroups(tess, entries[e].tris, model.invScale, brightness, options);
         }
 
         endMeshState();
@@ -105,13 +118,20 @@ public class Aero_MeshRenderer {
      */
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, World world, int ox, int topY, int oz) {
+        renderModel(model, x, y, z, rotation, world, ox, topY, oz, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderModel(Aero_MeshModel model, double x, double y, double z,
+                                    float rotation, World world, int ox, int topY, int oz,
+                                    Aero_RenderOptions options) {
         Tessellator tess = Tessellator.instance;
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
         beginMeshState();
 
-        drawGroupsSmooth(tess, model.groups, model.invScale, model.getStaticSmoothLightData(), world, ox, topY, oz);
+        drawGroupsSmooth(tess, model.groups, model.invScale, model.getStaticSmoothLightData(),
+            world, ox, topY, oz, options);
 
         endMeshState();
         GL11.glPopMatrix();
@@ -131,10 +151,15 @@ public class Aero_MeshRenderer {
      * @param brightness base brightness (0.0–1.0)
      */
     public static void renderGroup(Aero_MeshModel model, String groupName, float brightness) {
+        renderGroup(model, groupName, brightness, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderGroup(Aero_MeshModel model, String groupName, float brightness,
+                                   Aero_RenderOptions options) {
         float[][][] ng = model.getNamedGroup(groupName);
         if (ng == null) return;
         Tessellator tess = Tessellator.instance;
-        drawGroups(tess, ng, model.invScale, brightness);
+        drawGroups(tess, ng, model.invScale, brightness, options);
     }
 
     /**
@@ -146,6 +171,15 @@ public class Aero_MeshRenderer {
                                            double x, double y, double z, float brightness,
                                            float pivotX, float pivotY, float pivotZ,
                                            float angle, float axisX, float axisY, float axisZ) {
+        renderGroupRotated(model, groupName, x, y, z, brightness,
+            pivotX, pivotY, pivotZ, angle, axisX, axisY, axisZ, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderGroupRotated(Aero_MeshModel model, String groupName,
+                                           double x, double y, double z, float brightness,
+                                           float pivotX, float pivotY, float pivotZ,
+                                           float angle, float axisX, float axisY, float axisZ,
+                                           Aero_RenderOptions options) {
         float[][][] ng = model.getNamedGroup(groupName);
         if (ng == null) return;
 
@@ -157,7 +191,7 @@ public class Aero_MeshRenderer {
         GL11.glTranslatef(-pivotX, -pivotY, -pivotZ);
         beginMeshState();
 
-        drawGroups(tess, ng, model.invScale, brightness);
+        drawGroups(tess, ng, model.invScale, brightness, options);
 
         endMeshState();
         GL11.glPopMatrix();
@@ -184,7 +218,19 @@ public class Aero_MeshRenderer {
                                        Aero_AnimationState state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
-        renderAnimated(model, bundle, def, (Aero_AnimationPlayback) state, x, y, z, brightness, partialTick);
+        renderAnimated(model, bundle, def, (Aero_AnimationPlayback) state,
+            x, y, z, brightness, partialTick, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
+                                       Aero_AnimationState state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options) {
+        renderAnimated(model, bundle, def, (Aero_AnimationPlayback) state,
+            x, y, z, brightness, partialTick, options);
     }
 
     /**
@@ -198,6 +244,17 @@ public class Aero_MeshRenderer {
                                        Aero_AnimationPlayback state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
+        renderAnimated(model, bundle, def, state, x, y, z, brightness, partialTick,
+            Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options) {
         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
         Aero_AnimationClip clip = null;
         float time = 0f;
@@ -213,50 +270,18 @@ public class Aero_MeshRenderer {
         GL11.glTranslated(x, y, z);
         beginMeshState();
 
-        drawGroups(tess, model.groups, model.invScale, brightness);
+        drawGroups(tess, model.groups, model.invScale, brightness, options);
 
         for (int e = 0; e < entries.length; e++) {
             Aero_MeshModel.NamedGroup ng = entries[e];
             Aero_MeshModel.BoneRef    rf = refs[e];
 
-            // Pivot — base from bundle, overridden by parent pivot when bone resolved via hierarchy
-            float px = rf.pivot[0], py = rf.pivot[1], pz = rf.pivot[2];
-
-            // Rotation, position, scale from clip (defaults = no keyframe)
-            float rx = 0, ry = 0, rz = 0;
-            float sx = 1, sy = 1, sz = 1;
-            float dx = 0, dy = 0, dz = 0;
-
-            int bi = rf.boneIdx;
-            if (clip != null && bi >= 0) {
-                if (clip.sampleRotInto(bi, time, SCRATCH_ROT)) {
-                    rx = SCRATCH_ROT[0]; ry = SCRATCH_ROT[1]; rz = SCRATCH_ROT[2];
-                }
-                if (clip.samplePosInto(bi, time, SCRATCH_POS)) {
-                    dx = SCRATCH_POS[0] * PIXEL_TO_BLOCK;
-                    dy = SCRATCH_POS[1] * PIXEL_TO_BLOCK;
-                    dz = SCRATCH_POS[2] * PIXEL_TO_BLOCK;
-                }
-                if (clip.sampleSclInto(bi, time, SCRATCH_SCL)) {
-                    sx = SCRATCH_SCL[0]; sy = SCRATCH_SCL[1]; sz = SCRATCH_SCL[2];
-                }
-            }
+            Aero_AnimationPoseResolver.resolveClip(rf, clip, state, time, partialTick,
+                SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
 
             GL11.glPushMatrix();
-            // Move to pivot + animated offset
-            GL11.glTranslatef(px + dx, py + dy, pz + dz);
-            // Euler rotation in Z→Y→X order (Bedrock/GeckoLib compatible)
-            GL11.glRotatef(rz, 0f, 0f, 1f);
-            GL11.glRotatef(ry, 0f, 1f, 0f);
-            GL11.glRotatef(rx, 1f, 0f, 0f);
-            // Scale (if animated)
-            if (sx != 1f || sy != 1f || sz != 1f) {
-                GL11.glScalef(sx, sy, sz);
-            }
-            // Move back from pivot
-            GL11.glTranslatef(-px, -py, -pz);
-
-            drawGroups(tess, ng.tris, model.invScale, brightness);
+            applyPose(SCRATCH_POSE);
+            drawGroups(tess, ng.tris, model.invScale, brightness, options);
             GL11.glPopMatrix();
         }
 
@@ -271,27 +296,87 @@ public class Aero_MeshRenderer {
                                        Aero_AnimationPlayback state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
+        renderAnimated(model, state, x, y, z, brightness, partialTick, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options) {
         if (state == null) throw new IllegalArgumentException("state must not be null");
-        renderAnimated(model, state.getBundle(), state.getDef(), state, x, y, z, brightness, partialTick);
+        renderAnimated(model, state.getBundle(), state.getDef(), state,
+            x, y, z, brightness, partialTick, options);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationStack stack,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick) {
+        renderAnimated(model, stack, x, y, z, brightness, partialTick, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationStack stack,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options) {
+        if (stack == null) throw new IllegalArgumentException("stack must not be null");
+
+        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+        Tessellator tess = Tessellator.instance;
+        GL11.glPushMatrix();
+        GL11.glTranslated(x, y, z);
+        beginMeshState();
+
+        drawGroups(tess, model.groups, model.invScale, brightness, options);
+
+        for (int e = 0; e < entries.length; e++) {
+            Aero_MeshModel.NamedGroup ng = entries[e];
+            Aero_AnimationPoseResolver.resolveStack(stack, ng.name, partialTick,
+                SCRATCH_PIVOT, SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
+
+            GL11.glPushMatrix();
+            applyPose(SCRATCH_POSE);
+            drawGroups(tess, ng.tris, model.invScale, brightness, options);
+            GL11.glPopMatrix();
+        }
+
+        endMeshState();
+        GL11.glPopMatrix();
     }
 
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
 
+    private static void applyPose(Aero_BoneRenderPose pose) {
+        GL11.glTranslatef(pose.pivotX + pose.offsetX,
+            pose.pivotY + pose.offsetY,
+            pose.pivotZ + pose.offsetZ);
+        GL11.glRotatef(pose.rotZ, 0f, 0f, 1f);
+        GL11.glRotatef(pose.rotY, 0f, 1f, 0f);
+        GL11.glRotatef(pose.rotX, 1f, 0f, 0f);
+        if (pose.scaleX != 1f || pose.scaleY != 1f || pose.scaleZ != 1f) {
+            GL11.glScalef(pose.scaleX, pose.scaleY, pose.scaleZ);
+        }
+        GL11.glTranslatef(-pose.pivotX, -pose.pivotY, -pose.pivotZ);
+    }
+
     /** Draws triangle groups at full brightness — used by Aero_InventoryRenderer. */
     static void drawGroupsForInventory(Tessellator tess, float[][][] groups, float invSc) {
-        drawGroups(tess, groups, invSc, 1.0f);
+        drawGroups(tess, groups, invSc, 1.0f, Aero_RenderOptions.DEFAULT);
     }
 
     /** Draws triangle groups with flat lighting (uniform brightness per group). */
-    private static void drawGroups(Tessellator tess, float[][][] groups, float invSc, float brightness) {
+    private static void drawGroups(Tessellator tess, float[][][] groups, float invSc,
+                                   float brightness, Aero_RenderOptions options) {
         tess.startDrawing(GL11.GL_TRIANGLES);
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
             if (tris.length == 0) continue;
             float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
-            tess.setColorOpaque_F(bright, bright, bright);
+            tess.setColorOpaque_F(bright * options.tintR, bright * options.tintG, bright * options.tintB);
             for (int i = 0; i < tris.length; i++) {
                 float[] t = tris[i];
                 tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
@@ -310,7 +395,8 @@ public class Aero_MeshRenderer {
      */
     private static void drawGroupsSmooth(Tessellator tess, float[][][] groups, float invSc,
                                           Aero_MeshModel.SmoothLightData light,
-                                          World world, int ox, int topY, int oz) {
+                                          World world, int ox, int topY, int oz,
+                                          Aero_RenderOptions options) {
         if (!light.hasTriangles) return;
         // +1 cell on the high side for the bilinear neighbor.
         int xLo = fastFloor(ox + light.minX);
@@ -356,7 +442,7 @@ public class Aero_MeshRenderer {
                 float b01 = cache[row1 + cx];
                 float b11 = cache[row1 + cx + 1];
                 float bright = lerp(lerp(b00, b10, tx), lerp(b01, b11, tx), tz) * factor;
-                tess.setColorOpaque_F(bright, bright, bright);
+                tess.setColorOpaque_F(bright * options.tintR, bright * options.tintG, bright * options.tintB);
                 tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
                 tess.addVertexWithUV(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
                 tess.addVertexWithUV(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);

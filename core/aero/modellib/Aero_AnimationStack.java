@@ -4,60 +4,42 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Ordered collection of {@link Aero_AnimationLayer layers} that are sampled
- * together to produce a single combined pose per bone. The stack is what
- * a renderer queries for multi-controller / additive-layer animation:
- *
- * <pre>
- *   Aero_AnimationStack stack = new Aero_AnimationStack()
- *       .add(new Aero_AnimationLayer(walkPlayback))                 // base
- *       .add(new Aero_AnimationLayer(headTrackPlayback).additive(true));
- *
- *   stack.tick();                    // each frame, advances every layer
- *   stack.sampleRot("head", 0f, out); // returns the layered head rotation
- * </pre>
- *
- * <p>Sampling rules per bone (rotation/position/scale share the same logic):
- * <ol>
- *   <li>Iterate layers in insertion order.</li>
- *   <li>If the layer's current clip animates this bone, take its sample
- *       (with the layer's playback state, transition blend, etc.).</li>
- *   <li>If the layer is {@code additive}, multiply the sample by
- *       {@code layer.weight} and add it to the running accumulator.</li>
- *   <li>If the layer is in <em>replace</em> mode, lerp toward the new
- *       value with ratio {@code layer.weight} (full replace at weight 1,
- *       no-op at weight 0).</li>
- * </ol>
- *
- * <p>Bones not animated by any layer keep the default (zero rotation, zero
- * position, scale 1) — callers should treat the return {@code false} as
- * "no override, leave the bone at rest".
+ * Immutable ordered collection of {@link Aero_AnimationLayer layers} sampled
+ * together into one pose per bone.
  */
 public final class Aero_AnimationStack {
 
-    private final List layers = new ArrayList();
+    private static final Aero_AnimationLayer[] EMPTY_LAYERS = new Aero_AnimationLayer[0];
+
+    private final Aero_AnimationLayer[] layers;
 
     // Reused per-frame so sampleRot/Pos/Scl don't allocate.
     private final float[] tmp = new float[3];
 
-    public Aero_AnimationStack add(Aero_AnimationLayer layer) {
-        if (layer == null) throw new IllegalArgumentException("layer must not be null");
-        layers.add(layer);
-        return this;
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static Aero_AnimationStack empty() {
+        return new Aero_AnimationStack(EMPTY_LAYERS);
+    }
+
+    private Aero_AnimationStack(Aero_AnimationLayer[] layers) {
+        this.layers = layers;
     }
 
     public Aero_AnimationLayer get(int index) {
-        return (Aero_AnimationLayer) layers.get(index);
+        return layers[index];
     }
 
     public int size() {
-        return layers.size();
+        return layers.length;
     }
 
     /** Advances every layer's playback by one game tick. */
     public void tick() {
-        for (int i = 0; i < layers.size(); i++) {
-            ((Aero_AnimationLayer) layers.get(i)).playback.tick();
+        for (int i = 0; i < layers.length; i++) {
+            layers[i].getPlayback().tick();
         }
     }
 
@@ -70,9 +52,6 @@ public final class Aero_AnimationStack {
     }
 
     public boolean sampleScl(String boneName, float partialTick, float[] out) {
-        // Scale's identity is (1, 1, 1), not (0, 0, 0) — the channel-shared
-        // accumulator starts at 0 for rot/pos and 1 for scale. We initialise
-        // out before delegating so the additive math composes correctly.
         out[0] = 1f; out[1] = 1f; out[2] = 1f;
         return sampleChannel(boneName, partialTick, out, CHANNEL_SCL);
     }
@@ -82,16 +61,14 @@ public final class Aero_AnimationStack {
     private static final int CHANNEL_SCL = 2;
 
     private boolean sampleChannel(String boneName, float partialTick, float[] out, int channel) {
-        // Rotation/position default to (0,0,0); scale starts at (1,1,1)
-        // already set by the caller. The accumulator is `out` itself.
         if (channel != CHANNEL_SCL) {
             out[0] = 0f; out[1] = 0f; out[2] = 0f;
         }
 
         boolean any = false;
-        for (int i = 0; i < layers.size(); i++) {
-            Aero_AnimationLayer layer = (Aero_AnimationLayer) layers.get(i);
-            Aero_AnimationPlayback pb = layer.playback;
+        for (int i = 0; i < layers.length; i++) {
+            Aero_AnimationLayer layer = layers[i];
+            Aero_AnimationPlayback pb = layer.getPlayback();
             Aero_AnimationClip clip = pb.getCurrentClip();
             if (clip == null) continue;
             int bi = clip.indexOfBone(boneName);
@@ -106,13 +83,9 @@ public final class Aero_AnimationStack {
             }
             if (!got) continue;
 
-            float w = layer.weight;
-            if (layer.additive) {
+            float w = layer.getWeight();
+            if (layer.isAdditive()) {
                 if (channel == CHANNEL_SCL) {
-                    // Scale composes multiplicatively. An additive scale
-                    // layer at weight 1 with sample (1.5, 1.5, 1.5) should
-                    // multiply the running scale by 1.5; weight 0.5 lerps
-                    // halfway to that multiplier — i.e. (1 + 0.5*(1.5-1)).
                     out[0] *= 1f + (tmp[0] - 1f) * w;
                     out[1] *= 1f + (tmp[1] - 1f) * w;
                     out[2] *= 1f + (tmp[2] - 1f) * w;
@@ -122,9 +95,6 @@ public final class Aero_AnimationStack {
                     out[2] += tmp[2] * w;
                 }
             } else {
-                // Replace mode lerps toward the new value at weight; weight
-                // = 1 means full override, weight = 0 leaves the previous
-                // contribution alone.
                 out[0] = out[0] + (tmp[0] - out[0]) * w;
                 out[1] = out[1] + (tmp[1] - out[1]) * w;
                 out[2] = out[2] + (tmp[2] - out[2]) * w;
@@ -132,5 +102,35 @@ public final class Aero_AnimationStack {
             any = true;
         }
         return any;
+    }
+
+    public static final class Builder {
+        private final List layers = new ArrayList();
+
+        private Builder() {}
+
+        public Builder add(Aero_AnimationLayer layer) {
+            if (layer == null) throw new IllegalArgumentException("layer must not be null");
+            layers.add(layer);
+            return this;
+        }
+
+        public Builder replace(Aero_AnimationPlayback playback) {
+            return add(Aero_AnimationLayer.replace(playback));
+        }
+
+        public Builder additive(Aero_AnimationPlayback playback) {
+            return add(Aero_AnimationLayer.additive(playback));
+        }
+
+        public Builder additive(Aero_AnimationPlayback playback, float weight) {
+            return add(Aero_AnimationLayer.builder(playback).additive(true).weight(weight).build());
+        }
+
+        public Aero_AnimationStack build() {
+            if (layers.isEmpty()) return Aero_AnimationStack.empty();
+            return new Aero_AnimationStack((Aero_AnimationLayer[])
+                layers.toArray(new Aero_AnimationLayer[layers.size()]));
+        }
     }
 }

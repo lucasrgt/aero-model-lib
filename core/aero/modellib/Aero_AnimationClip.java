@@ -1,281 +1,91 @@
 package aero.modellib;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Immutable data for an animation clip.
+ * Immutable animation clip.
  *
- * Stores rotation, position and scale keyframes for each bone (OBJ named group),
- * in parallel arrays sorted by ascending time.
- *
- * Each channel also stores per-keyframe interpolation modes:
- *   0 = LINEAR (default), 1 = CATMULLROM (smooth), 2 = STEP
- *
- * Units:
- *   - Time: seconds (float)
- *   - Rotation: Euler degrees [X, Y, Z] — applied in Z→Y→X order (Bedrock/GeckoLib compatible)
- *   - Position: Blockbench pixels (divide by 16 for block units in the renderer)
- *   - Scale: multipliers [X, Y, Z] (1.0 = original size)
- *
- * Sampling API:
- *   - sampleRot/Pos/Scl(boneIdx, time)            — returns a freshly allocated float[3]
- *   - sampleRotInto/PosInto/SclInto(idx, t, out)  — writes into the supplied buffer,
- *     returns true if a sample was produced. Use this on the render hot path.
+ * The public construction path is {@link #builder(String)}. Internally the
+ * clip is structured as bone tracks and channel tracks rather than one large
+ * telescoping constructor with parallel arrays.
  */
-public class Aero_AnimationClip {
+public final class Aero_AnimationClip {
 
-    /**
-     * Interpolation mode constants — kept here as aliases for the canonical
-     * {@link Aero_Easing} table so existing callers that reference
-     * {@code Aero_AnimationClip.INTERP_*} keep compiling. Any new easing
-     * curve gets added in {@code Aero_Easing} only; the sampler routes the
-     * raw int through {@link Aero_Easing#ease}.
-     */
-    public static final int INTERP_LINEAR     = Aero_Easing.LINEAR;
-    public static final int INTERP_CATMULLROM = Aero_Easing.CATMULLROM;
-    public static final int INTERP_STEP       = Aero_Easing.STEP;
+    public final String name;
+    public final Aero_AnimationLoop loop;
+    public final float length;
 
-    /**
-     * Behaviour at the end of the clip.
-     * <ul>
-     *   <li>{@link #LOOP_TYPE_PLAY_ONCE} — playback clamps at {@link #length};
-     *       {@link Aero_AnimationState#isFinished()} returns true so callers
-     *       can chain into the next clip.</li>
-     *   <li>{@link #LOOP_TYPE_LOOP} — playback wraps back to 0; never
-     *       finishes.</li>
-     *   <li>{@link #LOOP_TYPE_HOLD} — playback clamps at {@link #length},
-     *       same as PLAY_ONCE visually, but {@link Aero_AnimationState#isFinished()}
-     *       stays {@code false} so the state holds the final pose forever.</li>
-     * </ul>
-     */
-    public static final int LOOP_TYPE_PLAY_ONCE = 0;
-    public static final int LOOP_TYPE_LOOP      = 1;
-    public static final int LOOP_TYPE_HOLD      = 2;
+    final String[] boneNames;
+    final BoneTrack[] bones;
+    final KeyframeEvent[] events;
 
-    public final String  name;
-    public final int     loopType;
-    public final float   length;    // duration in seconds
-
-    // Parallel arrays indexed by bone index (0-based, order of addition)
-    final String[]    boneNames;
     private final Map boneIndexByName;
-    final float[][]   rotTimes;     // rotTimes[bi]     = float[] of timestamps (seconds)
-    final float[][][] rotValues;    // rotValues[bi][ki] = float[3] {rx, ry, rz}
-    final int[][]     rotInterps;   // rotInterps[bi][ki] = INTERP_* constant
-    final float[][]   posTimes;
-    final float[][][] posValues;
-    final int[][]     posInterps;
-    final float[][]   sclTimes;
-    final float[][][] sclValues;
-    final int[][]     sclInterps;
 
-    /**
-     * Sorted-by-time non-pose keyframe events (sound / particle / custom).
-     * Parallel arrays — index {@code i} carries the event's time, channel,
-     * payload and optional locator (a bone name the consumer can use to
-     * anchor side-effects to a specific part of the moving mesh).
-     * Empty arrays (length 0) when the clip has no events; locator entries
-     * are {@code null} for events declared with the legacy bare-string form.
-     * <p>
-     * The sorted order lets {@link Aero_AnimationPlayback#tick()} fire them
-     * in chronological sequence with a single linear walk, instead of doing
-     * a per-frame search.
-     */
-    final float[]   eventTimes;
-    final String[]  eventChannels;
-    final String[]  eventData;
-    final String[]  eventLocators;
-
-    private static final float[]  EMPTY_FLOATS  = new float[0];
-    private static final String[] EMPTY_STRINGS = new String[0];
-
-    /** Full constructor with explicit loopType — used by Aero_AnimationLoader. */
-    /**
-     * Pose-only overload — convenience for tests and clips that don't
-     * declare non-pose keyframe events. Forwards to the full constructor
-     * with empty event arrays.
-     */
-    Aero_AnimationClip(String name, int loopType, float length,
-                  String[] boneNames,
-                  float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
-                  float[][] posTimes, float[][][] posValues, int[][] posInterps,
-                  float[][] sclTimes, float[][][] sclValues, int[][] sclInterps) {
-        this(name, loopType, length, boneNames,
-             rotTimes, rotValues, rotInterps,
-             posTimes, posValues, posInterps,
-             sclTimes, sclValues, sclInterps,
-             EMPTY_FLOATS, EMPTY_STRINGS, EMPTY_STRINGS, null);
+    public static Builder builder(String name) {
+        return new Builder(name);
     }
 
-    /**
-     * Full constructor including non-pose keyframe events with optional
-     * locators. Kept package-private because the public schema for events
-     * is owned by {@link Aero_AnimationLoader}; tests that need explicit
-     * events for verification should go through the loader's parser path
-     * instead of constructing arrays directly.
-     */
-    Aero_AnimationClip(String name, int loopType, float length,
-                  String[] boneNames,
-                  float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
-                  float[][] posTimes, float[][][] posValues, int[][] posInterps,
-                  float[][] sclTimes, float[][][] sclValues, int[][] sclInterps,
-                  float[] eventTimes, String[] eventChannels, String[] eventData,
-                  String[] eventLocators) {
-        int n = boneNames.length;
-        this.name       = name;
-        this.loopType   = loopType;
-        this.length     = length;
-        this.boneNames  = boneNames;
-        this.boneIndexByName = buildBoneIndex(boneNames);
-        this.rotTimes   = rotTimes   != null ? rotTimes   : new float[n][];
-        this.rotValues  = rotValues  != null ? rotValues  : new float[n][][];
-        this.rotInterps = rotInterps != null ? rotInterps : new int[n][];
-        this.posTimes   = posTimes   != null ? posTimes   : new float[n][];
-        this.posValues  = posValues  != null ? posValues  : new float[n][][];
-        this.posInterps = posInterps != null ? posInterps : new int[n][];
-        this.sclTimes   = sclTimes   != null ? sclTimes   : new float[n][];
-        this.sclValues  = sclValues  != null ? sclValues  : new float[n][][];
-        this.sclInterps = sclInterps != null ? sclInterps : new int[n][];
-        this.eventTimes    = eventTimes    != null ? eventTimes    : EMPTY_FLOATS;
-        this.eventChannels = eventChannels != null ? eventChannels : EMPTY_STRINGS;
-        this.eventData     = eventData     != null ? eventData     : EMPTY_STRINGS;
-        // Pad locators array to the same length as the event arrays even
-        // when the caller passed null — keeps the playback's fireEvents
-        // walk from needing a length check on every iteration.
-        if (eventLocators == null || eventLocators.length != this.eventTimes.length) {
-            this.eventLocators = new String[this.eventTimes.length];
-        } else {
-            this.eventLocators = eventLocators;
+    private Aero_AnimationClip(Builder builder) {
+        if (builder.name == null || builder.name.length() == 0) {
+            throw new IllegalArgumentException("clip name must not be empty");
         }
+        if (builder.length < 0f || Float.isNaN(builder.length) || Float.isInfinite(builder.length)) {
+            throw new IllegalArgumentException("length must be finite and >= 0");
+        }
+
+        this.name = builder.name;
+        this.loop = builder.loop;
+        this.length = builder.length;
+        this.bones = new BoneTrack[builder.bones.size()];
+        this.boneNames = new String[bones.length];
+
+        for (int i = 0; i < bones.length; i++) {
+            BoneBuilder b = (BoneBuilder) builder.bones.get(i);
+            bones[i] = b.build();
+            boneNames[i] = bones[i].name;
+        }
+        this.boneIndexByName = buildBoneIndex(boneNames);
+
+        Collections.sort(builder.events, new Comparator() {
+            public int compare(Object a, Object b) {
+                KeyframeEvent ea = (KeyframeEvent) a;
+                KeyframeEvent eb = (KeyframeEvent) b;
+                return Float.compare(ea.time, eb.time);
+            }
+        });
+        this.events = (KeyframeEvent[]) builder.events.toArray(new KeyframeEvent[builder.events.size()]);
     }
 
-    /** True if this clip carries any non-pose keyframe events. */
     public boolean hasEvents() {
-        return eventTimes.length > 0;
+        return events.length > 0;
     }
 
-    /** Returns the bone index by name, or -1 if not found. */
     public int indexOfBone(String name) {
         Integer idx = (Integer) boneIndexByName.get(name);
         return idx != null ? idx.intValue() : -1;
     }
 
-    // -----------------------------------------------------------------------
-    // Allocating sample API (kept for test/back-compat callers)
-    // -----------------------------------------------------------------------
-
-    /** Samples rotation at `time`, returning float[3] {rx, ry, rz}, or null if no keyframes. */
-    public float[] sampleRot(int boneIdx, float time) {
-        float[] out = new float[3];
-        return sampleRotInto(boneIdx, time, out) ? out : null;
-    }
-
-    /** Samples position at `time`, returning float[3] {px, py, pz}, or null if no keyframes. */
-    public float[] samplePos(int boneIdx, float time) {
-        float[] out = new float[3];
-        return samplePosInto(boneIdx, time, out) ? out : null;
-    }
-
-    /** Samples scale at `time`, returning float[3] {sx, sy, sz}, or null if no keyframes. */
-    public float[] sampleScl(int boneIdx, float time) {
-        float[] out = new float[3];
-        return sampleSclInto(boneIdx, time, out) ? out : null;
-    }
-
-    // -----------------------------------------------------------------------
-    // Alloc-free sample API (preferred on the render hot path)
-    // -----------------------------------------------------------------------
-
-    /**
-     * Samples rotation into the supplied float[3] buffer.
-     * @return true if a sample was written, false if the bone has no keyframes
-     *         (in which case `out` is left untouched and the caller should use defaults).
-     */
     public boolean sampleRotInto(int boneIdx, float time, float[] out) {
-        if (boneIdx < 0 || boneIdx >= rotTimes.length) return false;
-        return sampleInto(rotTimes[boneIdx], rotValues[boneIdx], rotInterps[boneIdx], time, out);
+        return sampleChannel(boneIdx, time, out, Channel.ROTATION);
     }
 
     public boolean samplePosInto(int boneIdx, float time, float[] out) {
-        if (boneIdx < 0 || boneIdx >= posTimes.length) return false;
-        return sampleInto(posTimes[boneIdx], posValues[boneIdx], posInterps[boneIdx], time, out);
+        return sampleChannel(boneIdx, time, out, Channel.POSITION);
     }
 
     public boolean sampleSclInto(int boneIdx, float time, float[] out) {
-        if (boneIdx < 0 || boneIdx >= sclTimes.length) return false;
-        return sampleInto(sclTimes[boneIdx], sclValues[boneIdx], sclInterps[boneIdx], time, out);
+        return sampleChannel(boneIdx, time, out, Channel.SCALE);
     }
 
-    // -----------------------------------------------------------------------
-    // Internals
-    // -----------------------------------------------------------------------
-
-    /**
-     * Samples keyframes with per-keyframe interpolation mode, writing the result
-     * into `out`. The interp mode on each keyframe defines how to ARRIVE at that
-     * keyframe (i.e., interps[hi] is used for the interval lo→hi).
-     *
-     * @return true if a sample was produced, false if `times` is null/empty.
-     */
-    private static boolean sampleInto(float[] times, float[][] vals, int[] interps,
-                                      float time, float[] out) {
-        if (times == null || times.length == 0) return false;
-        int n = times.length;
-        if (n == 1) { copy3(vals[0], out); return true; }
-        if (time <= times[0])      { copy3(vals[0], out); return true; }
-        if (time >= times[n - 1])  { copy3(vals[n - 1], out); return true; }
-
-        // Binary search for the interval [lo, hi] s.t. times[lo] <= time < times[hi].
-        int lo = 0, hi = n - 1;
-        while (hi - lo > 1) {
-            int mid = (lo + hi) >>> 1;
-            if (times[mid] <= time) lo = mid; else hi = mid;
-        }
-
-        int mode = (interps != null && hi < interps.length) ? interps[hi] : INTERP_LINEAR;
-
-        if (mode == INTERP_STEP) {
-            copy3(vals[lo], out);
-            return true;
-        }
-
-        float t0 = times[lo], t1 = times[hi];
-        float alpha = (t1 > t0) ? (time - t0) / (t1 - t0) : 0f;
-        float[] a = vals[lo];
-        float[] b = vals[hi];
-
-        if (mode == INTERP_CATMULLROM) {
-            float[] p0 = lo > 0 ? vals[lo - 1] : a;
-            float[] p3 = hi < n - 1 ? vals[hi + 1] : b;
-            float t2 = alpha * alpha;
-            float t3 = t2 * alpha;
-            out[0] = cr(p0[0], a[0], b[0], p3[0], alpha, t2, t3);
-            out[1] = cr(p0[1], a[1], b[1], p3[1], alpha, t2, t3);
-            out[2] = cr(p0[2], a[2], b[2], p3[2], alpha, t2, t3);
-            return true;
-        }
-
-        // Every other easing curve (sine/quad/cubic/back/elastic/bounce/...)
-        // is just a non-linear remap of alpha; the per-axis interpolation
-        // stays a single-segment lerp. ease() returns alpha for LINEAR and
-        // unknown modes so this branch is the universal fallback.
-        float eased = Aero_Easing.ease(mode, alpha);
-        out[0] = a[0] + (b[0] - a[0]) * eased;
-        out[1] = a[1] + (b[1] - a[1]) * eased;
-        out[2] = a[2] + (b[2] - a[2]) * eased;
-        return true;
-    }
-
-    private static float cr(float p0, float p1, float p2, float p3, float t, float t2, float t3) {
-        return 0.5f * ((2f * p1) +
-            (-p0 + p2) * t +
-            (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
-            (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
-    }
-
-    private static void copy3(float[] src, float[] dst) {
-        dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+    private boolean sampleChannel(int boneIdx, float time, float[] out, Channel channel) {
+        if (boneIdx < 0 || boneIdx >= bones.length) return false;
+        ChannelTrack track = bones[boneIdx].track(channel);
+        return track != null && track.sampleInto(time, out);
     }
 
     private static Map buildBoneIndex(String[] boneNames) {
@@ -284,5 +94,235 @@ public class Aero_AnimationClip {
             map.put(boneNames[i], Integer.valueOf(i));
         }
         return map;
+    }
+
+    private static void copy3(float[] src, float[] dst) {
+        dst[0] = src[0];
+        dst[1] = src[1];
+        dst[2] = src[2];
+    }
+
+    private static float cr(float p0, float p1, float p2, float p3,
+                            float t, float t2, float t3) {
+        return 0.5f * ((2f * p1) +
+            (-p0 + p2) * t +
+            (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+            (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
+    }
+
+    private enum Channel {
+        ROTATION,
+        POSITION,
+        SCALE
+    }
+
+    static final class BoneTrack {
+        final String name;
+        final ChannelTrack rotation;
+        final ChannelTrack position;
+        final ChannelTrack scale;
+
+        BoneTrack(String name, ChannelTrack rotation,
+                  ChannelTrack position, ChannelTrack scale) {
+            this.name = name;
+            this.rotation = rotation;
+            this.position = position;
+            this.scale = scale;
+        }
+
+        ChannelTrack track(Channel channel) {
+            switch (channel) {
+                case ROTATION: return rotation;
+                case POSITION: return position;
+                default:       return scale;
+            }
+        }
+    }
+
+    static final class ChannelTrack {
+        final float[] times;
+        final float[][] values;
+        final Aero_Easing[] easings;
+
+        ChannelTrack(float[] times, float[][] values, Aero_Easing[] easings) {
+            if (times == null || values == null || easings == null) {
+                throw new IllegalArgumentException("channel arrays must not be null");
+            }
+            if (times.length != values.length || times.length != easings.length) {
+                throw new IllegalArgumentException("channel array lengths must match");
+            }
+            this.times = new float[times.length];
+            this.values = new float[values.length][];
+            this.easings = new Aero_Easing[easings.length];
+            for (int i = 0; i < times.length; i++) {
+                float time = times[i];
+                if (Float.isNaN(time) || Float.isInfinite(time)) {
+                    throw new IllegalArgumentException("keyframe time must be finite");
+                }
+                if (i > 0 && time < times[i - 1]) {
+                    throw new IllegalArgumentException("keyframe times must be sorted ascending");
+                }
+                float[] value = values[i];
+                if (value == null || value.length < 3) {
+                    throw new IllegalArgumentException("keyframe value must have 3 components");
+                }
+                Aero_Easing easing = easings[i];
+                if (easing == null) {
+                    throw new IllegalArgumentException("keyframe easing must not be null");
+                }
+                this.times[i] = time;
+                this.values[i] = new float[]{value[0], value[1], value[2]};
+                this.easings[i] = easing;
+            }
+        }
+
+        boolean sampleInto(float time, float[] out) {
+            int n = times.length;
+            if (n == 0) return false;
+            if (n == 1) { copy3(values[0], out); return true; }
+            if (time <= times[0]) { copy3(values[0], out); return true; }
+            if (time >= times[n - 1]) { copy3(values[n - 1], out); return true; }
+
+            int lo = 0;
+            int hi = n - 1;
+            while (hi - lo > 1) {
+                int mid = (lo + hi) >>> 1;
+                if (times[mid] <= time) lo = mid; else hi = mid;
+            }
+
+            Aero_Easing easing = easings[hi];
+            if (easing == Aero_Easing.STEP) {
+                copy3(values[lo], out);
+                return true;
+            }
+
+            float t0 = times[lo];
+            float t1 = times[hi];
+            float alpha = (t1 > t0) ? (time - t0) / (t1 - t0) : 0f;
+            float[] a = values[lo];
+            float[] b = values[hi];
+
+            if (easing == Aero_Easing.CATMULLROM) {
+                float[] p0 = lo > 0 ? values[lo - 1] : a;
+                float[] p3 = hi < n - 1 ? values[hi + 1] : b;
+                float t2 = alpha * alpha;
+                float t3 = t2 * alpha;
+                out[0] = cr(p0[0], a[0], b[0], p3[0], alpha, t2, t3);
+                out[1] = cr(p0[1], a[1], b[1], p3[1], alpha, t2, t3);
+                out[2] = cr(p0[2], a[2], b[2], p3[2], alpha, t2, t3);
+                return true;
+            }
+
+            float eased = easing == Aero_Easing.LINEAR ? alpha : easing.apply(alpha);
+            out[0] = a[0] + (b[0] - a[0]) * eased;
+            out[1] = a[1] + (b[1] - a[1]) * eased;
+            out[2] = a[2] + (b[2] - a[2]) * eased;
+            return true;
+        }
+    }
+
+    static final class KeyframeEvent {
+        final float time;
+        final String channel;
+        final String data;
+        final String locator;
+
+        KeyframeEvent(float time, String channel, String data, String locator) {
+            this.time = time;
+            this.channel = channel;
+            this.data = data;
+            this.locator = locator;
+        }
+    }
+
+    public static final class Builder {
+        private final String name;
+        private Aero_AnimationLoop loop = Aero_AnimationLoop.PLAY_ONCE;
+        private float length = 1f;
+        private final List bones = new ArrayList();
+        private final Map bonesByName = new HashMap();
+        private final List events = new ArrayList();
+
+        private Builder(String name) {
+            this.name = name;
+        }
+
+        public Builder loop(Aero_AnimationLoop loop) {
+            if (loop == null) throw new IllegalArgumentException("loop must not be null");
+            this.loop = loop;
+            return this;
+        }
+
+        public Builder length(float length) {
+            this.length = length;
+            return this;
+        }
+
+        public BoneBuilder bone(String name) {
+            if (name == null || name.length() == 0) {
+                throw new IllegalArgumentException("bone name must not be empty");
+            }
+            BoneBuilder bone = (BoneBuilder) bonesByName.get(name);
+            if (bone == null) {
+                bone = new BoneBuilder(this, name);
+                bonesByName.put(name, bone);
+                bones.add(bone);
+            }
+            return bone;
+        }
+
+        public Builder event(float time, String channel, String data, String locator) {
+            if (Float.isNaN(time) || Float.isInfinite(time)) {
+                throw new IllegalArgumentException("event time must be finite");
+            }
+            if (channel == null || channel.length() == 0) {
+                throw new IllegalArgumentException("event channel must not be empty");
+            }
+            if (data == null || data.length() == 0) {
+                throw new IllegalArgumentException("event name must not be empty");
+            }
+            events.add(new KeyframeEvent(time, channel, data, locator));
+            return this;
+        }
+
+        public Aero_AnimationClip build() {
+            return new Aero_AnimationClip(this);
+        }
+    }
+
+    public static final class BoneBuilder {
+        private final Builder owner;
+        private final String name;
+        private ChannelTrack rotation;
+        private ChannelTrack position;
+        private ChannelTrack scale;
+
+        private BoneBuilder(Builder owner, String name) {
+            this.owner = owner;
+            this.name = name;
+        }
+
+        public BoneBuilder rotation(float[] times, float[][] values, Aero_Easing[] easings) {
+            rotation = new ChannelTrack(times, values, easings);
+            return this;
+        }
+
+        public BoneBuilder position(float[] times, float[][] values, Aero_Easing[] easings) {
+            position = new ChannelTrack(times, values, easings);
+            return this;
+        }
+
+        public BoneBuilder scale(float[] times, float[][] values, Aero_Easing[] easings) {
+            scale = new ChannelTrack(times, values, easings);
+            return this;
+        }
+
+        public Builder endBone() {
+            return owner;
+        }
+
+        private BoneTrack build() {
+            return new BoneTrack(name, rotation, position, scale);
+        }
     }
 }

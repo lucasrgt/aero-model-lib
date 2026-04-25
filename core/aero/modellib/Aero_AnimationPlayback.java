@@ -12,8 +12,7 @@ import java.util.Map;
  */
 public class Aero_AnimationPlayback {
 
-    /** Current state (public for renderers and machine logic). */
-    public int currentState;
+    private int currentState;
 
     protected final Aero_AnimationDefinition def;
     protected final Aero_AnimationBundle bundle;
@@ -35,6 +34,7 @@ public class Aero_AnimationPlayback {
     private Map snapshotScl;
     // Reusable buffer to avoid allocating during the snapshot pass.
     private final float[] snapshotScratch = new float[3];
+    private final float[] pivotScratch = new float[3];
 
     // Optional keyframe-event sink — set by the consumer to receive
     // sound/particle/custom events from the playing clip.
@@ -70,7 +70,7 @@ public class Aero_AnimationPlayback {
         playbackTime += 1f / 20f;
 
         boolean wrapped = false;
-        if (clip.loopType == Aero_AnimationClip.LOOP_TYPE_LOOP) {
+        if (clip.loop == Aero_AnimationLoop.LOOP) {
             if (playbackTime >= clip.length) {
                 playbackTime = playbackTime % clip.length;
                 if (prevPlaybackTime >= clip.length) prevPlaybackTime = prevPlaybackTime % clip.length;
@@ -111,20 +111,20 @@ public class Aero_AnimationPlayback {
     private void fireEvents(Aero_AnimationClip clip, float fromBound, float toInclusive,
                             boolean includeFrom) {
         if (toInclusive < fromBound || (toInclusive == fromBound && !includeFrom)) return;
-        float[] times = clip.eventTimes;
-        for (int i = 0; i < times.length; i++) {
-            float t = times[i];
+        Aero_AnimationClip.KeyframeEvent[] events = clip.events;
+        for (int i = 0; i < events.length; i++) {
+            Aero_AnimationClip.KeyframeEvent event = events[i];
+            float t = event.time;
             boolean lowerOk = includeFrom ? (t >= fromBound) : (t > fromBound);
             if (lowerOk && t <= toInclusive) {
-                eventListener.onEvent(clip.eventChannels[i], clip.eventData[i],
-                    clip.eventLocators[i], t);
+                eventListener.onEvent(event.channel, event.data, event.locator, t);
             }
         }
     }
 
     /**
      * True when the active clip has reached its final keyframe AND its
-     * loop type is {@link Aero_AnimationClip#LOOP_TYPE_PLAY_ONCE}. HOLD
+     * loop type is {@link Aero_AnimationLoop#PLAY_ONCE}. HOLD
      * clips never finish (their pose just stays). LOOP clips never finish
      * (they wrap forever). Useful as a signal to advance the state machine
      * to the next clip in a chain.
@@ -132,7 +132,7 @@ public class Aero_AnimationPlayback {
     public boolean isFinished() {
         Aero_AnimationClip clip = getCurrentClip();
         if (clip == null) return false;
-        return clip.loopType == Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE
+        return clip.loop == Aero_AnimationLoop.PLAY_ONCE
             && playbackTime >= clip.length;
     }
 
@@ -322,7 +322,7 @@ public class Aero_AnimationPlayback {
         float cur = playbackTime;
         float prev = prevPlaybackTime;
 
-        if (clip.loopType == Aero_AnimationClip.LOOP_TYPE_LOOP && cur < prev) {
+        if (clip.loop == Aero_AnimationLoop.LOOP && cur < prev) {
             cur += clip.length;
             float t = prev + (cur - prev) * partialTick;
             return t % clip.length;
@@ -342,6 +342,7 @@ public class Aero_AnimationPlayback {
 
     public Aero_AnimationBundle getBundle() { return bundle; }
     public Aero_AnimationDefinition getDef() { return def; }
+    public int getCurrentState() { return currentState; }
 
     /**
      * Resolves a locator (bone name) to its current animated pivot in
@@ -365,21 +366,18 @@ public class Aero_AnimationPlayback {
     public boolean getAnimatedPivot(String boneName, float partialTick, float[] out) {
         if (boneName == null || out == null) return false;
         Aero_AnimationClip clip = getCurrentClip();
-        float[] pivot = bundle.getPivot(boneName);
-        if (pivot == null || pivot == bundle.getPivotZero()) return false;
-        out[0] = pivot[0]; out[1] = pivot[1]; out[2] = pivot[2];
+        if (!bundle.getPivotInto(boneName, out)) return false;
 
         if (clip != null) {
             int bi = clip.indexOfBone(boneName);
             if (bi >= 0) {
-                float[] tmp = new float[3];
-                if (clip.samplePosInto(bi, getInterpolatedTime(partialTick), tmp)) {
+                if (clip.samplePosInto(bi, getInterpolatedTime(partialTick), pivotScratch)) {
                     // Position offsets are stored in pixels (Blockbench
                     // convention); divide by 16 to bring them into the
                     // block-unit space of the pivot.
-                    out[0] += tmp[0] * (1f / 16f);
-                    out[1] += tmp[1] * (1f / 16f);
-                    out[2] += tmp[2] * (1f / 16f);
+                    out[0] += pivotScratch[0] * (1f / 16f);
+                    out[1] += pivotScratch[1] * (1f / 16f);
+                    out[2] += pivotScratch[2] * (1f / 16f);
                 }
             }
         }
