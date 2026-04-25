@@ -16,14 +16,15 @@
 4. [OBJ Models (Mesh)](#4-obj-models-mesh)
 5. [Animations](#5-animations)
 6. [State Machine](#6-state-machine)
-7. [API Reference](#7-api-reference)
-8. [File Formats](#8-file-formats)
-9. [Asset Workflow & Converter](#9-asset-workflow--converter)
-10. [Patterns & Best Practices](#10-patterns--best-practices)
-11. [Using with Entities (Mobs)](#11-using-with-entities-mobs)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Full End-to-End Example](#13-full-end-to-end-example)
-14. [Development, Tests & Benchmarks](#14-development-tests--benchmarks)
+7. [Advanced Animation](#7-advanced-animation) — easings, transitions, keyframe events, multi-layer Stack, state router
+8. [API Reference](#8-api-reference)
+9. [File Formats](#9-file-formats)
+10. [Asset Workflow & Converter](#10-asset-workflow--converter)
+11. [Patterns & Best Practices](#11-patterns--best-practices)
+12. [Using with Entities (Mobs)](#12-using-with-entities-mobs)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Full End-to-End Example](#14-full-end-to-end-example)
+15. [Development, Tests & Benchmarks](#15-development-tests--benchmarks)
 
 ---
 
@@ -716,7 +717,208 @@ public void updateEntity() {
 
 ---
 
-## 7. API Reference
+## 7. Advanced Animation
+
+These features extend the basic state machine with finer-grained control
+over how clips look and behave. Every section below is **opt-in** — clips
+authored without any of this still load and play identically. Mods can
+adopt one feature at a time as the visuals demand it.
+
+### Easing curves
+
+Each keyframe stores an `interp` mode that controls the segment ENDING at
+that keyframe. The default is `linear`; the lib also ships `step` (snap)
+and `catmullrom` (cubic spline through neighbours) plus 30 GeckoLib-style
+easing curves grouped into 10 families, each with `easeIn*` / `easeOut*`
+/ `easeInOut*` variants:
+
+| Family | Visual signature |
+|--------|------------------|
+| `sine`     | Smooth quarter-period accel/decel |
+| `quad`     | t² — gentle parabolic ramp |
+| `cubic`    | t³ — sharper than quad |
+| `quart`    | t⁴ |
+| `quint`    | t⁵ — almost a step at the start |
+| `expo`     | 2^(10·t) — explosive |
+| `circ`     | √(1−(1−t)²) — fast-then-flat (or mirror) |
+| `back`     | Overshoots past the target before settling |
+| `elastic`  | Springs back and forth around the target |
+| `bounce`   | Piecewise parabolas — bouncing ball |
+
+Lookup by name lives in `Aero_Easing.byName(String)`; unknown names degrade
+to `LINEAR` so a typo doesn't break the loader. Constants like
+`Aero_Easing.EASE_OUT_BACK` are also available for code-side authoring.
+
+```json
+"rotation": {
+  "0":   [0, 0, 0],
+  "0.5": { "value": [0, 90, 0], "interp": "easeOutQuint" },
+  "1.0": { "value": [0, 0, 0], "interp": "easeInBack" }
+}
+```
+
+Every easing satisfies `f(0) = 0` and `f(1) = 1` exactly so keyframe
+boundaries stay continuous. `back` overshoots above 1 mid-curve, `elastic`
+oscillates above and below, `bounce` clamps at 1 between sub-bounces.
+
+### Loop types
+
+`Aero_AnimationClip.LOOP_TYPE_*` controls what happens when playback
+reaches the clip length:
+
+| Value | JSON | Behavior |
+|-------|------|----------|
+| `LOOP_TYPE_LOOP` | `"loop"` or `true` | Wrap to 0 and keep playing |
+| `LOOP_TYPE_PLAY_ONCE` | `"play_once"` or `false` | Clamp at length; `state.isFinished()` flips to `true` |
+| `LOOP_TYPE_HOLD` | `"hold_on_last_frame"` | Clamp at length; `state.isFinished()` stays `false` |
+
+PLAY_ONCE and HOLD render identically (both freeze at the final pose);
+the difference is signalling. PLAY_ONCE tells callers "I'm done — chain
+me into the next clip"; HOLD tells callers "I'm holding this pose until
+you say otherwise". Use `state.isFinished()` to drive a sequence:
+
+```java
+animState.tick();
+if (animState.isFinished()) {
+    animState.setState(NEXT_STATE);
+}
+```
+
+### Smooth state transitions
+
+`Aero_AnimationPlayback.setStateWithTransition(stateId, ticks)` snapshots
+the active clip's pose at the moment of the call, switches state, and
+blends from the snapshot toward the new clip's start over the next
+`ticks` game ticks. For each bone:
+
+- Present in BOTH clips → linear lerp from snapshot to new sample
+- Present only in NEW clip → starts at full strength (no fade-in pop)
+- Present only in OLD clip → fades to identity over the transition
+
+Introspection helpers: `inTransition()` and `getTransitionAlpha(partialTick)`
+return whether a blend is in progress and the current 0..1 ratio.
+
+```java
+animState.setStateWithTransition(STATE_WALK, 6);   // 6-tick blend
+```
+
+Pair the router below with `withTransition(N)` to make every state change
+in the entity smooth without sprinkling these calls through tick code.
+
+### Non-pose keyframe events
+
+Clips can declare events alongside the rotation/position/scale tracks.
+Each event has a channel (free-form string), a payload, and an optional
+locator (a bone name). The lib delivers them through
+`Aero_AnimationEventListener` whenever playback crosses the keyframe's
+timestamp, including across loop wraps.
+
+```json
+"keyframes": {
+  "sound":    { "0.5": { "name": "random.click",   "locator": "fan" } },
+  "particle": { "1.0": { "name": "smoke",          "locator": "exhaust" } },
+  "custom":   { "0.0": "CYCLE_START" }
+}
+```
+
+Schema notes:
+
+- **Channel** is the parent key. `sound`, `particle`, `custom` are
+  conventional but not enforced — listeners can route any string.
+- **Value** is either a bare string (legacy form, no locator) or an
+  object with `{"name": "...", "locator": "boneName"}`.
+- **Locator** is optional even on the structured form.
+
+The lib stays platform-neutral — it does not call `world.playSound` or
+`world.addParticle` itself. Each consumer routes the channel + payload
+through its own dispatch:
+
+```java
+animState.setEventListener((channel, data, locator, time) -> {
+    if (world == null) return;
+    double cx = x + 0.5, cy = y + 0.5, cz = z + 0.5;
+    if (locator != null) {
+        float[] p = new float[3];
+        if (animState.getAnimatedPivot(locator, 0f, p)) {
+            cx = x + p[0]; cy = y + p[1]; cz = z + p[2];
+        }
+    }
+    if      ("sound".equals(channel))    world.playSound(cx, cy, cz, data, 0.6f, 1.0f);
+    else if ("particle".equals(channel)) world.addParticle(data, cx, cy, cz, 0, 0.05, 0);
+    // "custom" is gameplay — toggle a hitbox, schedule damage, etc.
+});
+```
+
+`getAnimatedPivot(boneName, partialTick, out)` returns the bone's bundle
+pivot plus the position-channel offset at the current playback time —
+i.e. "where the bone is RIGHT NOW", not where it was authored. Rotation
+and scale don't move a single point so they stay out of the calculation;
+for the tip of a swinging blade, declare a separate bone at the tip and
+locate the event there.
+
+**Loop-wrap safety:** events at exactly `t = 0` fire each cycle (the
+post-wrap leg of the firing window is half-open `[0, now]`); events
+elsewhere fire exactly once per crossing.
+
+### Multi-layer playback (Stack)
+
+`Aero_AnimationStack` runs several `Aero_AnimationPlayback` instances
+together, combining their per-bone outputs into a single pose for the
+renderer. Layers are sampled in insertion order; each declares whether
+it composes by REPLACE (default) or by ADD.
+
+```java
+Aero_AnimationStack stack = new Aero_AnimationStack()
+    .add(new Aero_AnimationLayer(walkPlayback))                 // base
+    .add(new Aero_AnimationLayer(headTrackPlayback).additive(true).weight(0.8f));
+
+stack.tick();    // ticks every layer's playback
+Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick);
+```
+
+| Mode | Rotation/Position | Scale |
+|------|-------------------|-------|
+| Replace (default) | `lerp(running, sample, weight)` | `lerp(running, sample, weight)` |
+| Additive | `running + sample × weight` | `running × (1 + (sample − 1) × weight)` |
+
+Scale composes multiplicatively in additive mode so two `1.5×` layers
+combine to `2.25×` instead of `3.0×`. `weight` is always 0..1 and acts
+like an opacity slider for the layer's contribution.
+
+Bones absent from a layer's clip are passed through unchanged — a
+secondary layer that animates only the head bone has zero effect on
+legs / arms / etc.
+
+### Predicate state router
+
+`Aero_AnimationStateRouter` collapses the typical "if attacking →
+STATE_ATTACK; else if walking → STATE_WALK; else IDLE" cascade into a
+declarative chain. Rules evaluate top-down in insertion order; the first
+matching predicate wins.
+
+```java
+Aero_AnimationStateRouter router = new Aero_AnimationStateRouter()
+    .when(p -> entity.isDead(),       STATE_DEATH)
+    .when(p -> entity.isAttacking(),  STATE_ATTACK)
+    .when(p -> entity.isMoving(),     STATE_WALK)
+    .otherwise(STATE_IDLE)
+    .withTransition(6);
+
+router.applyTo(animState);   // call each tick
+```
+
+`otherwise(stateId)` is optional — without it, a tick where no rule
+matches leaves the playback's current state untouched.
+`withTransition(ticks)` routes through `setStateWithTransition` so every
+state change is a smooth blend rather than a snap.
+
+The `Aero_AnimationPredicate` interface receives the playback being
+routed, so rules can inspect things like `playback.isFinished()` to chain
+non-loop clips automatically.
+
+---
+
+## 8. API Reference
 
 ### Aero_JsonModel
 
@@ -788,23 +990,27 @@ Immutable container with animation data loaded from `.anim.json`.
 
 ### Aero_AnimationClip
 
-Immutable animation clip data with keyframes.
+Immutable animation clip data with keyframes plus optional non-pose
+events. Constructed by the loader; consumers usually treat it as opaque.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `String` | Clip name |
-| `loop` | `boolean` | Whether it loops |
+| `loopType` | `int` | `LOOP_TYPE_LOOP` / `LOOP_TYPE_PLAY_ONCE` / `LOOP_TYPE_HOLD` |
 | `length` | `float` | Duration in seconds |
 
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `indexOfBone(name)` | `int` | Bone index, or `-1` |
+| `hasEvents()` | `boolean` | True if the clip carries non-pose keyframe events |
 | `sampleRot(boneIdx, time)` | `float[3]` | Interpolated rotation [rx,ry,rz] in degrees, or `null` |
 | `samplePos(boneIdx, time)` | `float[3]` | Interpolated position [px,py,pz] in pixels, or `null` |
 | `sampleScl(boneIdx, time)` | `float[3]` | Interpolated scale [sx,sy,sz], or `null` |
 | `sampleRotInto/PosInto/SclInto(...)` | `boolean` | Allocation-free sampler into caller scratch buffer |
 
-Interpolation: linear by default, with optional step and Catmull-Rom modes. Sampling uses binary search and clamps outside keyframe bounds.
+Interpolation routes through `Aero_Easing.ease(mode, alpha)` plus a single
+linear lerp; `STEP` and `CATMULLROM` keep their own paths. Sampling uses
+binary search and clamps outside keyframe bounds.
 
 ---
 
@@ -829,6 +1035,13 @@ Platform-neutral mutable playback state used by both ModLoader and StationAPI.
 |--------|---------|-------------|
 | `tick()` | `void` | Advances 1/20s. Call BEFORE setState() |
 | `setState(stateId)` | `void` | Changes state. Resets time if clip changed. Call AFTER tick() |
+| `setStateWithTransition(stateId, ticks)` | `void` | Same as setState but snapshots the previous pose and blends into the new clip over N ticks |
+| `inTransition()` | `boolean` | True while a transition blend is still in progress |
+| `getTransitionAlpha(partialTick)` | `float` | 0 = full snapshot, 1 = full new clip |
+| `isFinished()` | `boolean` | True only for PLAY_ONCE clips that have reached their end |
+| `setEventListener(listener)` | `void` | Registers a handler for non-pose keyframe events |
+| `getAnimatedPivot(boneName, partialTick, out)` | `boolean` | Resolves a locator to its CURRENT animated pivot (rest pivot + position offset) |
+| `sampleRotBlended/PosBlended/SclBlended(clip, idx, name, t, partial, out)` | `boolean` | Pose sampler with automatic transition fade — used by the Stack renderer |
 | `getInterpolatedTime(partialTick)` | `float` | Smoothed time between ticks (for renderer) |
 | `getCurrentClip()` | `Aero_AnimationClip` | Active clip, or `null` |
 | `getBundle()` | `Aero_AnimationBundle` | Linked bundle |
@@ -1018,9 +1231,97 @@ Constants: `SLOT_SCALE = 1.3`, `Y_NUDGE = 0.12`
 
 ---
 
+### Aero_Easing
+
+Static dispatch for the 33 interpolation curves. Used internally by
+`Aero_AnimationClip.sampleInto`; consumers usually only touch the integer
+constants when authoring clips programmatically.
+
+| Method | Description |
+|--------|-------------|
+| `byName(String) → int` | Resolve a JSON `interp` name to an INTERP_* constant (LINEAR fallback) |
+| `ease(int mode, float t) → float` | Remap linear t∈[0,1] through the requested curve |
+
+Constants: `LINEAR`, `STEP`, `CATMULLROM`, plus `EASE_{IN,OUT,IN_OUT}_{SINE,QUAD,CUBIC,QUART,QUINT,EXPO,CIRC,BACK,ELASTIC,BOUNCE}`.
+
 ---
 
-## 8. File Formats
+### Aero_AnimationLayer
+
+One playback head inside a multi-layer stack. Wraps an
+`Aero_AnimationPlayback` with `additive` (compose by sum vs replace) and
+`weight` (0..1 contribution multiplier) flags. Mutable and fluent.
+
+| Field / Method | Description |
+|---------------|-------------|
+| `playback` | The wrapped `Aero_AnimationPlayback` |
+| `additive` | When true, sum the layer's deltas onto the running pose |
+| `weight` | 0..1 multiplier — opacity for the layer's contribution |
+| `additive(boolean) → this` | Fluent setter |
+| `weight(float) → this` | Fluent setter |
+
+---
+
+### Aero_AnimationStack
+
+Ordered collection of layers, sampled together to produce one combined
+pose per bone. The {@link Aero_MeshRenderer#renderAnimated(model, stack, ...)}
+overload is the standard render-side consumer.
+
+| Method | Description |
+|--------|-------------|
+| `add(Aero_AnimationLayer) → this` | Append a layer |
+| `get(int)` / `size()` | Accessors |
+| `tick()` | Advance every layer's playback by one tick |
+| `sampleRot(boneName, partialTick, out) → bool` | Combined rotation across all layers |
+| `samplePos(boneName, partialTick, out) → bool` | Combined position |
+| `sampleScl(boneName, partialTick, out) → bool` | Combined scale (multiplicative for additive layers) |
+
+---
+
+### Aero_AnimationEventListener
+
+Single-method callback fired during `Aero_AnimationPlayback.tick()` when
+playback crosses a non-pose keyframe.
+
+| Method | Description |
+|--------|-------------|
+| `onEvent(channel, data, locator, time)` | Called once per crossing; `locator` is `null` for legacy bare-string keyframes |
+
+The lib does not dispatch sounds or particles itself — consumer mods
+route the channel + payload through their own MC API calls.
+{@link Aero_AnimationPlayback#getAnimatedPivot} is the standard helper
+for resolving the locator to a current world position.
+
+---
+
+### Aero_AnimationPredicate
+
+Single-method strategy for the state router.
+
+| Method | Description |
+|--------|-------------|
+| `test(playback) → bool` | Should the rule's state win this tick? |
+
+---
+
+### Aero_AnimationStateRouter
+
+Declarative chain of `(predicate → stateId)` rules that picks the next
+state for a playback each tick.
+
+| Method | Description |
+|--------|-------------|
+| `when(predicate, stateId) → this` | Append a rule |
+| `otherwise(stateId) → this` | Fallback when no rule matches; without it the playback's current state is preserved |
+| `withTransition(ticks) → this` | Route through `setStateWithTransition` so every change is a smooth blend |
+| `applyTo(playback)` | Evaluate rules, apply the first match |
+
+---
+
+---
+
+## 9. File Formats
 
 ### Blockbench JSON (`.json`)
 
@@ -1068,18 +1369,23 @@ Custom format inspired by Bedrock Animation:
 
   "animations": {
     "clip_name": {
-      "loop": true,
+      "loop": "hold_on_last_frame",
       "length": 2.0,
       "bones": {
         "bone_name": {
           "rotation": {
             "0.0": [rx, ry, rz],
-            "1.0": [rx, ry, rz]
+            "1.0": { "value": [rx, ry, rz], "interp": "easeOutBack" }
           },
           "position": {
             "0.0": [px, py, pz]
           }
         }
+      },
+      "keyframes": {
+        "sound":    { "0.5": { "name": "random.click",  "locator": "fan" } },
+        "particle": { "1.0": { "name": "smoke",         "locator": "exhaust" } },
+        "custom":   { "0.0": "CYCLE_START" }
       }
     }
   }
@@ -1093,9 +1399,32 @@ Custom format inspired by Bedrock Animation:
 | `childMap` | No | OBJ group → animated bone hierarchy |
 | `animations` | Yes | Clips with keyframes |
 
+**Per-clip fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `loop` | `bool` or `"loop"` / `"play_once"` / `"hold_on_last_frame"` | Behavior at end of clip; defaults to PLAY_ONCE |
+| `length` | `float` | Clip duration in seconds |
+| `bones` | `{ name: { rotation, position, scale } }` | Pose tracks |
+| `keyframes` | `{ channel: { time: payload } }` | Optional non-pose events (sound / particle / custom) |
+
+**Per-keyframe value forms (pose channels):**
+
+| Form | Example | Use |
+|------|---------|-----|
+| Bare array (legacy) | `"0.5": [0, 90, 0]` | Linear interpolation, no curve |
+| Structured | `"0.5": { "value": [0, 90, 0], "interp": "easeOutBack" }` | Any of the 33 [easing curves](#easing-curves) |
+
+**Per-keyframe value forms (events):**
+
+| Form | Example | Use |
+|------|---------|-----|
+| Bare string (legacy) | `"0.5": "random.click"` | Channel + payload, no locator |
+| Structured | `"0.5": { "name": "random.click", "locator": "fan" }` | Adds the bone-name locator the listener can resolve to a world position |
+
 ---
 
-## 9. Asset Workflow & Converter
+## 10. Asset Workflow & Converter
 
 AeroModelLib includes a converter in `tools/` that converts Blockbench `.bbmodel` files to the `.anim.json` format used by the animation system. The wrapper scripts (`tools/convert.sh` for Linux/macOS, `tools/convert.bat` for Windows) compile `Aero_Convert.java` on first run, so a JDK 8+ is required.
 
@@ -1191,7 +1520,7 @@ The converter preserves names exactly as they appear in Blockbench. If you renam
 
 ---
 
-## 10. Patterns & Best Practices
+## 11. Patterns & Best Practices
 
 ### Static final for loaded data
 
@@ -1317,7 +1646,7 @@ The renderer resolves bones in this order:
 
 ---
 
-## 11. Using with Entities (Mobs)
+## 12. Using with Entities (Mobs)
 
 Yes: AeroModelLib supports entity models through `Aero_EntityModelRenderer`.
 The helper wraps the existing optimized renderers with the pieces entity renderers need:
@@ -1467,7 +1796,7 @@ Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### Model invisible
 - **Texture not bound:** Call `bindTextureByName()` before rendering
@@ -1503,7 +1832,7 @@ Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT
 
 ---
 
-## 13. Full End-to-End Example
+## 14. Full End-to-End Example
 
 Complete animated machine: a simple crusher with a spinning fan.
 
@@ -1684,7 +2013,7 @@ ModLoader.registerTileEntity(Retronism_TileSimpleCrusher.class, "SimpleCrusher",
 
 ---
 
-## 14. Development, Tests & Benchmarks
+## 15. Development, Tests & Benchmarks
 
 The core package is shared by ModLoader and StationAPI. Keep platform-specific code in
 `modloader/aero/modellib` or `stationapi/src/main/java/aero/modellib`; pure model,
