@@ -66,6 +66,7 @@ public class Aero_MeshModel {
     private Aero_AnimationClip cachedClip;
     private Aero_AnimationBundle cachedBundle;
     private BoneRef[] cachedBoneRefs;
+    private float[] cachedBounds;
 
     public Aero_MeshModel(String name, float[][][] groups, float scale, Map namedGroups) {
         this.name = name;
@@ -93,6 +94,70 @@ public class Aero_MeshModel {
         int n = 0;
         for (int g = 0; g < 4; g++) n += ng[g].length;
         return n;
+    }
+
+    /**
+     * Returns the model's axis-aligned bounding box in block units, computed
+     * once and cached. Used by Aero_InventoryRenderer to center and scale the
+     * model into a slot — without this cache, every inventory icon paints
+     * O(triangles) of work just measuring the model.
+     *
+     * @return float[6] = {minX, minY, minZ, maxX, maxY, maxZ}
+     */
+    public float[] getBounds() {
+        float[] cached = cachedBounds;
+        if (cached != null) return cached;
+
+        float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+        final float invSc = 1f / scale;
+
+        for (int g = 0; g < 4; g++) {
+            float[][] tris = groups[g];
+            for (int i = 0; i < tris.length; i++) {
+                float[] t = tris[i];
+                for (int v = 0; v < 3; v++) {
+                    int base = v * 5;
+                    float vx = t[base]     * invSc;
+                    float vy = t[base + 1] * invSc;
+                    float vz = t[base + 2] * invSc;
+                    if (vx < minX) minX = vx;
+                    if (vx > maxX) maxX = vx;
+                    if (vy < minY) minY = vy;
+                    if (vy > maxY) maxY = vy;
+                    if (vz < minZ) minZ = vz;
+                    if (vz > maxZ) maxZ = vz;
+                }
+            }
+        }
+
+        NamedGroup[] entries = getNamedGroupArray();
+        for (int e = 0; e < entries.length; e++) {
+            float[][][] ng = entries[e].tris;
+            for (int g = 0; g < 4; g++) {
+                float[][] tris = ng[g];
+                for (int i = 0; i < tris.length; i++) {
+                    float[] t = tris[i];
+                    for (int v = 0; v < 3; v++) {
+                        int base = v * 5;
+                        float vx = t[base]     * invSc;
+                        float vy = t[base + 1] * invSc;
+                        float vz = t[base + 2] * invSc;
+                        if (vx < minX) minX = vx; else if (vx > maxX) maxX = vx;
+                        if (vy < minY) minY = vy; else if (vy > maxY) maxY = vy;
+                        if (vz < minZ) minZ = vz; else if (vz > maxZ) maxZ = vz;
+                    }
+                }
+            }
+        }
+
+        if (minX == Float.POSITIVE_INFINITY) {
+            // Empty model — return a unit cube so the inventory render does not divide by zero.
+            minX = minY = minZ = 0f; maxX = maxY = maxZ = 1f;
+        }
+        cached = new float[]{minX, minY, minZ, maxX, maxY, maxZ};
+        cachedBounds = cached;
+        return cached;
     }
 
     /**
