@@ -2,7 +2,9 @@ package aero.modellib.test;
 
 import net.mine_diver.unsafeevents.listener.EventListener;
 import net.modificationstation.stationapi.api.event.block.entity.BlockEntityRegisterEvent;
+import net.modificationstation.stationapi.api.event.entity.EntityRegister;
 import net.modificationstation.stationapi.api.event.registry.BlockRegistryEvent;
+import net.modificationstation.stationapi.api.server.event.entity.TrackEntityEvent;
 import net.modificationstation.stationapi.api.event.world.gen.WorldGenEvent;
 import net.modificationstation.stationapi.api.mod.entrypoint.EntrypointManager;
 import net.modificationstation.stationapi.api.util.Identifier;
@@ -54,6 +56,18 @@ public class AeroTestMod {
     }
 
     @EventListener
+    private static void registerEntities(EntityRegister event) {
+        event.register(AeroTestEntity.class, NAMESPACE + ":entity_model_probe", 190);
+    }
+
+    @EventListener
+    private static void trackEntities(TrackEntityEvent event) {
+        if (event.entityToTrack instanceof AeroTestEntity) {
+            event.track(96, 3, true);
+        }
+    }
+
+    @EventListener
     private static void populateChunk(WorldGenEvent.ChunkDecoration event) {
         // Auto-place both test blocks in every chunk so testers can find
         // them without depending on AMI's click-to-give. Raw setBlock does
@@ -87,5 +101,14 @@ public class AeroTestMod {
         int kx = event.x + 4, kz = event.z + 12;
         event.world.setBlock(kx,     90, kz,     crystalChaosBlock.id);
         event.world.setBlockEntity(kx, 90, kz,    new CrystalChaosBlockEntity());
+
+        // Entity renderer smoke test: one animated model entity every 4x4
+        // chunks, so the first generated area has a visible probe without
+        // flooding the world with high-poly meshes.
+        if (!event.world.isRemote && (event.x & 63) == 0 && (event.z & 63) == 0) {
+            AeroTestEntity probe = new AeroTestEntity(event.world);
+            probe.setPositionAndAngles(event.x + 8.5, 72.0, event.z + 4.5, 0f, 0f);
+            event.world.spawnEntity(probe);
+        }
     }
 }

@@ -104,6 +104,15 @@ public class Aero_MeshRenderer {
                                        Aero_AnimationState state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
+        renderAnimated(model, bundle, def, (Aero_AnimationPlayback) state, x, y, z, brightness, partialTick);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick) {
         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
         Aero_AnimationClip clip = null;
         float time = 0f;
@@ -161,6 +170,14 @@ public class Aero_MeshRenderer {
 
         endMeshState();
         GL11.glPopMatrix();
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick) {
+        if (state == null) throw new IllegalArgumentException("state must not be null");
+        renderAnimated(model, state.getBundle(), state.getDef(), state, x, y, z, brightness, partialTick);
     }
 
     // -----------------------------------------------------------------------

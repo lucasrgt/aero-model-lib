@@ -2,6 +2,7 @@ package aero.modellib.test;
 
 import net.mine_diver.unsafeevents.listener.EventListener;
 import net.modificationstation.stationapi.api.client.event.block.entity.BlockEntityRendererRegisterEvent;
+import net.modificationstation.stationapi.api.client.event.render.entity.EntityRendererRegisterEvent;
 import net.modificationstation.stationapi.api.mod.entrypoint.EntrypointManager;
 
 import java.lang.invoke.MethodHandles;
@@ -24,5 +25,10 @@ public class AeroTestModClient {
         event.renderers.put(PumpBlockEntity.class, new PumpBlockEntityRenderer());
         event.renderers.put(CrystalBlockEntity.class, new CrystalBlockEntityRenderer());
         event.renderers.put(CrystalChaosBlockEntity.class, new CrystalChaosBlockEntityRenderer());
+    }
+
+    @EventListener
+    private static void registerEntityRenderers(EntityRendererRegisterEvent event) {
+        event.renderers.put(AeroTestEntity.class, new AeroTestEntityRenderer());
     }
 }

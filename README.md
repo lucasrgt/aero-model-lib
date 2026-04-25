@@ -14,6 +14,7 @@ Demo Animated Machine on YouTube:
 - **OBJ mesh models** — Load `.obj` files with named groups for animated parts
 - **Keyframe animation** — `.anim.json` format with rotation + position keyframes, loop/clamp, state machine
 - **Partial-tick interpolation** — Smooth 60fps animation from 20-tick updates
+- **Dedicated entity helper** — Render static or animated Aero models from mob/entity renderers with entity-origin yaw, brightness overloads and scale/offset transforms
 - **Brightness optimization** — Triangles pre-classified into 4 groups, only 4 color calls per frame
 - **Built-in caching** — All loaders cache by resource path; JSON quads, mesh bounds, smooth-light metadata and animation lookups are cached too
 - **Dual loader support** — Shared Java 8 core with ModLoader and StationAPI render/state adapters
@@ -69,6 +70,32 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
     d, d1, d2, brightness, partialTick);
 ```
 
+### Entity Model (Mob Renderer)
+
+```java
+// In your Entity class
+public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+
+public void onLivingUpdate() {
+    super.onLivingUpdate();
+    animState.tick();
+    animState.setState(isSwinging ? STATE_ATTACK : isMoving() ? STATE_WALK : STATE_IDLE);
+}
+
+// In your Render / EntityRenderer class
+private static final Aero_EntityModelTransform MODEL_TRANSFORM =
+    Aero_EntityModelTransform.DEFAULT.withOffset(-0.5f, 0f, -0.5f);
+
+public void doRender(Entity entity, double x, double y, double z,
+                     float yaw, float partialTick) {
+    MyMob mob = (MyMob) entity;
+
+    loadTexture("/mob/my_mob.png");
+    Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
+        entity, x, y, z, yaw, partialTick, MODEL_TRANSFORM);
+}
+```
+
 ## Classes
 
 | Class | Role |
@@ -80,6 +107,8 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 | `Aero_MeshModel` | Parsed OBJ model with named groups + brightness classification |
 | `Aero_ObjLoader` | Loads + caches `.obj` models from classpath |
 | `Aero_MeshRenderer` | Renders OBJ models (static, animated, per-group) |
+| `Aero_EntityModelRenderer` | Renders JSON/OBJ models from entity renderers with entity-origin transform |
+| `Aero_EntityModelTransform` | Immutable entity offset/scale/yaw conversion settings |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone |
 | `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |
@@ -222,6 +251,13 @@ powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
 # StationAPI library build (requires JDK 17+)
 cd stationapi
 .\gradlew.bat build
+
+# StationAPI integration test mod build
+cd test
+.\gradlew.bat build
+
+# In-game StationAPI smoke test, includes an animated entity probe
+.\gradlew.bat runClient
 ```
 
 ## Author
