@@ -7,8 +7,13 @@ stationapi/*.iml
 # Test runner output
 tests/out/
 
+# Release artifacts (built by scripts/release.sh)
+dist/
+
+# Compiled converter classes (Aero_Convert is recompiled on demand by tools/convert.sh)
+tools/*.class
+
 # IDE
 *.iml
 .idea/
 .vscode/
-dist/

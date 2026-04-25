@@ -4,10 +4,10 @@
 # Converts Blockbench .bbmodel files to AeroModelLib .anim.json format
 #
 # Usage:
-#   bash scripts/convert.sh MyMachine.bbmodel
-#   bash scripts/convert.sh MyMachine.bbmodel output.anim.json
+#   bash tools/convert.sh MyMachine.bbmodel
+#   bash tools/convert.sh MyMachine.bbmodel output.anim.json
 #
-# Requires: Java 8+ (JDK to recompile, JRE to run pre-compiled .class)
+# Requires: JDK 8+ (the script compiles Aero_Convert.java on first run).
 #
 # by lucasrgt — aerocoding.dev
 # ─────────────────────────────────────────────────────────────────────

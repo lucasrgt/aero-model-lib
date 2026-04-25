@@ -4,10 +4,10 @@ REM AeroModelLib — convert.bat
 REM Converts Blockbench .bbmodel files to AeroModelLib .anim.json format
 REM
 REM Usage:
-REM   scripts\convert.bat MyMachine.bbmodel
-REM   scripts\convert.bat MyMachine.bbmodel output.anim.json
+REM   tools\convert.bat MyMachine.bbmodel
+REM   tools\convert.bat MyMachine.bbmodel output.anim.json
 REM
-REM Requires: Java 8+ (JDK to recompile, JRE to run pre-compiled .class)
+REM Requires: JDK 8+ (the script compiles Aero_Convert.java on first run).
 REM
 REM by lucasrgt — aerocoding.dev
 REM ─────────────────────────────────────────────────────────────────────
