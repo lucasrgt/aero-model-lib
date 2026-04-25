@@ -4,11 +4,13 @@
 # then runs the JUnit suite. No Minecraft dependencies needed — these
 # tests cover the parsing + animation logic only.
 #
-# Usage: bash tests/run.sh
+# Usage: bash modloader/tests/run.sh
 
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-LIB="$(cd "$HERE/.." && pwd)"
+# Tests live at modellib/modloader/tests/ — go up two levels to the lib root
+# so the runner can still resolve core/ sources.
+LIB="$(cd "$HERE/../.." && pwd)"
 
 # Convert MSYS /c/ paths to Windows C:/ for javac on Windows.
 win_path() {

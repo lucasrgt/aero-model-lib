@@ -1,0 +1,90 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'babric-loom-extension' version '1.9.2'
+}
+
+archivesBaseName = mod_id
+version = mod_version
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.glass-launcher.net/babric' }
+    maven { url = 'https://maven.glass-launcher.net/snapshots' }
+    maven { url = 'https://maven.glass-launcher.net/releases' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://jitpack.io/' }
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven { url = 'https://api.modrinth.com/maven' }
+        }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.glasslauncher:biny:${yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+
+    // StationAPI provides the BlockRegistryEvent / BlockEntityRegisterEvent /
+    // BlockEntityRendererRegisterEvent we listen to.
+    modImplementation "net.modificationstation:StationAPI:${stationapi_version}"
+
+    // The lib under test — built as the parent Loom project.
+    modImplementation files('../build/libs/aero-model-lib-' + project.findProperty('mod_version') + '.jar')
+
+    // Always More Items + its Glass Launcher dependency stack are downloaded
+    // via the `downloadAMI` task (below) and dropped into run/mods/. They
+    // can't be added as Gradle deps here because AMI 1.9.0 was built with
+    // Loom 1.11.x while StationAPI (and this project) still target Loom
+    // 1.9.x — Loom rejects newer-built mod jars at gradle-config time.
+    // Treating them as plain mod-folder jars sidesteps the version check.
+}
+
+tasks.register('downloadAMI') {
+    description 'Downloads Always-More-Items + Glass Launcher runtime deps into run/mods/.'
+    doLast {
+        def modsDir = file('run/mods')
+        modsDir.mkdirs()
+        def downloads = [
+            'AlwaysMoreItems-1.9.0.jar': 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/AlwaysMoreItems/1.9.0/AlwaysMoreItems-1.9.0.jar',
+            'glass-networking-1.0.6.jar': 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/glass-networking/1.0.6/glass-networking-1.0.6.jar',
+            'GlassConfigAPI-3.2.5.jar': 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/GlassConfigAPI/3.2.5/GlassConfigAPI-3.2.5.jar',
+            'modmenu-1.1.1.jar': 'https://maven.glass-launcher.net/releases/net/danygames2014/modmenu/1.1.1/modmenu-1.1.1.jar',
+        ]
+        downloads.each { name, url ->
+            def out = new File(modsDir, name)
+            if (!out.exists()) {
+                println "  Downloading ${name}..."
+                out.bytes = new java.net.URL(url).bytes
+            }
+        }
+    }
+}
+
+runClient.dependsOn downloadAMI
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mod_id", mod_id
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version, "mod_id": mod_id
+    }
+}
+
+// Loom dev runs.
+loom {
+    runs {
+        client {
+            client()
+            ideConfigGenerated true
+            runDir 'run'
+        }
+    }
+}

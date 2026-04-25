@@ -1,0 +1,21 @@
+{
+  "format_version": 1.0,
+  "pivots": {
+    "piston": [8, 8, 8]
+  },
+  "animations": {
+    "stroke": {
+      "loop": true,
+      "length": 2.0,
+      "bones": {
+        "piston": {
+          "position": {
+            "0":   [0, 0, 0],
+            "1.0": [0, 6, 0],
+            "2.0": [0, 0, 0]
+          }
+        }
+      }
+    }
+  }
+}

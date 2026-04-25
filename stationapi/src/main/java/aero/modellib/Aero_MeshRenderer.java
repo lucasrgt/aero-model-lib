@@ -36,13 +36,21 @@ public class Aero_MeshRenderer {
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
+        // Save GL_ENABLE_BIT (CULL_FACE/LIGHTING/BLEND/ALPHA_TEST), DEPTH_BUFFER_BIT
+        // (DepthMask), and CURRENT_BIT (color). glPopAttrib restores everything we
+        // touched so we cannot leak BLEND/ALPHA_TEST off into vanilla particle and
+        // sprite passes (which would render those as black blobs).
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
 
         drawGroups(tess, model.groups, model.scale, brightness);
 
-        GL11.glEnable(GL11.GL_LIGHTING);
-        GL11.glEnable(GL11.GL_CULL_FACE);
+        GL11.glPopAttrib();
         GL11.glPopMatrix();
     }
 
@@ -52,13 +60,17 @@ public class Aero_MeshRenderer {
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
 
         drawGroupsSmooth(tess, model.groups, model.scale, world, ox, topY, oz);
 
-        GL11.glEnable(GL11.GL_LIGHTING);
-        GL11.glEnable(GL11.GL_CULL_FACE);
+        GL11.glPopAttrib();
         GL11.glPopMatrix();
     }
 
@@ -86,13 +98,17 @@ public class Aero_MeshRenderer {
         GL11.glTranslatef(pivotX, pivotY, pivotZ);
         GL11.glRotatef(angle, axisX, axisY, axisZ);
         GL11.glTranslatef(-pivotX, -pivotY, -pivotZ);
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
 
         drawGroups(tess, ng, model.scale, brightness);
 
-        GL11.glEnable(GL11.GL_LIGHTING);
-        GL11.glEnable(GL11.GL_CULL_FACE);
+        GL11.glPopAttrib();
         GL11.glPopMatrix();
     }
 
@@ -116,8 +132,16 @@ public class Aero_MeshRenderer {
         Aero_MeshModel.BoneRef[] refs = model.boneRefsFor(clip, bundle);
 
         Tessellator tess = Tessellator.INSTANCE;
+        // Save GL state so we can change CULL_FACE/LIGHTING/BLEND/ALPHA_TEST
+        // without leaking the changes into post-renderer passes (particles,
+        // sprites). glPopAttrib at the end restores everything.
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
 
         for (int e = 0; e < entries.length; e++) {
             Aero_MeshModel.NamedGroup ng = entries[e];
@@ -156,8 +180,7 @@ public class Aero_MeshRenderer {
             GL11.glPopMatrix();
         }
 
-        GL11.glEnable(GL11.GL_LIGHTING);
-        GL11.glEnable(GL11.GL_CULL_FACE);
+        GL11.glPopAttrib();
     }
 
     // -----------------------------------------------------------------------
