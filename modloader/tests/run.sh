@@ -40,14 +40,11 @@ echo "=== Compiling core/ + tests/ ==="
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# Compile only the pure-Java core files that test code uses transitively.
-# Aero_AnimationDefinition references modloader-only Aero_AnimationState;
-# excluding it keeps the standalone test compile self-contained.
 CORE_FILES=()
-while IFS= read -r f; do CORE_FILES+=("$(win_path "$f")"); done < <(find "$CORE" -name "*.java" -not -name "Aero_AnimationDefinition.java")
+while IFS= read -r f; do CORE_FILES+=("$(win_path "$f")"); done < <(find "$CORE" -name "*.java")
 
 TEST_FILES=()
-while IFS= read -r f; do TEST_FILES+=("$(win_path "$f")"); done < <(find "$TESTS" -name "*Test.java")
+while IFS= read -r f; do TEST_FILES+=("$(win_path "$f")"); done < <(find "$TESTS" -name "*.java")
 
 if [ ${#TEST_FILES[@]} -eq 0 ]; then
     echo "No test files found in $TESTS."
@@ -63,7 +60,9 @@ echo "=== Running tests ==="
 TEST_CLASSES=()
 for f in "${TEST_FILES[@]}"; do
     name=$(basename "$f" .java)
-    TEST_CLASSES+=("aero.modellib.$name")
+    case "$name" in
+        *Test) TEST_CLASSES+=("aero.modellib.$name") ;;
+    esac
 done
 
 java -cp "${WOUT}${SEP}${WJUNIT}${SEP}${WHAMCREST}" \

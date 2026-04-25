@@ -1,10 +1,10 @@
 # AeroModelLib
 
-> 3D rendering and animation library for Minecraft Beta 1.7.3 (RetroMCP/ModLoader).
+> 3D rendering and animation library for Minecraft Beta 1.7.3 (RetroMCP/ModLoader and StationAPI).
 > Like GeckoLib, but for Beta 1.7.3's OpenGL 1.1 pipeline.
 > Author: lucasrgt - aerocoding.dev
 
-**Compatibility:** Java 8 | Minecraft Beta 1.7.3 | RetroMCP | ModLoader/Forge 1.0.6 | LWJGL (OpenGL 1.1+)
+**Compatibility:** Java 8 core/ModLoader | JDK 17 StationAPI build | Minecraft Beta 1.7.3 | RetroMCP | ModLoader/Forge 1.0.6 | StationAPI | LWJGL (OpenGL 1.1+)
 
 ---
 
@@ -23,6 +23,7 @@
 11. [Using with Entities (Mobs)](#11-using-with-entities-mobs)
 12. [Troubleshooting](#12-troubleshooting)
 13. [Full End-to-End Example](#13-full-end-to-end-example)
+14. [Development, Tests & Benchmarks](#14-development-tests--benchmarks)
 
 ---
 
@@ -96,10 +97,10 @@ mindmap
     Definition
       Aero_AnimationDefinition
         state ID to clip name
+      Aero_AnimationPlayback
+        platform-neutral tick and interpolation
       Aero_AnimationState
-        per instance
-        tick and setState
-        NBT persistence
+        per-loader NBT persistence
     Rendering
       Aero_JsonModelRenderer
         renderModel cubes
@@ -137,6 +138,7 @@ flowchart TD
 
     subgraph Setup
         AD[Aero_AnimationDefinition]
+        AP[Aero_AnimationPlayback]
         AS[Aero_AnimationState]
     end
 
@@ -158,7 +160,10 @@ flowchart TD
     AJ --> AL --> AB --> AC
 
     AD -- ".state(0, idle)" --> AD
+    AD -- ".createPlayback(BUNDLE)" --> AP
     AD -- ".createState(BUNDLE)" --> AS
+    AP --> AS
+    AB --> AP
     AB --> AS
 
     AS --> T --> SS
@@ -178,7 +183,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant TE as TileEntity / Entity
-    participant AS as AnimationState
+    participant AS as AnimationState/Playback
     participant CL as AnimClip
     participant MR as MeshRenderer
 
@@ -195,9 +200,9 @@ sequenceDiagram
     AS-->>MR: float time
 
     loop For each named group
-        MR->>CL: sampleRot(boneIdx, time)
+        MR->>CL: sampleRotInto(boneIdx, time, scratch)
         CL-->>MR: rx, ry, rz
-        MR->>CL: samplePos(boneIdx, time)
+        MR->>CL: samplePosInto(boneIdx, time, scratch)
         CL-->>MR: px, py, pz
         Note over MR: GL translate pivot, rotateZYX, translate back, draw
     end
@@ -210,7 +215,8 @@ sequenceDiagram
 | **Data (immutable)** | `Aero_JsonModel`, `Aero_MeshModel`, `Aero_AnimationBundle`, `Aero_AnimationClip` | Store loaded data. Thread-safe. Store as `static final`. |
 | **Loading (cached)** | `Aero_JsonModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path. |
 | **Definition** | `Aero_AnimationDefinition` | Maps state IDs to clip names. One per machine/entity type. |
-| **State (mutable)** | `Aero_AnimationState` | Per-instance playback. Tick, setState, interpolation, NBT. |
+| **Playback (mutable)** | `Aero_AnimationPlayback` | Platform-neutral tick, setState, interpolation, clip cache. |
+| **State (mutable)** | `Aero_AnimationState` | Loader-specific NBT wrapper around playback. |
 | **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer`, `Aero_InventoryRenderer` | Static methods for OpenGL drawing. |
 
 ---
@@ -271,6 +277,10 @@ Each element is a `float[30]`:
 | `[18-21]` | UV face SOUTH |
 | `[22-25]` | UV face WEST |
 | `[26-29]` | UV face EAST |
+
+At construction time, `Aero_JsonModel` also pre-bakes render quads into `quadsByFace[6]`.
+Renderers consume those packed quads directly, so per-frame JSON rendering does not rebuild
+scaled coordinates or UVs from the raw `elements` array.
 
 UV = `-1` means missing face (renderer skips it).
 
@@ -542,10 +552,10 @@ Aero_MeshRenderer.renderAnimated(
 ```
 
 This method:
-1. Renders static geometry via `renderModel()`
+1. Renders static geometry once with the animated groups in one shared GL state block
 2. For each named group in the OBJ:
    - Resolves the bone (direct → childMap → prefix fallback)
-   - Samples rotation and position at interpolated time
+   - Samples rotation, position and scale at interpolated time without per-frame allocations
    - Applies GL transform: translate(pivot + offset) → rotateZ → rotateY → rotateX → translate(-pivot)
    - Draws the group's triangles
 
@@ -577,7 +587,8 @@ stateDiagram-v2
 | Class | Role | Lifecycle |
 |-------|------|-----------|
 | `Aero_AnimationDefinition` | Maps state IDs → clip names (blueprint) | `static final`, one per machine/entity type |
-| `Aero_AnimationState` | Per-instance playback + current state | Instance field, one per TileEntity/Entity |
+| `Aero_AnimationPlayback` | Shared playback engine: tick, setState, interpolation, clip cache | One per animated instance when no Minecraft NBT adapter is needed |
+| `Aero_AnimationState` | Loader-specific playback + NBT adapter | Instance field, one per TileEntity/Entity |
 
 ### Defining states
 
@@ -677,6 +688,9 @@ Cube-based model container (Blockbench JSON).
 | `elements` | `float[][]` | Array of cubes, each float[30] |
 | `textureSize` | `float` | Texture resolution (default 128) |
 | `scale` | `float` | Scale factor (default 16 = 1 block) |
+| `invTextureSize` | `float` | Cached reciprocal used by pre-baked UVs |
+| `invScale` | `float` | Cached reciprocal used by render/bounds paths |
+| `quadsByFace` | `float[][][]` | Pre-baked packed quads grouped by face direction |
 
 | Constructor | Description |
 |-------------|-------------|
@@ -693,6 +707,7 @@ Triangulated model container (OBJ).
 |-------|------|-------------|
 | `name` | `String` | Identifier |
 | `scale` | `float` | Scale factor (default 1.0) |
+| `invScale` | `float` | Cached reciprocal scale |
 | `groups` | `float[][][]` | Static triangles per brightness group [4][N][15] |
 | `namedGroups` | `Map<String, float[][][]>` | Animated parts, same 4-group structure |
 
@@ -707,6 +722,9 @@ Triangulated model container (OBJ).
 |--------|---------|-------------|
 | `triangleCount()` | `int` | Total triangles in static geometry |
 | `triangleCountForGroup(name)` | `int` | Total triangles in a named group (0 if not found) |
+| `getNamedGroup(name)` | `float[][][]` | Named group buckets, or `null` |
+| `getBounds()` | `float[6]` | Cached AABB in block units |
+| `getStaticSmoothLightData()` | `SmoothLightData` | Cached XZ footprint and triangle centroids for smooth lighting |
 
 ---
 
@@ -724,6 +742,7 @@ Immutable container with animation data loaded from `.anim.json`.
 |--------|---------|-------------|
 | `getClip(name)` | `Aero_AnimationClip` | Clip by name, or `null` |
 | `getPivot(boneName)` | `float[3]` | Pivot in block units, or `[0,0,0]` |
+| `getParentBoneName(childName)` | `String` | Parent bone from childMap, or `null` |
 
 ---
 
@@ -742,8 +761,10 @@ Immutable animation clip data with keyframes.
 | `indexOfBone(name)` | `int` | Bone index, or `-1` |
 | `sampleRot(boneIdx, time)` | `float[3]` | Interpolated rotation [rx,ry,rz] in degrees, or `null` |
 | `samplePos(boneIdx, time)` | `float[3]` | Interpolated position [px,py,pz] in pixels, or `null` |
+| `sampleScl(boneIdx, time)` | `float[3]` | Interpolated scale [sx,sy,sz], or `null` |
+| `sampleRotInto/PosInto/SclInto(...)` | `boolean` | Allocation-free sampler into caller scratch buffer |
 
-Interpolation: **linear**, with binary search. Clamped outside keyframe bounds.
+Interpolation: linear by default, with optional step and Catmull-Rom modes. Sampling uses binary search and clamps outside keyframe bounds.
 
 ---
 
@@ -755,17 +776,14 @@ State ID → clip name mapping. One per machine/entity type.
 |--------|---------|-------------|
 | `state(stateId, clipName)` | `this` | Associates state with clip (builder pattern) |
 | `getClipName(stateId)` | `String` | Clip name, or `null` |
+| `createPlayback(bundle)` | `Aero_AnimationPlayback` | Creates platform-neutral playback (tests/tools) |
 | `createState(bundle)` | `Aero_AnimationState` | Creates state for an instance |
 
 ---
 
-### Aero_AnimationState
+### Aero_AnimationPlayback
 
-Mutable per-instance animation state.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `currentState` | `int` (public) | Current state (accessible by renderer and logic) |
+Platform-neutral mutable playback state used by both ModLoader and StationAPI.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -775,6 +793,19 @@ Mutable per-instance animation state.
 | `getCurrentClip()` | `Aero_AnimationClip` | Active clip, or `null` |
 | `getBundle()` | `Aero_AnimationBundle` | Linked bundle |
 | `getDef()` | `Aero_AnimationDefinition` | Linked def |
+
+---
+
+### Aero_AnimationState
+
+Mutable per-instance animation state. Extends `Aero_AnimationPlayback` and adds the loader-specific NBT adapter.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentState` | `int` (public) | Current state (accessible by renderer and logic) |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
 | `writeToNBT(nbt)` | `void` | Saves "Anim_state" and "Anim_time" |
 | `readFromNBT(nbt)` | `void` | Restores (prev=current to avoid first-frame jump) |
 
@@ -1214,9 +1245,11 @@ Everything else (loading, AnimationDef, AnimationState, renderAnimated) works id
 - **Non-existent bone:** Confirm the name in `bones` matches `pivots` and the OBJ group
 
 ### Performance
-- **Too many triangles:** Each group is drawn in one GL_TRIANGLES draw call. Simplify the model if FPS drops
-- **Display Lists (future):** The 4 brightness group architecture is ready for display lists, but not yet implemented
-- **Slow inventory:** `Aero_InventoryRenderer.render()` computes bounding box every call — for large lists, consider caching
+- **Too many triangles:** Triangles are bucketed by brightness and drawn through `GL_TRIANGLES`; simplify very dense models if frame time still spikes
+- **Smooth lighting:** Light is sampled once per unique XZ column in the model footprint, then interpolated from cached metadata
+- **Animation sampling:** Use `renderAnimated()` and the `sample*Into` path; it avoids per-frame vector allocation
+- **Inventory thumbnails:** Model AABBs are cached on `Aero_JsonModel` / `Aero_MeshModel`, so large inventories no longer rescan geometry every paint
+- **Profiling:** Use `modloader/tests/bench.ps1` for CPU-side regressions, then confirm heavy scenes in-game for actual driver/OpenGL cost
 
 ### Common errors
 - `RuntimeException: resource not found` — Wrong path. Must start with `/` (e.g. `/models/X.obj`). The transpiler copies from `src/retronism/assets/` into the jar
@@ -1398,6 +1431,59 @@ ModLoader.registerTileEntity(Retronism_TileSimpleCrusher.class, "SimpleCrusher",
 
 ---
 
+## 14. Development, Tests & Benchmarks
+
+The core package is shared by ModLoader and StationAPI. Keep platform-specific code in
+`modloader/aero/modellib` or `stationapi/src/main/java/aero/modellib`; pure model,
+animation and cache logic belongs in `core/aero/modellib`.
+
+### Unit tests
+
+```powershell
+powershell -ExecutionPolicy Bypass -File modloader/tests/run.ps1
+```
+
+The pure-Java suite covers animation sampling/playback, JSON quad baking, mesh bounds,
+smooth-light metadata, named group resolution and invalid-index safety. It does not
+need a Minecraft runtime.
+
+The legacy shell runner is still available:
+
+```bash
+bash modloader/tests/run.sh
+```
+
+### Microbenchmark
+
+```powershell
+powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
+```
+
+`CoreBenchmark` measures deterministic CPU-side hot paths:
+
+- pre-baked JSON quad walks
+- cached smooth-light metadata walks
+- animation bone lookup + sampling
+- a linear lookup reference for comparison
+
+This benchmark is meant for regression checks. Final render performance should still
+be verified in-game because OpenGL 1.1 driver behavior and scene state matter.
+
+### StationAPI builds
+
+```powershell
+cd stationapi
+.\gradlew.bat build
+
+cd test
+.\gradlew.bat build
+```
+
+The StationAPI projects require a JDK 17+ runtime for Gradle/Loom. The shared core
+and ModLoader test suite remain Java 8-compatible.
+
+---
+
 ## Appendix: Class Dependency Map
 
 ```mermaid
@@ -1417,6 +1503,7 @@ graph LR
 
     subgraph Animation
         AD[Aero_AnimationDefinition]
+        AP[Aero_AnimationPlayback]
         AS[Aero_AnimationState]
     end
 
@@ -1431,10 +1518,11 @@ graph LR
     AL --> AB
     AB --> AC
 
-    AD --> AS
-    AS --> AB
-    AS --> AD
-    AS --> AC
+    AD --> AP
+    AP --> AB
+    AP --> AD
+    AP --> AC
+    AP --> AS
 
     MR --> M
     MSR --> MM

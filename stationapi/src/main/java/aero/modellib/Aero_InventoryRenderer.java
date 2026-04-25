@@ -40,19 +40,17 @@ public class Aero_InventoryRenderer {
 
         beginSlot(maxDim);
         GL11.glTranslatef(-cx, -cy, -cz);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_LIGHTING);
+        beginMeshState();
 
         Tessellator tess = Tessellator.INSTANCE;
-        Aero_MeshRenderer.drawGroupsForInventory(tess, model.groups, model.scale);
+        Aero_MeshRenderer.drawGroupsForInventory(tess, model.groups, model.invScale);
 
         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
         for (int e = 0; e < entries.length; e++) {
-            Aero_MeshRenderer.drawGroupsForInventory(tess, entries[e].tris, model.scale);
+            Aero_MeshRenderer.drawGroupsForInventory(tess, entries[e].tris, model.invScale);
         }
 
-        GL11.glEnable(GL11.GL_LIGHTING);
-        GL11.glEnable(GL11.GL_CULL_FACE);
+        endMeshState();
         endSlot();
     }
 
@@ -65,5 +63,19 @@ public class Aero_InventoryRenderer {
 
     private static void endSlot() {
         GL11.glPopMatrix();
+    }
+
+    private static void beginMeshState() {
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static void endMeshState() {
+        GL11.glPopAttrib();
     }
 }

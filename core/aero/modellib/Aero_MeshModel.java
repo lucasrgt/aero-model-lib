@@ -47,6 +47,7 @@ public class Aero_MeshModel {
 
     public final String name;
     public final float scale;
+    public final float invScale;
 
     /**
      * Static triangles per brightness group (excludes named groups).
@@ -67,11 +68,14 @@ public class Aero_MeshModel {
     private Aero_AnimationBundle cachedBundle;
     private BoneRef[] cachedBoneRefs;
     private float[] cachedBounds;
+    private SmoothLightData cachedStaticSmoothLightData;
 
     public Aero_MeshModel(String name, float[][][] groups, float scale, Map namedGroups) {
+        if (scale == 0f) throw new IllegalArgumentException("scale must be non-zero");
         this.name = name;
         this.groups = groups;
         this.scale = scale;
+        this.invScale = 1f / scale;
         this.namedGroups = namedGroups;
     }
 
@@ -89,11 +93,16 @@ public class Aero_MeshModel {
 
     /** Total triangle count in a named group, or 0 if not found. */
     public int triangleCountForGroup(String groupName) {
-        float[][][] ng = (float[][][]) namedGroups.get(groupName);
+        float[][][] ng = getNamedGroup(groupName);
         if (ng == null) return 0;
         int n = 0;
         for (int g = 0; g < 4; g++) n += ng[g].length;
         return n;
+    }
+
+    /** Returns a named group's 4 brightness buckets, or null if absent. */
+    public float[][][] getNamedGroup(String groupName) {
+        return (float[][][]) namedGroups.get(groupName);
     }
 
     /**
@@ -110,7 +119,7 @@ public class Aero_MeshModel {
 
         float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
         float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
-        final float invSc = 1f / scale;
+        final float invSc = invScale;
 
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
@@ -161,6 +170,58 @@ public class Aero_MeshModel {
     }
 
     /**
+     * Returns cached smooth-light metadata for static geometry.
+     *
+     * The renderer uses this to avoid rescanning every triangle each frame just
+     * to derive the XZ light footprint and triangle centroid sample positions.
+     */
+    public SmoothLightData getStaticSmoothLightData() {
+        SmoothLightData cached = cachedStaticSmoothLightData;
+        if (cached != null) return cached;
+        cached = buildSmoothLightData(groups, invScale);
+        cachedStaticSmoothLightData = cached;
+        return cached;
+    }
+
+    private static SmoothLightData buildSmoothLightData(float[][][] groups, float invSc) {
+        float minX = Float.POSITIVE_INFINITY, maxX = Float.NEGATIVE_INFINITY;
+        float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+        float[][] centroidX = new float[4][];
+        float[][] centroidZ = new float[4][];
+        final float oneThird = 1f / 3f;
+        boolean hasTris = false;
+
+        for (int g = 0; g < 4; g++) {
+            float[][] tris = groups[g];
+            float[] cx = new float[tris.length];
+            float[] cz = new float[tris.length];
+            centroidX[g] = cx;
+            centroidZ[g] = cz;
+
+            for (int i = 0; i < tris.length; i++) {
+                float[] t = tris[i];
+                float x0 = t[0] * invSc, x1 = t[5] * invSc, x2 = t[10] * invSc;
+                float z0 = t[2] * invSc, z1 = t[7] * invSc, z2 = t[12] * invSc;
+
+                if (x0 < minX) minX = x0; if (x1 < minX) minX = x1; if (x2 < minX) minX = x2;
+                if (x0 > maxX) maxX = x0; if (x1 > maxX) maxX = x1; if (x2 > maxX) maxX = x2;
+                if (z0 < minZ) minZ = z0; if (z1 < minZ) minZ = z1; if (z2 < minZ) minZ = z2;
+                if (z0 > maxZ) maxZ = z0; if (z1 > maxZ) maxZ = z1; if (z2 > maxZ) maxZ = z2;
+
+                cx[i] = (x0 + x1 + x2) * oneThird;
+                cz[i] = (z0 + z1 + z2) * oneThird;
+                hasTris = true;
+            }
+        }
+
+        if (!hasTris) {
+            minX = maxX = minZ = maxZ = 0f;
+        }
+
+        return new SmoothLightData(hasTris, minX, maxX, minZ, maxZ, centroidX, centroidZ);
+    }
+
+    /**
      * Returns the named groups as an array, computed once and cached.
      * Used by the animated render path to avoid allocating a HashMap
      * iterator + Map.Entry views every frame.
@@ -207,11 +268,11 @@ public class Aero_MeshModel {
                 if (boneIdx < 0) {
                     // Hierarchy: try childMap (explicit Blockbench parent) first,
                     // walking up one level if the direct parent has no keyframes.
-                    String parentName = (String) bundle.childMap.get(groupName);
+                    String parentName = bundle.getParentBoneName(groupName);
                     if (parentName != null) {
                         boneIdx = clip.indexOfBone(parentName);
                         if (boneIdx < 0) {
-                            String grandParent = (String) bundle.childMap.get(parentName);
+                            String grandParent = bundle.getParentBoneName(parentName);
                             if (grandParent != null) boneIdx = clip.indexOfBone(grandParent);
                         }
                     }
@@ -271,6 +332,28 @@ public class Aero_MeshModel {
         BoneRef(int boneIdx, float[] pivot) {
             this.boneIdx = boneIdx;
             this.pivot   = pivot;
+        }
+    }
+
+    /** Precomputed static geometry data for smooth-light rendering. */
+    public static final class SmoothLightData {
+        public final boolean hasTriangles;
+        public final float minX;
+        public final float maxX;
+        public final float minZ;
+        public final float maxZ;
+        public final float[][] centroidX;
+        public final float[][] centroidZ;
+
+        SmoothLightData(boolean hasTriangles, float minX, float maxX, float minZ, float maxZ,
+                        float[][] centroidX, float[][] centroidZ) {
+            this.hasTriangles = hasTriangles;
+            this.minX = minX;
+            this.maxX = maxX;
+            this.minZ = minZ;
+            this.maxZ = maxZ;
+            this.centroidX = centroidX;
+            this.centroidZ = centroidZ;
         }
     }
 }

@@ -54,4 +54,9 @@ public class Aero_AnimationBundle {
         float[] p = (float[]) pivots.get(boneName);
         return p != null ? p : ZERO_PIVOT;
     }
+
+    /** Returns the parent animated bone for a child group, or null if none. */
+    public String getParentBoneName(String childName) {
+        return (String) childMap.get(childName);
+    }
 }

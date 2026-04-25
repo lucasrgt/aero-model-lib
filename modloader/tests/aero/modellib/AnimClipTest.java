@@ -116,14 +116,8 @@ public class AnimClipTest {
 
 	@Test
 	public void testSampleRotWithInvalidBoneIdxReturnsNull() {
-		// Act: boneIdx -1 triggers ArrayIndexOutOfBounds; the API contract
-		// says sampleRot(-1) should return null. Since the implementation
-		// does not guard against -1 at array level, we test with a bone
-		// that has null rotTimes instead.
-		// For -1 index, the method would throw — so we verify via indexOfBone flow.
-		int idx = fanClip.indexOfBone("missing");
-		assertEquals(-1, idx);
-		// Callers should check idx != -1 before calling sampleRot.
+		assertNull(fanClip.sampleRot(-1, 0f));
+		assertFalse(fanClip.sampleRotInto(-1, 0f, new float[3]));
 	}
 
 	// --- samplePos tests ---
@@ -166,9 +160,14 @@ public class AnimClipTest {
 
 	@Test
 	public void testSamplePosWithInvalidBoneIdxReturnsNull() {
-		// Same rationale as rotation: verify indexOfBone returns -1
-		int idx = fanClip.indexOfBone("ghost");
-		assertEquals(-1, idx);
+		assertNull(fanClip.samplePos(-1, 0f));
+		assertFalse(fanClip.samplePosInto(-1, 0f, new float[3]));
+	}
+
+	@Test
+	public void testSampleSclWithInvalidBoneIdxReturnsNull() {
+		assertNull(fanClip.sampleScl(-1, 0f));
+		assertFalse(fanClip.sampleSclInto(-1, 0f, new float[3]));
 	}
 
 	// --- Multiple bones test ---

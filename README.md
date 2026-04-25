@@ -6,7 +6,7 @@ Demo Animated Machine on YouTube:
 
 [![Demo](https://img.youtube.com/vi/ewJ0XgnOSHE/maxresdefault.jpg)](https://www.youtube.com/watch?v=ewJ0XgnOSHE)
 
-> **Compatibility:** Java 8 | Minecraft Beta 1.7.3 | RetroMCP | ModLoader / Forge 1.0.6 | LWJGL (OpenGL 1.1+)
+> **Compatibility:** Java 8 core/ModLoader | JDK 17 StationAPI build | Minecraft Beta 1.7.3 | RetroMCP | ModLoader / Forge 1.0.6 | StationAPI | LWJGL (OpenGL 1.1+)
 
 ## Features
 
@@ -15,7 +15,8 @@ Demo Animated Machine on YouTube:
 - **Keyframe animation** — `.anim.json` format with rotation + position keyframes, loop/clamp, state machine
 - **Partial-tick interpolation** — Smooth 60fps animation from 20-tick updates
 - **Brightness optimization** — Triangles pre-classified into 4 groups, only 4 color calls per frame
-- **Built-in caching** — All loaders cache by resource path automatically
+- **Built-in caching** — All loaders cache by resource path; JSON quads, mesh bounds, smooth-light metadata and animation lookups are cached too
+- **Dual loader support** — Shared Java 8 core with ModLoader and StationAPI render/state adapters
 
 ## Quick Start
 
@@ -82,7 +83,8 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone |
 | `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |
-| `Aero_AnimationState` | Per-instance playback state with tick/setState/NBT |
+| `Aero_AnimationPlayback` | Platform-neutral playback engine with tick/setState/interpolation |
+| `Aero_AnimationState` | Loader-specific playback state with NBT persistence |
 | `Aero_AnimationLoader` | Loads + caches `.anim.json` files from classpath |
 | `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
 
@@ -207,6 +209,20 @@ See [DOC.md § State Machine](DOC.md#6-state-machine) for flowcharts, diagrams, 
 ## Documentation
 
 See [DOC.md](DOC.md) for the full API reference, architecture diagrams, and end-to-end examples.
+
+## Development
+
+```powershell
+# Core unit tests (pure Java, no Minecraft runtime)
+powershell -ExecutionPolicy Bypass -File modloader/tests/run.ps1
+
+# Core microbenchmark for geometry caches and animation sampling
+powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
+
+# StationAPI library build (requires JDK 17+)
+cd stationapi
+.\gradlew.bat build
+```
 
 ## Author
 
