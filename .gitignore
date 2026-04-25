@@ -1,2 +1,10 @@
-*.class
-!scripts/*.class
+# Gradle / Loom build artifacts (StationAPI subproject)
+stationapi/build/
+stationapi/.gradle/
+stationapi/.idea/
+stationapi/*.iml
+
+# IDE
+*.iml
+.idea/
+.vscode/
