@@ -1,0 +1,59 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'babric-loom-extension' version '1.9.2'
+    id 'maven-publish'
+}
+
+archivesBaseName = mod_id
+version = mod_version
+group = maven_group
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+
+repositories {
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.glass-launcher.net/babric' }
+    maven { url = 'https://maven.glass-launcher.net/snapshots' }
+    maven { url = 'https://maven.glass-launcher.net/releases' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "babric:yarn:${yarn_mappings}:v2"
+    modImplementation "babric:fabric-loader:${loader_version}"
+}
+
+// Pull in the shared pure-Java core sources from sibling dir libraries/modellib/core/.
+// Same .java files compiled for both ModLoader (via transpile.sh) and StationAPI (here).
+sourceSets {
+    main {
+        java {
+            srcDirs += file('../core')
+        }
+        resources {
+            srcDirs = ['src/main/resources']
+        }
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+jar {
+    from "../LICENSE"
+    manifest {
+        attributes(
+            "Implementation-Title": archivesBaseName,
+            "Implementation-Version": version
+        )
+    }
+}

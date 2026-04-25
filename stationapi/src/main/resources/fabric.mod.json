@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "aero-model-lib",
+  "version": "${version}",
+
+  "name": "Aero Model Lib",
+  "description": "OBJ + Blockbench JSON model rendering and keyframe animation for Beta 1.7.3 / StationAPI.",
+  "authors": ["lucasrgt"],
+  "contact": {
+    "homepage": "https://aerocoding.dev",
+    "sources": "https://github.com/lucasrgt/aero-model-lib",
+    "issues": "https://github.com/lucasrgt/aero-model-lib/issues"
+  },
+  "license": "MIT",
+
+  "environment": "client",
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "b1.7.3"
+  }
+}
