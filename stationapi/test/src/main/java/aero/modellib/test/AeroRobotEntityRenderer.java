@@ -3,10 +3,10 @@ package aero.modellib.test;
 import aero.modellib.Aero_EntityModelRenderer;
 import aero.modellib.Aero_EntityModelTransform;
 import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_MeshRenderer;
 import aero.modellib.Aero_ObjLoader;
 import aero.modellib.Aero_RenderDistance;
 import aero.modellib.Aero_RenderLod;
+import aero.modellib.Aero_RenderOptions;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.entity.Entity;
 import org.lwjgl.opengl.GL11;
@@ -14,7 +14,7 @@ import org.lwjgl.opengl.GL11;
 /**
  * Renderer for {@link AeroRobotEntity}. Drives the model via
  * {@link Aero_EntityModelRenderer} and tints the mesh red as the robot
- * approaches overheat using the lib's {@link Aero_MeshRenderer#setTint}.
+ * approaches overheat using explicit render options.
  */
 public class AeroRobotEntityRenderer extends EntityRenderer {
 
@@ -25,8 +25,9 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
     // on the entity origin instead of being offset by the OBJ-coordinate
     // bias.
     private static final Aero_EntityModelTransform TRANSFORM =
-        Aero_EntityModelTransform.DEFAULT
-            .withOffset(-0.5f, 0f, -0.5f);
+        Aero_EntityModelTransform.builder()
+            .offset(-0.5f, 0f, -0.5f)
+            .build();
 
     public AeroRobotEntityRenderer() {
         shadowRadius = 0.4f;
@@ -72,18 +73,14 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
         int ez = (int) Math.floor(entity.z);
         float brightness = AeroLight.brightnessAbove(entity.world, ex, ey, ez);
 
-        Aero_MeshRenderer.setTint(1f, g, b);
-        try {
-            if (lod.shouldAnimate()) {
-                Aero_EntityModelRenderer.renderAnimated(
-                    MODEL, bot.animState,
-                    x, y, z, yaw, brightness, partialTick, TRANSFORM);
-            } else {
-                Aero_EntityModelRenderer.renderAtRest(
-                    MODEL, x, y, z, yaw, brightness, TRANSFORM);
-            }
-        } finally {
-            Aero_MeshRenderer.resetTint();
+        Aero_RenderOptions renderOptions = Aero_RenderOptions.tint(1f, g, b);
+        if (lod.shouldAnimate()) {
+            Aero_EntityModelRenderer.renderAnimated(
+                MODEL, bot.animState,
+                x, y, z, yaw, brightness, partialTick, TRANSFORM, renderOptions);
+        } else {
+            Aero_EntityModelRenderer.renderAtRest(
+                MODEL, x, y, z, yaw, brightness, TRANSFORM, renderOptions);
         }
 
         // Reset the GL color register too — defensive against any caller

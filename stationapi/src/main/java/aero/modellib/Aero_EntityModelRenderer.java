@@ -71,11 +71,20 @@ public final class Aero_EntityModelRenderer {
                               double x, double y, double z,
                               float yaw, float brightness,
                               Aero_EntityModelTransform transform) {
+        render(model, x, y, z, yaw, brightness, transform, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void render(Aero_MeshModel model,
+                              double x, double y, double z,
+                              float yaw, float brightness,
+                              Aero_EntityModelTransform transform,
+                              Aero_RenderOptions options) {
         requireTransform(transform);
         if (!shouldRender(x, y, z, transform)) return;
         beginEntityTransform(x, y, z, yaw, transform);
         try {
-            Aero_MeshRenderer.renderModel(model, transform.offsetX, transform.offsetY, transform.offsetZ, 0f, brightness);
+            Aero_MeshRenderer.renderModel(model, transform.offsetX, transform.offsetY, transform.offsetZ,
+                0f, brightness, options);
         } finally {
             GL11.glPopMatrix();
         }
@@ -92,13 +101,21 @@ public final class Aero_EntityModelRenderer {
                                     double x, double y, double z,
                                     float yaw, float brightness,
                                     Aero_EntityModelTransform transform) {
+        renderAtRest(model, x, y, z, yaw, brightness, transform, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAtRest(Aero_MeshModel model,
+                                    double x, double y, double z,
+                                    float yaw, float brightness,
+                                    Aero_EntityModelTransform transform,
+                                    Aero_RenderOptions options) {
         requireTransform(transform);
         if (!shouldRender(x, y, z, transform)) return;
         beginEntityTransform(x, y, z, yaw, transform);
         try {
             Aero_MeshRenderer.renderModelAtRest(model,
                 transform.offsetX, transform.offsetY, transform.offsetZ,
-                0f, brightness);
+                0f, brightness, options);
         } finally {
             GL11.glPopMatrix();
         }
@@ -133,8 +150,19 @@ public final class Aero_EntityModelRenderer {
                                       double x, double y, double z,
                                       float yaw, float brightness, float partialTick,
                                       Aero_EntityModelTransform transform) {
+        renderAnimated(model, state, x, y, z, yaw, brightness, partialTick,
+            transform, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                      Aero_AnimationPlayback state,
+                                      double x, double y, double z,
+                                      float yaw, float brightness, float partialTick,
+                                      Aero_EntityModelTransform transform,
+                                      Aero_RenderOptions options) {
         if (state == null) throw new IllegalArgumentException("state must not be null");
-        renderAnimated(model, state.getBundle(), state.getDef(), state, x, y, z, yaw, brightness, partialTick, transform);
+        renderAnimated(model, state.getBundle(), state.getDef(), state,
+            x, y, z, yaw, brightness, partialTick, transform, options);
     }
 
     public static void renderAnimated(Aero_MeshModel model,
@@ -174,13 +202,25 @@ public final class Aero_EntityModelRenderer {
                                       double x, double y, double z,
                                       float yaw, float brightness, float partialTick,
                                       Aero_EntityModelTransform transform) {
+        renderAnimated(model, bundle, def, state, x, y, z, yaw, brightness, partialTick,
+            transform, Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                      Aero_AnimationBundle bundle,
+                                      Aero_AnimationDefinition def,
+                                      Aero_AnimationPlayback state,
+                                      double x, double y, double z,
+                                      float yaw, float brightness, float partialTick,
+                                      Aero_EntityModelTransform transform,
+                                      Aero_RenderOptions options) {
         requireTransform(transform);
         if (!shouldRender(x, y, z, transform)) return;
         beginEntityTransform(x, y, z, yaw, transform);
         try {
             Aero_MeshRenderer.renderAnimated(model, bundle, def, state,
                 transform.offsetX, transform.offsetY, transform.offsetZ,
-                brightness, partialTick);
+                brightness, partialTick, options);
         } finally {
             GL11.glPopMatrix();
         }

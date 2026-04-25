@@ -187,11 +187,21 @@ public final class CoreBenchmark {
                 values[b][k] = new float[]{b + k, b - k, k};
             }
         }
-        return new Aero_AnimationClip(
-            "bench", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f, boneNames,
-            times, values, null,
-            times, values, null,
-            null, null, null);
+        Aero_AnimationClip.Builder builder = Aero_AnimationClip.builder("bench")
+            .loop(Aero_AnimationLoop.LOOP)
+            .length(1f);
+        for (int b = 0; b < bones; b++) {
+            builder.bone(boneNames[b])
+                .rotation(times[b], values[b], linearEasings(times[b].length))
+                .position(times[b], values[b], linearEasings(times[b].length));
+        }
+        return builder.build();
+    }
+
+    private static Aero_Easing[] linearEasings(int count) {
+        Aero_Easing[] easings = new Aero_Easing[count];
+        for (int i = 0; i < count; i++) easings[i] = Aero_Easing.LINEAR;
+        return easings;
     }
 
     private static String format(double value) {

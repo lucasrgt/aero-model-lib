@@ -32,7 +32,7 @@ import java.util.Random;
  *   → loop
  * </pre>
  *
- * Exercises clip switching, smooth tint interpolation (lib's setTint API),
+ * Exercises clip switching, smooth tint interpolation (explicit render options),
  * yaw normalisation across the network sync boundary, AND every animation
  * channel (rotation X+Y+Z, position 3D, non-uniform scale) inside meltdown.
  */

@@ -14,7 +14,7 @@ public interface Aero_AnimationPredicate {
 
     /**
      * @param playback The playback being routed. Inspect
-     *                 {@link Aero_AnimationPlayback#currentState},
+     *                 {@link Aero_AnimationPlayback#getCurrentState()},
      *                 {@link Aero_AnimationPlayback#isFinished()},
      *                 etc., to decide.
      * @return {@code true} if the rule's state should win this tick.

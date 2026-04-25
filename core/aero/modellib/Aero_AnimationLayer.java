@@ -1,48 +1,81 @@
 package aero.modellib;
 
 /**
- * One playback head inside an {@link Aero_AnimationStack}. Wraps a
- * {@link Aero_AnimationPlayback} with two render-time knobs:
+ * Immutable render layer inside an {@link Aero_AnimationStack}.
  *
- * <ul>
- *   <li>{@link #additive} — when {@code true} the layer's per-bone deltas
- *       are <em>summed</em> into the running pose; when {@code false} they
- *       <em>replace</em> whatever the previous layers produced for that
- *       bone. Replace mode is the default and matches single-clip playback;
- *       additive mode is for stacking secondary motions (head look, arm
- *       wave, hit reaction) on top of a base loop.</li>
- *   <li>{@link #weight} — multiplier applied to the layer's contribution
- *       (0..1). Lets a fade-in/fade-out of a secondary layer happen
- *       independently from any clip-internal transitions.</li>
- * </ul>
- *
- * The stack iterates layers in insertion order, so a typical setup is
- * <pre>
- *   stack.add(walkLayer);              // base, replace, weight 1
- *   stack.add(armWaveLayer.additive(true));
- * </pre>
- * with the base providing the full skeleton pose and the additive layer
- * only animating the bones it cares about.
+ * The playback is the mutable animation clock; this object only stores how
+ * that playback contributes to the final pose.
  */
 public final class Aero_AnimationLayer {
 
-    public final Aero_AnimationPlayback playback;
-    public boolean additive;
-    public float   weight;
+    private final Aero_AnimationPlayback playback;
+    private final boolean additive;
+    private final float weight;
 
-    public Aero_AnimationLayer(Aero_AnimationPlayback playback) {
-        this(playback, false, 1.0f);
+    public static Builder builder(Aero_AnimationPlayback playback) {
+        return new Builder(playback);
     }
 
-    public Aero_AnimationLayer(Aero_AnimationPlayback playback, boolean additive, float weight) {
-        if (playback == null) throw new IllegalArgumentException("playback must not be null");
-        this.playback = playback;
-        this.additive = additive;
-        this.weight   = weight;
+    public static Aero_AnimationLayer replace(Aero_AnimationPlayback playback) {
+        return builder(playback).build();
     }
 
-    /** Fluent setter — {@code stack.add(new Aero_AnimationLayer(pb).additive(true))}. */
-    public Aero_AnimationLayer additive(boolean v) { this.additive = v; return this; }
-    /** Fluent setter — opacity-style multiplier, clamped at the call site if you need [0,1]. */
-    public Aero_AnimationLayer weight(float v)     { this.weight   = v; return this; }
+    public static Aero_AnimationLayer additive(Aero_AnimationPlayback playback) {
+        return builder(playback).additive(true).build();
+    }
+
+    private Aero_AnimationLayer(Builder builder) {
+        this.playback = builder.playback;
+        this.additive = builder.additive;
+        this.weight = builder.weight;
+    }
+
+    public Aero_AnimationPlayback getPlayback() {
+        return playback;
+    }
+
+    public boolean isAdditive() {
+        return additive;
+    }
+
+    public float getWeight() {
+        return weight;
+    }
+
+    public Builder toBuilder() {
+        return builder(playback)
+            .additive(additive)
+            .weight(weight);
+    }
+
+    public static final class Builder {
+        private final Aero_AnimationPlayback playback;
+        private boolean additive;
+        private float weight = 1f;
+
+        private Builder(Aero_AnimationPlayback playback) {
+            if (playback == null) throw new IllegalArgumentException("playback must not be null");
+            this.playback = playback;
+        }
+
+        public Builder additive(boolean additive) {
+            this.additive = additive;
+            return this;
+        }
+
+        public Builder weight(float weight) {
+            if (Float.isNaN(weight) || Float.isInfinite(weight)) {
+                throw new IllegalArgumentException("weight must be finite");
+            }
+            if (weight < 0f || weight > 1f) {
+                throw new IllegalArgumentException("weight must be between 0 and 1");
+            }
+            this.weight = weight;
+            return this;
+        }
+
+        public Aero_AnimationLayer build() {
+            return new Aero_AnimationLayer(this);
+        }
+    }
 }

@@ -12,8 +12,7 @@ import java.util.Map;
  */
 public class Aero_AnimationBundle {
 
-    /** Shared sentinel returned by getPivot when a bone has no pivot defined. */
-    private static final float[] ZERO_PIVOT = {0f, 0f, 0f};
+    static final float[] ZERO_PIVOT = {0f, 0f, 0f};
 
     /** Map<String, Aero_AnimationClip> — clips indexed by name. */
     public final Map clips;
@@ -46,24 +45,21 @@ public class Aero_AnimationBundle {
         return (Aero_AnimationClip) clips.get(name);
     }
 
-    /**
-     * Returns the bone pivot in block units, or float[]{0,0,0} if not defined.
-     * Values already divided by 16 (Blockbench pixels → block units).
-     */
-    public float[] getPivot(String boneName) {
-        float[] p = (float[]) pivots.get(boneName);
-        return p != null ? p : ZERO_PIVOT;
+    public boolean hasPivot(String boneName) {
+        return boneName != null && pivots.containsKey(boneName);
     }
 
-    /**
-     * Reference equality against this bundle's "no pivot" sentinel — lets
-     * callers tell apart "bone has no pivot entry" (returns the shared
-     * zero array) from "bone has an explicit (0, 0, 0) pivot" (returns a
-     * fresh array). Stack rendering uses this to skip past bundles that
-     * don't know about a bone and try the next layer's bundle instead.
-     */
-    public float[] getPivotZero() {
-        return ZERO_PIVOT;
+    public boolean getPivotInto(String boneName, float[] out) {
+        if (out == null) throw new IllegalArgumentException("out must not be null");
+        float[] p = (float[]) pivots.get(boneName);
+        if (p == null) return false;
+        out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
+        return true;
+    }
+
+    float[] pivotOrZero(String boneName) {
+        float[] p = (float[]) pivots.get(boneName);
+        return p != null ? p : ZERO_PIVOT;
     }
 
     /** Returns the parent animated bone for a child group, or null if none. */

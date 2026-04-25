@@ -25,8 +25,9 @@ public class AnimationStackTest {
 
     @Test
     public void singleReplaceLayerMirrorsClip() {
-        Aero_AnimationStack stack = new Aero_AnimationStack()
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("walk", 10f, 20f, 30f))));
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(constantRotClip("walk", 10f, 20f, 30f)))
+            .build();
         stack.tick();
 
         float[] out = new float[3];
@@ -39,9 +40,10 @@ public class AnimationStackTest {
     @Test
     public void additiveLayerSumsRotation() {
         // Base rotation 10, additive layer adds 5 → expect 15.
-        Aero_AnimationStack stack = new Aero_AnimationStack()
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("base", 10f, 0f, 0f))))
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("addon", 5f, 0f, 0f))).additive(true));
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(constantRotClip("base", 10f, 0f, 0f)))
+            .additive(playbackOf(constantRotClip("addon", 5f, 0f, 0f)))
+            .build();
         stack.tick();
 
         float[] out = new float[3];
@@ -52,10 +54,10 @@ public class AnimationStackTest {
     @Test
     public void additiveWeightScalesContribution() {
         // Base 10 + additive 20 at weight 0.5 → 10 + 20 * 0.5 = 20.
-        Aero_AnimationStack stack = new Aero_AnimationStack()
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("base", 10f, 0f, 0f))))
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("addon", 20f, 0f, 0f)))
-                .additive(true).weight(0.5f));
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(constantRotClip("base", 10f, 0f, 0f)))
+            .additive(playbackOf(constantRotClip("addon", 20f, 0f, 0f)), 0.5f)
+            .build();
         stack.tick();
 
         float[] out = new float[3];
@@ -66,10 +68,12 @@ public class AnimationStackTest {
     @Test
     public void replaceWeightLerpsTowardNewValue() {
         // Base 10, second replace layer at value 30 weight 0.25 → 10 + (30-10)*0.25 = 15.
-        Aero_AnimationStack stack = new Aero_AnimationStack()
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("base", 10f, 0f, 0f))))
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClip("override", 30f, 0f, 0f)))
-                .weight(0.25f));
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(constantRotClip("base", 10f, 0f, 0f)))
+            .add(Aero_AnimationLayer.builder(playbackOf(constantRotClip("override", 30f, 0f, 0f)))
+                .weight(0.25f)
+                .build())
+            .build();
         stack.tick();
 
         float[] out = new float[3];
@@ -81,9 +85,10 @@ public class AnimationStackTest {
     public void additiveScaleComposesMultiplicatively() {
         // Base scale 1.5, additive layer at scale 2.0 weight 1 → 1.5 * 2 = 3.0.
         // Tests that we do not accidentally lerp scale or sum it linearly.
-        Aero_AnimationStack stack = new Aero_AnimationStack()
-            .add(new Aero_AnimationLayer(playbackOf(constantSclClip("base",  1.5f))))
-            .add(new Aero_AnimationLayer(playbackOf(constantSclClip("addon", 2.0f))).additive(true));
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(constantSclClip("base",  1.5f)))
+            .additive(playbackOf(constantSclClip("addon", 2.0f)))
+            .build();
         stack.tick();
 
         float[] out = new float[3];
@@ -95,9 +100,10 @@ public class AnimationStackTest {
     public void layerWithoutBoneIsPassthrough() {
         // First layer animates "head"; second layer animates "tail" only.
         // Sampling "head" should return the first layer's value untouched.
-        Aero_AnimationStack stack = new Aero_AnimationStack()
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClipForBone("base", "head", 42f))))
-            .add(new Aero_AnimationLayer(playbackOf(constantRotClipForBone("other", "tail", 99f))).additive(true));
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(constantRotClipForBone("base", "head", 42f)))
+            .additive(playbackOf(constantRotClipForBone("other", "tail", 99f)))
+            .build();
         stack.tick();
 
         float[] out = new float[3];
@@ -107,9 +113,42 @@ public class AnimationStackTest {
 
     @Test
     public void emptyStackReturnsFalse() {
-        Aero_AnimationStack stack = new Aero_AnimationStack();
+        Aero_AnimationStack stack = Aero_AnimationStack.empty();
         float[] out = new float[3];
         assertFalse(stack.sampleRot("anything", 0f, out));
+    }
+
+    @Test
+    public void singleLayerStackMatchesPlaybackSampling() {
+        Aero_AnimationClip clip = TestClips.clip("move", Aero_AnimationLoop.LOOP, 1f,
+            new String[]{"x"},
+            new float[][]{{0f, 1f}}, new float[][][]{{{0f, 0f, 0f}, {100f, 50f, 25f}}},
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}});
+        Aero_AnimationPlayback playback = playbackOf(clip);
+        playback.tick();
+
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playback)
+            .build();
+
+        float partialTick = 0.5f;
+        float[] direct = new float[3];
+        float[] layered = new float[3];
+        assertTrue(playback.sampleRotBlended(clip, clip.indexOfBone("x"), "x",
+            playback.getInterpolatedTime(partialTick), partialTick, direct));
+        assertTrue(stack.sampleRot("x", partialTick, layered));
+        assertArrayEquals(direct, layered, DELTA);
+    }
+
+    @Test
+    public void layerBuilderRejectsInvalidWeight() {
+        try {
+            Aero_AnimationLayer.builder(playbackOf(constantRotClip("bad", 0f, 0f, 0f)))
+                .weight(1.1f);
+            fail("expected invalid layer weight");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("weight"));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -117,30 +156,38 @@ public class AnimationStackTest {
     // ------------------------------------------------------------------
 
     private static Aero_AnimationClip constantRotClip(String name, float rx, float ry, float rz) {
-        return new Aero_AnimationClip(
-            name, Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
-            new String[]{"x"},
-            new float[][]{{0f}}, new float[][][]{{{rx, ry, rz}}}, null,
-            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
-            null, null, null);
+        return constantRotClipForBone(name, "x", rx, ry, rz);
     }
 
     private static Aero_AnimationClip constantRotClipForBone(String name, String bone, float rx) {
-        return new Aero_AnimationClip(
-            name, Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
-            new String[]{bone},
-            new float[][]{{0f}}, new float[][][]{{{rx, 0f, 0f}}}, null,
-            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
-            null, null, null);
+        return constantRotClipForBone(name, bone, rx, 0f, 0f);
+    }
+
+    private static Aero_AnimationClip constantRotClipForBone(String name, String bone,
+                                                              float rx, float ry, float rz) {
+        return Aero_AnimationClip.builder(name)
+            .loop(Aero_AnimationLoop.LOOP)
+            .length(1f)
+            .bone(bone)
+                .rotation(
+                    new float[]{0f},
+                    new float[][]{{rx, ry, rz}},
+                    new Aero_Easing[]{Aero_Easing.LINEAR})
+                .endBone()
+            .build();
     }
 
     private static Aero_AnimationClip constantSclClip(String name, float s) {
-        return new Aero_AnimationClip(
-            name, Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
-            new String[]{"x"},
-            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
-            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
-            new float[][]{{0f}}, new float[][][]{{{s, s, s}}}, null);
+        return Aero_AnimationClip.builder(name)
+            .loop(Aero_AnimationLoop.LOOP)
+            .length(1f)
+            .bone("x")
+                .scale(
+                    new float[]{0f},
+                    new float[][]{{s, s, s}},
+                    new Aero_Easing[]{Aero_Easing.LINEAR})
+                .endBone()
+            .build();
     }
 
     private static Aero_AnimationPlayback playbackOf(Aero_AnimationClip clip) {
