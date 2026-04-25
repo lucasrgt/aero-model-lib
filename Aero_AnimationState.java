@@ -33,6 +33,13 @@ public class Aero_AnimationState {
     private float playbackTime;      // seconds, current time in clip
     private float prevPlaybackTime;  // seconds, time at previous tick (for interpolation)
 
+    // Lazy single-slot cache for getCurrentClip() — invalidated on state change.
+    // Active clip rarely changes (only on setState / readFromNBT), but
+    // getCurrentClip() is hit on every tick AND every frame, so caching
+    // collapses two HashMap lookups per call into a single int compare.
+    private Aero_AnimationClip cachedClip;
+    private int cachedClipState = -1; // sentinel: cache invalid
+
     /** Built by Aero_AnimationDefinition.createState(). */
     Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle) {
         this.def          = def;
@@ -94,6 +101,7 @@ public class Aero_AnimationState {
         String newClip = def.getClipName(stateId);
 
         currentState = stateId;
+        cachedClipState = -1; // force getCurrentClip() to re-resolve
 
         // Reset time only if the clip changes (or if there was no clip before)
         boolean clipChanged = (newClip == null) ? (oldClip != null)
@@ -134,9 +142,11 @@ public class Aero_AnimationState {
 
     /** Returns the currently active clip, or null if the state has no clip defined. */
     public Aero_AnimationClip getCurrentClip() {
+        if (cachedClipState == currentState) return cachedClip;
         String clipName = def.getClipName(currentState);
-        if (clipName == null) return null;
-        return bundle.getClip(clipName);
+        cachedClip = clipName != null ? bundle.getClip(clipName) : null;
+        cachedClipState = currentState;
+        return cachedClip;
     }
 
     /** Exposes the bundle for the renderer to access pivots and clips. */
@@ -165,6 +175,7 @@ public class Aero_AnimationState {
      */
     public void readFromNBT(NBTTagCompound nbt) {
         currentState      = nbt.getInteger("Anim_state");   // 0 if absent
+        cachedClipState   = -1; // invalidate clip cache after state restore
         playbackTime      = nbt.hasKey("Anim_time") ? nbt.getFloat("Anim_time") : 0f;
         prevPlaybackTime  = playbackTime;
     }
