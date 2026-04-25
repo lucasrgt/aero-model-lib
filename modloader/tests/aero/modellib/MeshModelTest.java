@@ -58,12 +58,11 @@ public class MeshModelTest {
 
         Aero_MeshModel model = new Aero_MeshModel("mesh", emptyGroups(), 1f, named);
         Aero_AnimationClip clip = new Aero_AnimationClip(
-            "spin", true, 1f,
+            "spin", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
             new String[]{"parent"},
-            new float[][]{{0f}},
-            new float[][][]{{{0f, 90f, 0f}}},
-            new float[][]{{0f}},
-            new float[][][]{{{0f, 0f, 0f}}}
+            new float[][]{{0f}}, new float[][][]{{{0f, 90f, 0f}}}, null,
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            null, null, null
         );
 
         Map clips = new HashMap();

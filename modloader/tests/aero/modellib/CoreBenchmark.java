@@ -187,7 +187,11 @@ public final class CoreBenchmark {
                 values[b][k] = new float[]{b + k, b - k, k};
             }
         }
-        return new Aero_AnimationClip("bench", true, 1f, boneNames, times, values, times, values);
+        return new Aero_AnimationClip(
+            "bench", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f, boneNames,
+            times, values, null,
+            times, values, null,
+            null, null, null);
     }
 
     private static String format(double value) {

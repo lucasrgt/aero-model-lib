@@ -19,7 +19,7 @@ public class AnimClipTest {
 		float[][][] rotValues = { { {0f, 0f, 0f}, {0f, 360f, 0f} } };
 		float[][] posTimes = { {0f, 1f} };
 		float[][][] posValues = { { {0f, 0f, 0f}, {0f, 2f, 0f} } };
-		fanClip = new Aero_AnimationClip("spin", true, 1.0f, bones, rotTimes, rotValues, posTimes, posValues);
+		fanClip = clip("spin", Aero_AnimationClip.LOOP_TYPE_LOOP, 1.0f, bones, rotTimes, rotValues, posTimes, posValues);
 	}
 
 	// --- Field tests ---
@@ -28,7 +28,7 @@ public class AnimClipTest {
 	public void testClipFieldsAreCorrect() {
 		// Assert: public fields match constructor args
 		assertEquals("spin", fanClip.name);
-		assertTrue(fanClip.loop);
+		assertEquals(Aero_AnimationClip.LOOP_TYPE_LOOP, fanClip.loopType);
 		assertEquals(1.0f, fanClip.length, DELTA);
 	}
 
@@ -186,7 +186,7 @@ public class AnimClipTest {
 		};
 		float[][] posTimes = { {0f}, {0f} };
 		float[][][] posValues = { { {0f, 0f, 0f} }, { {0f, 0f, 0f} } };
-		Aero_AnimationClip clip = new Aero_AnimationClip("walk", false, 1.0f, bones, rotTimes, rotValues, posTimes, posValues);
+		Aero_AnimationClip clip = clip("walk", Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE, 1.0f, bones, rotTimes, rotValues, posTimes, posValues);
 
 		// Act
 		int armIdx = clip.indexOfBone("arm");
@@ -217,7 +217,7 @@ public class AnimClipTest {
 		float[][][] rotValues = { { {10f, 20f, 30f} } };
 		float[][] posTimes = { {0f} };
 		float[][][] posValues = { { {1f, 2f, 3f} } };
-		Aero_AnimationClip clip = new Aero_AnimationClip("idle", false, 1.0f, bones, rotTimes, rotValues, posTimes, posValues);
+		Aero_AnimationClip clip = clip("idle", Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE, 1.0f, bones, rotTimes, rotValues, posTimes, posValues);
 
 		// Act: sample at various times — all should return the single keyframe
 		float[] rotBefore = clip.sampleRot(0, -1f);
@@ -252,16 +252,33 @@ public class AnimClipTest {
 	}
 
 	@Test
-	public void testNonLoopClipFieldIsFalse() {
+	public void testPlayOnceClipFieldIsPlayOnce() {
 		// Arrange
 		String[] bones = {"bone"};
 		float[][] rt = { {0f} };
 		float[][][] rv = { { {0f, 0f, 0f} } };
-		Aero_AnimationClip clip = new Aero_AnimationClip("once", false, 2.0f, bones, rt, rv, rt, rv);
+		Aero_AnimationClip clip = clip("once", Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE, 2.0f, bones, rt, rv, rt, rv);
 
 		// Assert
 		assertEquals("once", clip.name);
-		assertFalse(clip.loop);
+		assertEquals(Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE, clip.loopType);
 		assertEquals(2.0f, clip.length, DELTA);
+	}
+
+	/**
+	 * Helper that adapts the legacy "rotation + position only, all linear"
+	 * test shape onto the current full constructor — passes nulls for the
+	 * interp arrays (defaults to LINEAR everywhere) and an empty scale
+	 * channel.
+	 */
+	private static Aero_AnimationClip clip(String name, int loopType, float length,
+	                                       String[] bones,
+	                                       float[][] rotTimes, float[][][] rotValues,
+	                                       float[][] posTimes, float[][][] posValues) {
+		return new Aero_AnimationClip(
+			name, loopType, length, bones,
+			rotTimes, rotValues, null,
+			posTimes, posValues, null,
+			null, null, null);
 	}
 }

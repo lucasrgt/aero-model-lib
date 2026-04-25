@@ -54,12 +54,6 @@ public class Aero_AnimationClip {
     public static final int LOOP_TYPE_HOLD      = 2;
 
     public final String  name;
-    /**
-     * @deprecated use {@link #loopType} — true ↔ LOOP_TYPE_LOOP, false ↔
-     *     LOOP_TYPE_PLAY_ONCE. Kept for binary compat with existing callers.
-     */
-    @Deprecated
-    public final boolean loop;
     public final int     loopType;
     public final float   length;    // duration in seconds
 
@@ -131,9 +125,6 @@ public class Aero_AnimationClip {
         int n = boneNames.length;
         this.name       = name;
         this.loopType   = loopType;
-        // Derived for the deprecated boolean field — true only when the
-        // clip actually wraps; HOLD and PLAY_ONCE both report false.
-        this.loop       = loopType == LOOP_TYPE_LOOP;
         this.length     = length;
         this.boneNames  = boneNames;
         this.boneIndexByName = buildBoneIndex(boneNames);
@@ -162,38 +153,6 @@ public class Aero_AnimationClip {
     /** True if this clip carries any non-pose keyframe events. */
     public boolean hasEvents() {
         return eventTimes.length > 0;
-    }
-
-    /**
-     * @deprecated boolean loop → int loopType: true ↔ {@link #LOOP_TYPE_LOOP},
-     *     false ↔ {@link #LOOP_TYPE_PLAY_ONCE}. Use the int-typed constructor
-     *     for new code so HOLD is reachable.
-     */
-    @Deprecated
-    Aero_AnimationClip(String name, boolean loop, float length,
-                  String[] boneNames,
-                  float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
-                  float[][] posTimes, float[][][] posValues, int[][] posInterps,
-                  float[][] sclTimes, float[][][] sclValues, int[][] sclInterps) {
-        this(name, loop ? LOOP_TYPE_LOOP : LOOP_TYPE_PLAY_ONCE, length,
-            boneNames,
-            rotTimes, rotValues, rotInterps,
-            posTimes, posValues, posInterps,
-            sclTimes, sclValues, sclInterps);
-    }
-
-    /**
-     * Backward-compatible constructor (rotation + position only, all linear).
-     * Provided for tests and older callers; the loader uses the full form.
-     */
-    public Aero_AnimationClip(String name, boolean loop, float length,
-                              String[] boneNames,
-                              float[][] rotTimes, float[][][] rotValues,
-                              float[][] posTimes, float[][][] posValues) {
-        this(name, loop ? LOOP_TYPE_LOOP : LOOP_TYPE_PLAY_ONCE, length, boneNames,
-             rotTimes, rotValues, null,
-             posTimes, posValues, null,
-             null, null, null);
     }
 
     /** Returns the bone index by name, or -1 if not found. */
