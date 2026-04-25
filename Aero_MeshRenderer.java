@@ -9,8 +9,15 @@ import org.lwjgl.opengl.GL11;
  *
  * Performance:
  *   - Triangles pre-classified into 4 brightness groups at parse time
- *   - setColorOpaque_F called 4× per frame (vs N× in the naive approach)
- *   - Ready for Display Lists: each group can become a glCallList
+ *   - setColorOpaque_F called 4× per draw (vs N× in the naive approach)
+ *   - Coordinate division by `sc` replaced with single multiplication
+ *   - Smooth-light path samples each (x,z) world column once per draw and
+ *     bilinearly interpolates from the cache (vs 4 lookups per triangle)
+ *   - renderAnimated batches GL state changes outside the named-group loop
+ *     and iterates a precomputed entry array (no Iterator/Entry alloc)
+ *   - Bone/pivot resolution is memoized per (clip identity) on the model,
+ *     so the per-group HashMap and linear-scan lookups happen only when
+ *     the active clip changes
  *
  * Static geometry usage (TileEntitySpecialRenderer):
  *   Aero_MeshRenderer.renderModel(MODEL, d + ox, d1 + oy, d2 + oz, rotation, brightness);
@@ -32,6 +39,12 @@ import org.lwjgl.opengl.GL11;
  * startDrawingQuads() block. The TileEntitySpecialRenderer context is safe.
  */
 public class Aero_MeshRenderer {
+
+    // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
+    private static float[] LIGHT_CACHE = new float[64];
+    private static final float[] SCRATCH_ROT = new float[3];
+    private static final float[] SCRATCH_POS = new float[3];
+    private static final float[] SCRATCH_SCL = new float[3];
 
     // -----------------------------------------------------------------------
     // Full model render
@@ -105,19 +118,6 @@ public class Aero_MeshRenderer {
      * Renders a named group with a rotation around a pivot point in model space.
      * Handles the full GL setup: push, translate to world position, apply rotation
      * around the pivot, draw, pop.
-     *
-     * Typical usage (fan spinning around Y axis):
-     *   float angle = tile.fanAngle + (tile.isActive ? 18f * partialTick : 0f);
-     *   Aero_MeshRenderer.renderGroupRotated(MODEL, "fan",
-     *       d + offsetX, d1 + offsetY, d2 + offsetZ, brightness,
-     *       pivotX, pivotY, pivotZ,
-     *       angle, 0f, 1f, 0f);
-     *
-     * @param x, y, z       world position (same as renderModel)
-     * @param brightness     base brightness (0.0–1.0)
-     * @param pivotX/Y/Z     rotation pivot in model space (block units)
-     * @param angle          rotation angle in degrees
-     * @param axisX/Y/Z      rotation axis unit vector (e.g. 0,1,0 for Y-axis spin)
      */
     public static void renderGroupRotated(Aero_MeshModel model, String groupName,
                                            double x, double y, double z, float brightness,
@@ -153,23 +153,9 @@ public class Aero_MeshRenderer {
      * fetches keyframes from the active clip, interpolates position and rotation
      * at the current time, and applies the GL transform before drawing the group.
      *
-     * Usage (TileEntitySpecialRenderer):
-     * <pre>
-     *   Aero_MeshRenderer.renderAnimated(MODEL,
-     *       Retronism_TileMyCrusher.BUNDLE,
-     *       Retronism_TileMyCrusher.ANIM_DEF,
-     *       tile.animState,
-     *       d + offsetX, d1 + offsetY, d2 + offsetZ,
-     *       brightness, partialTick);
-     * </pre>
-     *
-     * @param model       OBJ model with named groups
-     * @param bundle      animation data (loaded .anim.json)
-     * @param def         state→clip mapping
-     * @param state       per-tile-entity playback state
-     * @param x,y,z       world-space position (same origin as renderModel)
-     * @param brightness  base brightness (0.0-1.0)
-     * @param partialTick tick fraction (0.0-1.0) from TileEntitySpecialRenderer
+     * Hot path: bone resolution (indexOfBone, childMap walk, prefix scan) is
+     * memoized in model.boneRefsFor(clip), so per-frame work is bounded by
+     * the GL transforms and the scratch-buffer keyframe samples.
      */
     public static void renderAnimated(Aero_MeshModel model,
                                        Aero_AnimationBundle bundle,
@@ -177,62 +163,43 @@ public class Aero_MeshRenderer {
                                        Aero_AnimationState state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
-        // 1. Static geometry
+        // 1. Static geometry — full GL state cycle done inside renderModel
         renderModel(model, x, y, z, 0, brightness);
 
-        // 2. Named groups with clip transforms
+        // 2. Named groups — share one GL state cycle for the whole loop
+        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+        if (entries.length == 0) return;
+
         Aero_AnimationClip clip = state.getCurrentClip();
         float time = state.getInterpolatedTime(partialTick);
+        Aero_MeshModel.BoneRef[] refs = model.boneRefsFor(clip, bundle);
 
         Tessellator tess = Tessellator.instance;
-        java.util.Iterator it = model.namedGroups.entrySet().iterator();
-        while (it.hasNext()) {
-            java.util.Map.Entry entry = (java.util.Map.Entry) it.next();
-            String groupName = (String) entry.getKey();
-            float[][][] ng   = (float[][][]) entry.getValue();
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_LIGHTING);
 
-            // Pivot do bundle (block units = pixels/16)
-            float[] pivot = bundle.getPivot(groupName);
-            float px = pivot[0], py = pivot[1], pz = pivot[2];
+        for (int e = 0; e < entries.length; e++) {
+            Aero_MeshModel.NamedGroup ng = entries[e];
+            Aero_MeshModel.BoneRef    rf = refs[e];
 
-            // Rotation and position from clip (null = no keyframe → neutral values)
+            // Pivot — base from bundle, overridden by parent pivot when bone resolved via hierarchy
+            float px = rf.pivot[0], py = rf.pivot[1], pz = rf.pivot[2];
+
+            // Rotation, position, scale from clip (defaults = no keyframe)
             float rx = 0, ry = 0, rz = 0;
             float sx = 1, sy = 1, sz = 1;
             float dx = 0, dy = 0, dz = 0;
 
-            if (clip != null) {
-                int bi = clip.indexOfBone(groupName);
-                // Hierarchy: if the OBJ group has no direct bone, search via childMap or prefix
-                if (bi < 0) {
-                    // 1. Try childMap (explicit Blockbench hierarchy)
-                    String parentName = (String) bundle.childMap.get(groupName);
-                    if (parentName != null) {
-                        bi = clip.indexOfBone(parentName);
-                        // Walk up the hierarchy if the direct parent has no keyframes
-                        if (bi < 0) {
-                            String grandParent = (String) bundle.childMap.get(parentName);
-                            if (grandParent != null) bi = clip.indexOfBone(grandParent);
-                        }
-                    }
-                    // 2. Fallback: prefix
-                    if (bi < 0) bi = findParentBone(clip, groupName);
-
-                    if (bi >= 0) {
-                        // Use the parent bone's pivot, not the child group's
-                        float[] parentPivot = bundle.getPivot(clip.boneNames[bi]);
-                        px = parentPivot[0]; py = parentPivot[1]; pz = parentPivot[2];
-                    }
+            int bi = rf.boneIdx;
+            if (clip != null && bi >= 0) {
+                if (clip.sampleRotInto(bi, time, SCRATCH_ROT)) {
+                    rx = SCRATCH_ROT[0]; ry = SCRATCH_ROT[1]; rz = SCRATCH_ROT[2];
                 }
-                if (bi >= 0) {
-                    float[] rot = clip.sampleRot(bi, time);
-                    if (rot != null) { rx = rot[0]; ry = rot[1]; rz = rot[2]; }
-
-                    float[] pos = clip.samplePos(bi, time);
-                    // Position in pixels → block units
-                    if (pos != null) { dx = pos[0] / 16f; dy = pos[1] / 16f; dz = pos[2] / 16f; }
-
-                    float[] scl = clip.sampleScl(bi, time);
-                    if (scl != null) { sx = scl[0]; sy = scl[1]; sz = scl[2]; }
+                if (clip.samplePosInto(bi, time, SCRATCH_POS)) {
+                    dx = SCRATCH_POS[0] / 16f; dy = SCRATCH_POS[1] / 16f; dz = SCRATCH_POS[2] / 16f;
+                }
+                if (clip.sampleSclInto(bi, time, SCRATCH_SCL)) {
+                    sx = SCRATCH_SCL[0]; sy = SCRATCH_SCL[1]; sz = SCRATCH_SCL[2];
                 }
             }
 
@@ -251,18 +218,13 @@ public class Aero_MeshRenderer {
             // Move back from pivot
             GL11.glTranslatef(-px, -py, -pz);
 
-            GL11.glDisable(GL11.GL_CULL_FACE);
-            GL11.glDisable(GL11.GL_LIGHTING);
-            drawGroups(tess, ng, model.scale, brightness);
-            GL11.glEnable(GL11.GL_LIGHTING);
-            GL11.glEnable(GL11.GL_CULL_FACE);
+            drawGroups(tess, ng.tris, model.scale, brightness);
             GL11.glPopMatrix();
         }
-    }
 
-    // -----------------------------------------------------------------------
-    // Inventory render
-    // -----------------------------------------------------------------------
+        GL11.glEnable(GL11.GL_LIGHTING);
+        GL11.glEnable(GL11.GL_CULL_FACE);
+    }
 
     // -----------------------------------------------------------------------
     // Internal helpers
@@ -275,6 +237,7 @@ public class Aero_MeshRenderer {
 
     /** Draws triangle groups with flat lighting (uniform brightness per group). */
     private static void drawGroups(Tessellator tess, float[][][] groups, float sc, float brightness) {
+        final float invSc = 1f / sc;
         tess.startDrawing(GL11.GL_TRIANGLES);
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
@@ -283,17 +246,65 @@ public class Aero_MeshRenderer {
             tess.setColorOpaque_F(bright, bright, bright);
             for (int i = 0; i < tris.length; i++) {
                 float[] t = tris[i];
-                tess.addVertexWithUV(t[0]/sc, t[1]/sc, t[2]/sc, t[3], t[4]);
-                tess.addVertexWithUV(t[5]/sc, t[6]/sc, t[7]/sc, t[8], t[9]);
-                tess.addVertexWithUV(t[10]/sc, t[11]/sc, t[12]/sc, t[13], t[14]);
+                tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
+                tess.addVertexWithUV(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
+                tess.addVertexWithUV(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);
             }
         }
         tess.draw();
     }
 
-    /** Draws triangle groups with smooth lighting (bilinear world sample per triangle). */
+    /**
+     * Draws triangle groups with smooth lighting using a precomputed light cache
+     * over the structure footprint. Each unique (x,z) world column is sampled
+     * once via getLightBrightness, then bilinearly interpolated at every
+     * triangle centroid — replacing the previous 4 lookups per triangle.
+     */
     private static void drawGroupsSmooth(Tessellator tess, float[][][] groups, float sc,
                                           World world, int ox, int topY, int oz) {
+        final float invSc  = 1f / sc;
+        final float invSc3 = invSc / 3f;
+
+        // 1. Compute footprint in world block coords (XZ).
+        float minWX = Float.POSITIVE_INFINITY, maxWX = Float.NEGATIVE_INFINITY;
+        float minWZ = Float.POSITIVE_INFINITY, maxWZ = Float.NEGATIVE_INFINITY;
+        boolean hasTris = false;
+        for (int g = 0; g < 4; g++) {
+            float[][] tris = groups[g];
+            for (int i = 0; i < tris.length; i++) {
+                float[] t = tris[i];
+                float a = t[0]*invSc, b = t[5]*invSc, c = t[10]*invSc;
+                if (a < minWX) minWX = a; if (b < minWX) minWX = b; if (c < minWX) minWX = c;
+                if (a > maxWX) maxWX = a; if (b > maxWX) maxWX = b; if (c > maxWX) maxWX = c;
+                a = t[2]*invSc; b = t[7]*invSc; c = t[12]*invSc;
+                if (a < minWZ) minWZ = a; if (b < minWZ) minWZ = b; if (c < minWZ) minWZ = c;
+                if (a > maxWZ) maxWZ = a; if (b > maxWZ) maxWZ = b; if (c > maxWZ) maxWZ = c;
+                hasTris = true;
+            }
+        }
+        if (!hasTris) return;
+
+        // +1 cell on the high side for the bilinear neighbor.
+        int xLo = (int) Math.floor(ox + minWX);
+        int xHi = (int) Math.floor(ox + maxWX) + 1;
+        int zLo = (int) Math.floor(oz + minWZ);
+        int zHi = (int) Math.floor(oz + maxWZ) + 1;
+        int w = xHi - xLo + 1;
+        int h = zHi - zLo + 1;
+
+        // 2. Populate the cache: one getLightBrightness per unique column.
+        int needed = w * h;
+        if (LIGHT_CACHE.length < needed) LIGHT_CACHE = new float[needed];
+        float[] cache = LIGHT_CACHE;
+        for (int zi = 0; zi < h; zi++) {
+            int row = zi * w;
+            int wz = zLo + zi;
+            for (int xi = 0; xi < w; xi++) {
+                cache[row + xi] = world.getLightBrightness(xLo + xi, topY, wz);
+            }
+        }
+
+        // 3. Draw using bilinear lookup from the cache.
         tess.startDrawing(GL11.GL_TRIANGLES);
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
@@ -301,43 +312,27 @@ public class Aero_MeshRenderer {
             float factor = Aero_MeshModel.BRIGHTNESS_FACTORS[g];
             for (int i = 0; i < tris.length; i++) {
                 float[] t = tris[i];
-                // Sample at triangle centroid XZ, fixed Y above structure.
-                // Per-triangle (not per-vertex) avoids gradient artifacts.
-                float wx = ox + (t[0] + t[5] + t[10]) / (3.0f * sc);
-                float wz = oz + (t[2] + t[7] + t[12]) / (3.0f * sc);
-                int x0 = (int) Math.floor(wx); int x1 = x0 + 1;
-                int z0 = (int) Math.floor(wz); int z1 = z0 + 1;
-                float tx = wx - x0, tz = wz - z0;
-                float b00 = world.getLightBrightness(x0, topY, z0);
-                float b10 = world.getLightBrightness(x1, topY, z0);
-                float b01 = world.getLightBrightness(x0, topY, z1);
-                float b11 = world.getLightBrightness(x1, topY, z1);
+                float wx = ox + (t[0] + t[5] + t[10]) * invSc3;
+                float wz = oz + (t[2] + t[7] + t[12]) * invSc3;
+                int x0i = (int) Math.floor(wx);
+                int z0i = (int) Math.floor(wz);
+                float tx = wx - x0i, tz = wz - z0i;
+                int cx = x0i - xLo;
+                int cz = z0i - zLo;
+                int row0 = cz * w;
+                int row1 = row0 + w;
+                float b00 = cache[row0 + cx];
+                float b10 = cache[row0 + cx + 1];
+                float b01 = cache[row1 + cx];
+                float b11 = cache[row1 + cx + 1];
                 float bright = lerp(lerp(b00, b10, tx), lerp(b01, b11, tx), tz) * factor;
                 tess.setColorOpaque_F(bright, bright, bright);
-                tess.addVertexWithUV(t[0]/sc, t[1]/sc, t[2]/sc, t[3], t[4]);
-                tess.addVertexWithUV(t[5]/sc, t[6]/sc, t[7]/sc, t[8], t[9]);
-                tess.addVertexWithUV(t[10]/sc, t[11]/sc, t[12]/sc, t[13], t[14]);
+                tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
+                tess.addVertexWithUV(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
+                tess.addVertexWithUV(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);
             }
         }
         tess.draw();
-    }
-
-    /**
-     * Finds a parent bone in the clip whose name is a prefix of groupName.
-     * E.g.: groupName="turbine_l_blade_0" → finds bone "turbine_l"
-     * Returns the index of the longest bone that is a prefix, or -1.
-     */
-    private static int findParentBone(Aero_AnimationClip clip, String groupName) {
-        int bestIdx = -1;
-        int bestLen = 0;
-        for (int i = 0; i < clip.boneNames.length; i++) {
-            String bone = clip.boneNames[i];
-            if (groupName.startsWith(bone + "_") && bone.length() > bestLen) {
-                bestIdx = i;
-                bestLen = bone.length();
-            }
-        }
-        return bestIdx;
     }
 
     private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
