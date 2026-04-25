@@ -4,6 +4,9 @@ stationapi/.gradle/
 stationapi/.idea/
 stationapi/*.iml
 
+# Test runner output
+tests/out/
+
 # IDE
 *.iml
 .idea/
