@@ -20,6 +20,10 @@ import org.lwjgl.opengl.GL11;
  */
 public class Aero_MeshRenderer {
 
+    private static final int MESH_ATTRIB_BITS =
+        GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT;
+    private static final float PIXEL_TO_BLOCK = 1f / 16f;
+
     // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
     private static float[] LIGHT_CACHE = new float[64];
     private static final float[] SCRATCH_ROT = new float[3];
@@ -36,21 +40,11 @@ public class Aero_MeshRenderer {
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
-        // Save GL_ENABLE_BIT (CULL_FACE/LIGHTING/BLEND/ALPHA_TEST), DEPTH_BUFFER_BIT
-        // (DepthMask), and CURRENT_BIT (color). glPopAttrib restores everything we
-        // touched so we cannot leak BLEND/ALPHA_TEST off into vanilla particle and
-        // sprite passes (which would render those as black blobs).
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_LIGHTING);
-        GL11.glDisable(GL11.GL_BLEND);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDepthMask(true);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        beginMeshState();
 
-        drawGroups(tess, model.groups, model.scale, brightness);
+        drawGroups(tess, model.groups, model.invScale, brightness);
 
-        GL11.glPopAttrib();
+        endMeshState();
         GL11.glPopMatrix();
     }
 
@@ -60,17 +54,11 @@ public class Aero_MeshRenderer {
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
         applyRotation(rotation);
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_LIGHTING);
-        GL11.glDisable(GL11.GL_BLEND);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDepthMask(true);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        beginMeshState();
 
-        drawGroupsSmooth(tess, model.groups, model.scale, world, ox, topY, oz);
+        drawGroupsSmooth(tess, model.groups, model.invScale, model.getStaticSmoothLightData(), world, ox, topY, oz);
 
-        GL11.glPopAttrib();
+        endMeshState();
         GL11.glPopMatrix();
     }
 
@@ -79,17 +67,17 @@ public class Aero_MeshRenderer {
     // -----------------------------------------------------------------------
 
     public static void renderGroup(Aero_MeshModel model, String groupName, float brightness) {
-        float[][][] ng = (float[][][]) model.namedGroups.get(groupName);
+        float[][][] ng = model.getNamedGroup(groupName);
         if (ng == null) return;
         Tessellator tess = Tessellator.INSTANCE;
-        drawGroups(tess, ng, model.scale, brightness);
+        drawGroups(tess, ng, model.invScale, brightness);
     }
 
     public static void renderGroupRotated(Aero_MeshModel model, String groupName,
                                            double x, double y, double z, float brightness,
                                            float pivotX, float pivotY, float pivotZ,
                                            float angle, float axisX, float axisY, float axisZ) {
-        float[][][] ng = (float[][][]) model.namedGroups.get(groupName);
+        float[][][] ng = model.getNamedGroup(groupName);
         if (ng == null) return;
 
         Tessellator tess = Tessellator.INSTANCE;
@@ -98,17 +86,11 @@ public class Aero_MeshRenderer {
         GL11.glTranslatef(pivotX, pivotY, pivotZ);
         GL11.glRotatef(angle, axisX, axisY, axisZ);
         GL11.glTranslatef(-pivotX, -pivotY, -pivotZ);
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_LIGHTING);
-        GL11.glDisable(GL11.GL_BLEND);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDepthMask(true);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        beginMeshState();
 
-        drawGroups(tess, ng, model.scale, brightness);
+        drawGroups(tess, ng, model.invScale, brightness);
 
-        GL11.glPopAttrib();
+        endMeshState();
         GL11.glPopMatrix();
     }
 
@@ -122,26 +104,22 @@ public class Aero_MeshRenderer {
                                        Aero_AnimationState state,
                                        double x, double y, double z,
                                        float brightness, float partialTick) {
-        renderModel(model, x, y, z, 0, brightness);
-
         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
-        if (entries.length == 0) return;
-
-        Aero_AnimationClip clip = state.getCurrentClip();
-        float time = state.getInterpolatedTime(partialTick);
-        Aero_MeshModel.BoneRef[] refs = model.boneRefsFor(clip, bundle);
+        Aero_AnimationClip clip = null;
+        float time = 0f;
+        Aero_MeshModel.BoneRef[] refs = null;
+        if (entries.length != 0) {
+            clip = state.getCurrentClip();
+            time = state.getInterpolatedTime(partialTick);
+            refs = model.boneRefsFor(clip, bundle);
+        }
 
         Tessellator tess = Tessellator.INSTANCE;
-        // Save GL state so we can change CULL_FACE/LIGHTING/BLEND/ALPHA_TEST
-        // without leaking the changes into post-renderer passes (particles,
-        // sprites). glPopAttrib at the end restores everything.
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_LIGHTING);
-        GL11.glDisable(GL11.GL_BLEND);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDepthMask(true);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glPushMatrix();
+        GL11.glTranslated(x, y, z);
+        beginMeshState();
+
+        drawGroups(tess, model.groups, model.invScale, brightness);
 
         for (int e = 0; e < entries.length; e++) {
             Aero_MeshModel.NamedGroup ng = entries[e];
@@ -158,7 +136,9 @@ public class Aero_MeshRenderer {
                     rx = SCRATCH_ROT[0]; ry = SCRATCH_ROT[1]; rz = SCRATCH_ROT[2];
                 }
                 if (clip.samplePosInto(bi, time, SCRATCH_POS)) {
-                    dx = SCRATCH_POS[0] / 16f; dy = SCRATCH_POS[1] / 16f; dz = SCRATCH_POS[2] / 16f;
+                    dx = SCRATCH_POS[0] * PIXEL_TO_BLOCK;
+                    dy = SCRATCH_POS[1] * PIXEL_TO_BLOCK;
+                    dz = SCRATCH_POS[2] * PIXEL_TO_BLOCK;
                 }
                 if (clip.sampleSclInto(bi, time, SCRATCH_SCL)) {
                     sx = SCRATCH_SCL[0]; sy = SCRATCH_SCL[1]; sz = SCRATCH_SCL[2];
@@ -166,7 +146,6 @@ public class Aero_MeshRenderer {
             }
 
             GL11.glPushMatrix();
-            GL11.glTranslated(x, y, z);
             GL11.glTranslatef(px + dx, py + dy, pz + dz);
             GL11.glRotatef(rz, 0f, 0f, 1f);
             GL11.glRotatef(ry, 0f, 1f, 0f);
@@ -176,23 +155,23 @@ public class Aero_MeshRenderer {
             }
             GL11.glTranslatef(-px, -py, -pz);
 
-            drawGroups(tess, ng.tris, model.scale, brightness);
+            drawGroups(tess, ng.tris, model.invScale, brightness);
             GL11.glPopMatrix();
         }
 
-        GL11.glPopAttrib();
+        endMeshState();
+        GL11.glPopMatrix();
     }
 
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
 
-    static void drawGroupsForInventory(Tessellator tess, float[][][] groups, float sc) {
-        drawGroups(tess, groups, sc, 1.0f);
+    static void drawGroupsForInventory(Tessellator tess, float[][][] groups, float invSc) {
+        drawGroups(tess, groups, invSc, 1.0f);
     }
 
-    private static void drawGroups(Tessellator tess, float[][][] groups, float sc, float brightness) {
-        final float invSc = 1f / sc;
+    private static void drawGroups(Tessellator tess, float[][][] groups, float invSc, float brightness) {
         tess.start(GL11.GL_TRIANGLES);
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
@@ -209,33 +188,15 @@ public class Aero_MeshRenderer {
         tess.draw();
     }
 
-    private static void drawGroupsSmooth(Tessellator tess, float[][][] groups, float sc,
+    private static void drawGroupsSmooth(Tessellator tess, float[][][] groups, float invSc,
+                                          Aero_MeshModel.SmoothLightData light,
                                           World world, int ox, int topY, int oz) {
-        final float invSc  = 1f / sc;
-        final float invSc3 = invSc / 3f;
+        if (!light.hasTriangles) return;
 
-        float minWX = Float.POSITIVE_INFINITY, maxWX = Float.NEGATIVE_INFINITY;
-        float minWZ = Float.POSITIVE_INFINITY, maxWZ = Float.NEGATIVE_INFINITY;
-        boolean hasTris = false;
-        for (int g = 0; g < 4; g++) {
-            float[][] tris = groups[g];
-            for (int i = 0; i < tris.length; i++) {
-                float[] t = tris[i];
-                float a = t[0]*invSc, b = t[5]*invSc, c = t[10]*invSc;
-                if (a < minWX) minWX = a; if (b < minWX) minWX = b; if (c < minWX) minWX = c;
-                if (a > maxWX) maxWX = a; if (b > maxWX) maxWX = b; if (c > maxWX) maxWX = c;
-                a = t[2]*invSc; b = t[7]*invSc; c = t[12]*invSc;
-                if (a < minWZ) minWZ = a; if (b < minWZ) minWZ = b; if (c < minWZ) minWZ = c;
-                if (a > maxWZ) maxWZ = a; if (b > maxWZ) maxWZ = b; if (c > maxWZ) maxWZ = c;
-                hasTris = true;
-            }
-        }
-        if (!hasTris) return;
-
-        int xLo = (int) Math.floor(ox + minWX);
-        int xHi = (int) Math.floor(ox + maxWX) + 1;
-        int zLo = (int) Math.floor(oz + minWZ);
-        int zHi = (int) Math.floor(oz + maxWZ) + 1;
+        int xLo = fastFloor(ox + light.minX);
+        int xHi = fastFloor(ox + light.maxX) + 1;
+        int zLo = fastFloor(oz + light.minZ);
+        int zHi = fastFloor(oz + light.maxZ) + 1;
         int w = xHi - xLo + 1;
         int h = zHi - zLo + 1;
 
@@ -259,12 +220,14 @@ public class Aero_MeshRenderer {
             float[][] tris = groups[g];
             if (tris.length == 0) continue;
             float factor = Aero_MeshModel.BRIGHTNESS_FACTORS[g];
+            float[] centroidX = light.centroidX[g];
+            float[] centroidZ = light.centroidZ[g];
             for (int i = 0; i < tris.length; i++) {
                 float[] t = tris[i];
-                float wx = ox + (t[0] + t[5] + t[10]) * invSc3;
-                float wz = oz + (t[2] + t[7] + t[12]) * invSc3;
-                int x0i = (int) Math.floor(wx);
-                int z0i = (int) Math.floor(wz);
+                float wx = ox + centroidX[i];
+                float wz = oz + centroidZ[i];
+                int x0i = fastFloor(wx);
+                int z0i = fastFloor(wz);
                 float tx = wx - x0i, tz = wz - z0i;
                 int cx = x0i - xLo;
                 int cz = z0i - zLo;
@@ -285,6 +248,25 @@ public class Aero_MeshRenderer {
     }
 
     private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+    private static int fastFloor(float v) {
+        int i = (int) v;
+        return v < i ? i - 1 : i;
+    }
+
+    private static void beginMeshState() {
+        GL11.glPushAttrib(MESH_ATTRIB_BITS);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static void endMeshState() {
+        GL11.glPopAttrib();
+    }
 
     private static void applyRotation(float rotation) {
         if (rotation != 0) {

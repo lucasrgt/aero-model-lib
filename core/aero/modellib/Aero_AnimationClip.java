@@ -1,5 +1,8 @@
 package aero.modellib;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Immutable data for an animation clip.
  *
@@ -33,6 +36,7 @@ public class Aero_AnimationClip {
 
     // Parallel arrays indexed by bone index (0-based, order of addition)
     final String[]    boneNames;
+    private final Map boneIndexByName;
     final float[][]   rotTimes;     // rotTimes[bi]     = float[] of timestamps (seconds)
     final float[][][] rotValues;    // rotValues[bi][ki] = float[3] {rx, ry, rz}
     final int[][]     rotInterps;   // rotInterps[bi][ki] = INTERP_* constant
@@ -54,6 +58,7 @@ public class Aero_AnimationClip {
         this.loop       = loop;
         this.length     = length;
         this.boneNames  = boneNames;
+        this.boneIndexByName = buildBoneIndex(boneNames);
         this.rotTimes   = rotTimes   != null ? rotTimes   : new float[n][];
         this.rotValues  = rotValues  != null ? rotValues  : new float[n][][];
         this.rotInterps = rotInterps != null ? rotInterps : new int[n][];
@@ -81,10 +86,8 @@ public class Aero_AnimationClip {
 
     /** Returns the bone index by name, or -1 if not found. */
     public int indexOfBone(String name) {
-        for (int i = 0; i < boneNames.length; i++) {
-            if (boneNames[i].equals(name)) return i;
-        }
-        return -1;
+        Integer idx = (Integer) boneIndexByName.get(name);
+        return idx != null ? idx.intValue() : -1;
     }
 
     // -----------------------------------------------------------------------
@@ -119,14 +122,17 @@ public class Aero_AnimationClip {
      *         (in which case `out` is left untouched and the caller should use defaults).
      */
     public boolean sampleRotInto(int boneIdx, float time, float[] out) {
+        if (boneIdx < 0 || boneIdx >= rotTimes.length) return false;
         return sampleInto(rotTimes[boneIdx], rotValues[boneIdx], rotInterps[boneIdx], time, out);
     }
 
     public boolean samplePosInto(int boneIdx, float time, float[] out) {
+        if (boneIdx < 0 || boneIdx >= posTimes.length) return false;
         return sampleInto(posTimes[boneIdx], posValues[boneIdx], posInterps[boneIdx], time, out);
     }
 
     public boolean sampleSclInto(int boneIdx, float time, float[] out) {
+        if (boneIdx < 0 || boneIdx >= sclTimes.length) return false;
         return sampleInto(sclTimes[boneIdx], sclValues[boneIdx], sclInterps[boneIdx], time, out);
     }
 
@@ -195,5 +201,13 @@ public class Aero_AnimationClip {
 
     private static void copy3(float[] src, float[] dst) {
         dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+    }
+
+    private static Map buildBoneIndex(String[] boneNames) {
+        Map map = new HashMap((boneNames.length * 4 / 3) + 1);
+        for (int i = 0; i < boneNames.length; i++) {
+            map.put(boneNames[i], Integer.valueOf(i));
+        }
+        return map;
     }
 }

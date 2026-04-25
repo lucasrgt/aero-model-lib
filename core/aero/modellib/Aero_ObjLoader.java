@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -82,7 +83,7 @@ public class Aero_ObjLoader {
         for (int g = 0; g < 4; g++) staticGroups[g] = new ArrayList();
 
         // Named groups: Map<String, List[4]>
-        Map namedGroupLists = new HashMap();
+        Map namedGroupLists = new LinkedHashMap();
         List[] currentNamedGroup = null; // null = static
 
         String line;
@@ -128,7 +129,7 @@ public class Aero_ObjLoader {
         }
 
         // Convert named groups
-        Map namedGroupArrays = new HashMap();
+        Map namedGroupArrays = new LinkedHashMap();
         Iterator it = namedGroupLists.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry entry = (Map.Entry) it.next();

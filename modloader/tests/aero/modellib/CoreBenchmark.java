@@ -1,0 +1,161 @@
+package aero.modellib;
+
+import java.util.HashMap;
+
+/**
+ * Small deterministic microbenchmark for core hot-path data structures.
+ *
+ * This is not a substitute for in-game profiling; it exists to catch obvious
+ * regressions in pre-baked JSON geometry, smooth-light metadata and animation
+ * bone lookup/sample costs.
+ */
+public final class CoreBenchmark {
+
+    private static volatile float sink;
+
+    public static void main(String[] args) {
+        Aero_JsonModel json = buildJsonModel(2048);
+        Aero_MeshModel mesh = buildMeshModel(32768);
+        Aero_AnimationClip clip = buildClip(128, 16);
+
+        mesh.getStaticSmoothLightData();
+
+        bench("json.quad.walk", 200, 2000, new Bench() {
+            public float run() { return walkJsonQuads(json); }
+        });
+        bench("mesh.smooth.metadata.walk", 50, 500, new Bench() {
+            public float run() { return walkSmoothMetadata(mesh); }
+        });
+        bench("anim.index.map+sample", 200, 2000, new Bench() {
+            public float run() { return sampleWithMapLookup(clip); }
+        });
+        bench("anim.index.linear+sample.reference", 20, 200, new Bench() {
+            public float run() { return sampleWithLinearLookup(clip); }
+        });
+
+        System.out.println("sink=" + sink);
+    }
+
+    private static void bench(String name, int warmup, int iterations, Bench bench) {
+        for (int i = 0; i < warmup; i++) sink += bench.run();
+        long start = System.nanoTime();
+        for (int i = 0; i < iterations; i++) sink += bench.run();
+        long nanos = System.nanoTime() - start;
+        double nsPerOp = (double) nanos / (double) iterations;
+        System.out.println(name + ": " + format(nsPerOp) + " ns/op");
+    }
+
+    private static float walkJsonQuads(Aero_JsonModel model) {
+        float sum = 0f;
+        for (int f = 0; f < Aero_JsonModel.FACE_COUNT; f++) {
+            float[][] quads = model.quadsByFace[f];
+            for (int i = 0; i < quads.length; i++) {
+                float[] q = quads[i];
+                sum += q[0] + q[5] + q[10] + q[15];
+                sum += q[3] + q[8] + q[13] + q[18];
+            }
+        }
+        return sum;
+    }
+
+    private static float walkSmoothMetadata(Aero_MeshModel model) {
+        Aero_MeshModel.SmoothLightData data = model.getStaticSmoothLightData();
+        float sum = data.minX + data.maxX + data.minZ + data.maxZ;
+        for (int g = 0; g < 4; g++) {
+            float[] cx = data.centroidX[g];
+            float[] cz = data.centroidZ[g];
+            for (int i = 0; i < cx.length; i++) {
+                sum += cx[i] + cz[i];
+            }
+        }
+        return sum;
+    }
+
+    private static float sampleWithMapLookup(Aero_AnimationClip clip) {
+        float[] out = new float[3];
+        float sum = 0f;
+        for (int i = 0; i < clip.boneNames.length; i++) {
+            int idx = clip.indexOfBone("bone_" + i);
+            if (clip.sampleRotInto(idx, 0.375f, out)) sum += out[0] + out[1] + out[2];
+        }
+        return sum;
+    }
+
+    private static float sampleWithLinearLookup(Aero_AnimationClip clip) {
+        float[] out = new float[3];
+        float sum = 0f;
+        for (int i = 0; i < clip.boneNames.length; i++) {
+            int idx = linearIndexOf(clip.boneNames, "bone_" + i);
+            if (clip.sampleRotInto(idx, 0.375f, out)) sum += out[0] + out[1] + out[2];
+        }
+        return sum;
+    }
+
+    private static int linearIndexOf(String[] names, String name) {
+        for (int i = 0; i < names.length; i++) {
+            if (names[i].equals(name)) return i;
+        }
+        return -1;
+    }
+
+    private static Aero_JsonModel buildJsonModel(int cubes) {
+        float[][] elements = new float[cubes][30];
+        for (int i = 0; i < cubes; i++) {
+            float[] p = elements[i];
+            float x = (i & 31) * 2f;
+            float y = ((i >>> 5) & 31) * 2f;
+            float z = ((i >>> 10) & 31) * 2f;
+            p[0] = x; p[1] = y; p[2] = z;
+            p[3] = x + 1f; p[4] = y + 1f; p[5] = z + 1f;
+            for (int f = 0; f < Aero_JsonModel.FACE_COUNT; f++) {
+                int base = 6 + f * 4;
+                p[base] = 0f;
+                p[base + 1] = 0f;
+                p[base + 2] = 16f;
+                p[base + 3] = 16f;
+            }
+        }
+        return new Aero_JsonModel("bench-json", elements, 16f, 16f);
+    }
+
+    private static Aero_MeshModel buildMeshModel(int triangles) {
+        float[][][] groups = new float[4][][];
+        for (int g = 0; g < 4; g++) groups[g] = new float[triangles / 4][];
+        for (int g = 0; g < 4; g++) {
+            for (int i = 0; i < groups[g].length; i++) {
+                float x = (i & 255);
+                float z = (i >>> 8);
+                groups[g][i] = new float[]{
+                    x, 0f, z, 0f, 0f,
+                    x + 1f, 0f, z, 0f, 0f,
+                    x, 0f, z + 1f, 0f, 0f
+                };
+            }
+        }
+        return new Aero_MeshModel("bench-mesh", groups, 16f, new HashMap());
+    }
+
+    private static Aero_AnimationClip buildClip(int bones, int keys) {
+        String[] boneNames = new String[bones];
+        float[][] times = new float[bones][];
+        float[][][] values = new float[bones][][];
+        for (int b = 0; b < bones; b++) {
+            boneNames[b] = "bone_" + b;
+            times[b] = new float[keys];
+            values[b] = new float[keys][];
+            for (int k = 0; k < keys; k++) {
+                times[b][k] = k / (float) (keys - 1);
+                values[b][k] = new float[]{b + k, b - k, k};
+            }
+        }
+        return new Aero_AnimationClip("bench", true, 1f, boneNames, times, values, times, values);
+    }
+
+    private static String format(double value) {
+        return String.valueOf(Math.round(value * 10.0) / 10.0);
+    }
+
+    private interface Bench {
+        float run();
+    }
+}

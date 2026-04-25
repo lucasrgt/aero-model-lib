@@ -62,6 +62,14 @@ public class Aero_AnimationDefinition {
     }
 
     /**
+     * Creates a platform-neutral playback state.
+     * Useful for tests, tools and non-Minecraft integrations.
+     */
+    public Aero_AnimationPlayback createPlayback(Aero_AnimationBundle bundle) {
+        return new Aero_AnimationPlayback(this, bundle);
+    }
+
+    /**
      * Creates a new Aero_AnimationState for this definition, linked to the bundle.
      * Call once per tile entity, in the instance field.
      */
