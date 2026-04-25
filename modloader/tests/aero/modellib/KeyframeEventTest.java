@@ -146,29 +146,6 @@ public class KeyframeEventTest {
     }
 
     @Test
-    public void legacyListenerWithoutLocatorOverrideStillWorks() {
-        // Verifies the default-method bridge: a listener that only
-        // implements the 3-arg onEvent must still receive events fired
-        // by the lib (which always calls the 4-arg overload).
-        Aero_AnimationClip clip = clipWithEvents(1f, true,
-            new float[]{0.05f},
-            new String[]{"sound"},
-            new String[]{"random.click"});
-        Aero_AnimationPlayback playback = playbackOf(clip);
-        final boolean[] called = { false };
-        playback.setEventListener(new Aero_AnimationEventListener() {
-            public void onEvent(String channel, String data, float time) {
-                called[0] = true;
-            }
-            // intentionally NOT overriding the 4-arg form
-        });
-
-        playback.tick();
-        playback.tick();
-        assertTrue("3-arg-only listener should still fire via the default-method bridge", called[0]);
-    }
-
-    @Test
     public void clipWithoutEventsHasHasEventsFalse() {
         Aero_AnimationClip clip = new Aero_AnimationClip(
             "noevt", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
@@ -213,13 +190,6 @@ public class KeyframeEventTest {
 
     private static final class Recorder implements Aero_AnimationEventListener {
         final List calls = new ArrayList();
-
-        // The lib invokes the 4-arg overload; we override that so the
-        // recorder also captures the locator. The default 3-arg onEvent
-        // is the fallback for listeners that don't care.
-        public void onEvent(String channel, String data, float time) {
-            // unused — covered by the 4-arg override below
-        }
 
         @Override
         public void onEvent(String channel, String data, String locator, float time) {

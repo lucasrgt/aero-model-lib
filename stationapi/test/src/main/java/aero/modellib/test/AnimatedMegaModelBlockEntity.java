@@ -82,10 +82,6 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
                 // would consume it at the entity level (e.g. mark damage
                 // hitbox active) rather than inflict a visual side-effect.
             }
-
-            // Default 3-arg overload required by the interface — never
-            // called when the 4-arg form is implemented.
-            public void onEvent(String channel, String data, float time) {}
         });
     }
 

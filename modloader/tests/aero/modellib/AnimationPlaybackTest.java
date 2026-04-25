@@ -74,12 +74,11 @@ public class AnimationPlaybackTest {
 
     private static Aero_AnimationClip loopClip(String name, float length) {
         return new Aero_AnimationClip(
-            name, true, length,
+            name, Aero_AnimationClip.LOOP_TYPE_LOOP, length,
             new String[]{"bone"},
-            new float[][]{{0f}},
-            new float[][][]{{{0f, 0f, 0f}}},
-            new float[][]{{0f}},
-            new float[][][]{{{0f, 0f, 0f}}}
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            null, null, null
         );
     }
 

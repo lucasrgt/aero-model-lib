@@ -116,9 +116,6 @@ public class Aero_AnimationPlayback {
             float t = times[i];
             boolean lowerOk = includeFrom ? (t >= fromBound) : (t > fromBound);
             if (lowerOk && t <= toInclusive) {
-                // Forward to the 4-arg overload — it has a default impl that
-                // delegates to the 3-arg form for listeners that don't care
-                // about locators, so existing implementations keep working.
                 eventListener.onEvent(clip.eventChannels[i], clip.eventData[i],
                     clip.eventLocators[i], t);
             }
