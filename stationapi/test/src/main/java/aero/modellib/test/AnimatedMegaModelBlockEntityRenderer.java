@@ -22,7 +22,7 @@ public class AnimatedMegaModelBlockEntityRenderer extends BlockEntityRenderer {
         // method_1782 = float-brightness API (Yarn intermediary, the
         // float-returning equivalent of vanilla getLightBrightness).
         // Drives day/night + torch lighting on the mesh.
-        float brightness = be.world.method_1782(be.x, be.y + 1, be.z);
+        float brightness = AeroLight.brightnessAbove(be.world, be.x, be.y, be.z);
         Aero_MeshRenderer.renderAnimated(MODEL, be.animState,
             x, y, z, brightness, partialTick);
     }

@@ -188,13 +188,27 @@ public class Aero_MeshRenderer {
         drawGroups(tess, groups, invSc, 1.0f);
     }
 
+    // Single-render-thread tint multiplier — applied on top of per-group
+    // brightness. Defaults to (1,1,1) i.e. no tint. Callers wrap a render
+    // call with setTint(...) + resetTint() to e.g. flash the model red on
+    // damage or hot-state.
+    private static float tintR = 1f, tintG = 1f, tintB = 1f;
+
+    public static void setTint(float r, float g, float b) {
+        tintR = r; tintG = g; tintB = b;
+    }
+
+    public static void resetTint() {
+        tintR = 1f; tintG = 1f; tintB = 1f;
+    }
+
     private static void drawGroups(Tessellator tess, float[][][] groups, float invSc, float brightness) {
         tess.start(GL11.GL_TRIANGLES);
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
             if (tris.length == 0) continue;
             float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
-            tess.color(bright, bright, bright);
+            tess.color(bright * tintR, bright * tintG, bright * tintB);
             for (int i = 0; i < tris.length; i++) {
                 float[] t = tris[i];
                 tess.vertex(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
@@ -255,7 +269,7 @@ public class Aero_MeshRenderer {
                 float b01 = cache[row1 + cx];
                 float b11 = cache[row1 + cx + 1];
                 float bright = lerp(lerp(b00, b10, tx), lerp(b01, b11, tx), tz) * factor;
-                tess.color(bright, bright, bright);
+                tess.color(bright * tintR, bright * tintG, bright * tintB);
                 tess.vertex(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
                 tess.vertex(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
                 tess.vertex(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);

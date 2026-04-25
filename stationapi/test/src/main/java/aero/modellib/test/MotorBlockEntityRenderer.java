@@ -14,10 +14,7 @@ public class MotorBlockEntityRenderer extends BlockEntityRenderer {
     public void render(BlockEntity blockEntity, double x, double y, double z, float partialTick) {
         MotorBlockEntity be = (MotorBlockEntity) blockEntity;
         bindTexture("/models/aerotest_motor.png");
-        // Query the air block above so we get the sky/torch light reaching
-        // the model — sampling at the BE's own coords returns 0 (light
-        // stored INSIDE the block is always zero).
-        float brightness = be.world.method_1782(be.x, be.y + 1, be.z);
+        float brightness = AeroLight.brightnessAbove(be.world, be.x, be.y, be.z);
         Aero_MeshRenderer.renderAnimated(MODEL,
             MotorBlockEntity.BUNDLE,
             MotorBlockEntity.ANIM_DEF,
