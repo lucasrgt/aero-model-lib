@@ -114,10 +114,11 @@ public void onLivingUpdate() {
 
 // In your Render / EntityRenderer class
 private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.DEFAULT
-        .withOffset(-0.5f, 0f, -0.5f)
-        .withCullingRadius(2f)
-        .withMaxRenderDistance(96f);
+    Aero_EntityModelTransform.builder()
+        .offset(-0.5f, 0f, -0.5f)
+        .cullingRadius(2f)
+        .maxRenderDistance(96f)
+        .build();
 
 public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
@@ -145,6 +146,7 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_RenderDistance` | Loader adapter for current render distance, entity multipliers and culling checks |
 | `Aero_RenderDistanceCulling` | Pure shared culling math used by ModLoader and StationAPI |
 | `Aero_RenderLod` | Render-distance LOD result: animated, static-at-rest or culled |
+| `Aero_RenderOptions` | Explicit render styling such as per-call mesh tint |
 | `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Optional ModLoader/StationAPI bases that make special renderers scale with render distance under a configurable cap |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone, plus optional non-pose events |
@@ -158,6 +160,7 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_AnimationEventListener` | Receives sound / particle / custom keyframes with optional bone locator |
 | `Aero_AnimationPredicate` | Single-method `test(playback) → bool` for the state router |
 | `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain that picks the next state |
+| `Aero_Profiler` | Optional named-section timer for manual profiling |
 | `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
 
 ## File Formats
@@ -175,11 +178,14 @@ public void doRender(Entity entity, double x, double y, double z,
   },
   "animations": {
     "idle": {
-      "loop": true,
+      "loop": "loop",
       "length": 2.0,
       "bones": {
         "fan": {
-          "rotation": { "0.0": [0,0,0], "2.0": [0,0,0] }
+          "rotation": {
+            "0.0": { "value": [0, 0, 0], "interp": "linear" },
+            "2.0": { "value": [0, 0, 0], "interp": "linear" }
+          }
         }
       }
     },
@@ -189,29 +195,35 @@ public void doRender(Entity entity, double x, double y, double z,
       "bones": {
         "fan": {
           "rotation": {
-            "0.0": [0, 0, 0],
+            "0.0": { "value": [0,   0, 0], "interp": "linear" },
             "0.5": { "value": [0, 180, 0], "interp": "easeInOutBack" },
-            "1.0": [0, 360, 0]
+            "1.0": { "value": [0, 360, 0], "interp": "linear" }
           },
-          "position": { "0.0": [0, 0, 0] }
+          "position": {
+            "0.0": { "value": [0, 0, 0], "interp": "linear" }
+          }
         }
       },
       "keyframes": {
-        "sound":    { "0.5": { "name": "random.click",   "locator": "fan" } },
-        "particle": { "1.0": { "name": "smoke",          "locator": "exhaust" } },
-        "custom":   { "0.0": "CYCLE_START" }
+        "sound":    { "0.5": { "name": "random.click", "locator": "fan" } },
+        "particle": { "1.0": { "name": "smoke",        "locator": "exhaust" } },
+        "custom":   { "0.0": { "name": "CYCLE_START" } }
       }
     }
   }
 }
 ```
 
+The schema is strict v2 — the loader rejects unknown easings, boolean loops
+and shorthand keyframes. Convert existing `.bbmodel` animation exports with
+`tools/convert.sh` or `tools\convert.bat`.
+
 - **Pivots**: Blockbench pixels (auto-divided by 16 in the loader)
 - **Rotation**: Euler degrees [X, Y, Z], applied Z→Y→X (Bedrock compatible)
 - **Position**: Blockbench pixels (divided by 16 in the renderer)
-- **Keyframes (per-segment)**: legacy `[x, y, z]` form is still accepted; the structured `{"value": ..., "interp": "easeOutBack"}` form unlocks any of the 33 [easing curves](DOC.md#easing-curves)
-- **Loop types**: `true` / `false` (legacy) or `"loop"` / `"play_once"` / `"hold_on_last_frame"` strings
-- **Keyframes block (events)**: optional `keyframes` object inside a clip declares non-pose events. Each entry is either a bare string (legacy) or `{"name": "...", "locator": "boneName"}` — channel is the parent key (`sound`, `particle`, `custom`, or anything else the listener routes)
+- **Pose keyframes**: every segment is `{"value": [x, y, z], "interp": "..."}`. The interp picks one of the 33 [easing curves](DOC.md#easing-curves); unknown names throw at load time.
+- **Loop types**: must be `"loop"` / `"play_once"` / `"hold_on_last_frame"`.
+- **Keyframe events**: every entry under `keyframes` is `{"name": "...", "locator": "boneName"}`. Channel is the parent key (`sound`, `particle`, `custom`, or anything else the listener routes); locator is optional.
 
 ### `.obj`
 
@@ -237,7 +249,7 @@ Use `o` or `g` directives in the OBJ to define named groups that match your bone
 bash tools/convert.sh MyMachine.bbmodel
 
 # Windows
-scripts\convert.bat MyMachine.bbmodel
+tools\convert.bat MyMachine.bbmodel
 
 # → MyMachine.anim.json
 ```
@@ -272,11 +284,11 @@ animState.tick();                              // 1. Advance time (ALWAYS first)
 animState.setState(isRunning ? 1 : 0);         // 2. Evaluate state (AFTER tick)
 ```
 
-**Transition rules:**
+**State switch rules:**
 - **Same state** → no-op
 - **Different state, different clip** → playback resets to 0 (new animation starts)
 - **Different state, same clip** → playback continues (animation uninterrupted)
-- **No blending** — transitions are instantaneous, no crossfade
+- **Default switch is instant** — use `setStateWithTransition(...)` or the router's `withTransition(...)` for crossfade
 
 **Edge cases are safe:** unknown state IDs resolve to `null` clip (animation stops gracefully). Looping clips handle wrap-around without stutter.
 
@@ -299,14 +311,14 @@ each with `easeIn*`, `easeOut*`, `easeInOut*` variants.
 
 ```json
 "position": {
-  "0":   [0, 0, 0],
+  "0":   { "value": [0, 0, 0], "interp": "linear" },
   "0.5": { "value": [0, 8, 0], "interp": "easeOutBack" },
   "1.0": { "value": [0, 0, 0], "interp": "easeInBounce" }
 }
 ```
 
-Unknown curve names degrade silently to `linear` so a typo never crashes
-the loader. See [DOC.md § Easing curves](DOC.md#easing-curves).
+Unknown curve names throw at load time so typos surface immediately rather
+than degrading silently. See [DOC.md § Easing curves](DOC.md#easing-curves).
 
 ### Smooth state transitions
 
@@ -345,15 +357,28 @@ a base walk loop plus a head-look or arm-wave overlay that only animates
 its own bones.
 
 ```java
-Aero_AnimationStack stack = new Aero_AnimationStack()
-    .add(new Aero_AnimationLayer(walkPlayback))                 // base
-    .add(new Aero_AnimationLayer(armWavePlayback).additive(true));
+Aero_AnimationStack stack = Aero_AnimationStack.builder()
+    .replace(walkPlayback)                  // base
+    .additive(armWavePlayback, 0.8f)         // overlay
+    .build();
 
 stack.tick();   // ticks every layer
 Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick);
 ```
 
 Scale composes multiplicatively (`base × layer`), rotation/position add.
+
+### Explicit render options
+
+Use `Aero_RenderOptions` when a draw call needs styling such as a damage
+flash or overheat tint. Options are passed per render call, so there is no
+renderer-global state to reset afterward.
+
+```java
+Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
+Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
+    x, y, z, yaw, brightness, partialTick, MODEL_TRANSFORM, hot);
+```
 
 ### Predicate state router
 
