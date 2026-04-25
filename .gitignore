@@ -11,3 +11,4 @@ tests/out/
 *.iml
 .idea/
 .vscode/
+dist/
