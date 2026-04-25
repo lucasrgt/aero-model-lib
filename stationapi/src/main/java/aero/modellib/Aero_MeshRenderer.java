@@ -223,7 +223,11 @@ public class Aero_MeshRenderer {
             int row = zi * w;
             int wz = zLo + zi;
             for (int xi = 0; xi < w; xi++) {
-                cache[row + xi] = world.getLightBrightness(xLo + xi, topY, wz);
+                // method_1782 is the float-brightness equivalent of vanilla
+                // getLightBrightness(int,int,int). Yarn for Beta 1.7.3 hasn't
+                // assigned a human name yet (still raw intermediary). Update
+                // when biny mappings give it a real name.
+                cache[row + xi] = world.method_1782(xLo + xi, topY, wz);
             }
         }
 

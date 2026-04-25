@@ -24,8 +24,8 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    mappings "babric:yarn:${yarn_mappings}:v2"
-    modImplementation "babric:fabric-loader:${loader_version}"
+    mappings "net.glasslauncher:biny:${yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
 }
 
 // Pull in the shared pure-Java core sources from sibling dir libraries/modellib/core/.
