@@ -12,6 +12,9 @@ import java.util.Map;
  */
 public class Aero_AnimationBundle {
 
+    /** Shared sentinel returned by getPivot when a bone has no pivot defined. */
+    private static final float[] ZERO_PIVOT = {0f, 0f, 0f};
+
     /** Map<String, Aero_AnimationClip> — clips indexed by name. */
     public final Map clips;
 
@@ -49,6 +52,6 @@ public class Aero_AnimationBundle {
      */
     public float[] getPivot(String boneName) {
         float[] p = (float[]) pivots.get(boneName);
-        return p != null ? p : new float[]{0f, 0f, 0f};
+        return p != null ? p : ZERO_PIVOT;
     }
 }
