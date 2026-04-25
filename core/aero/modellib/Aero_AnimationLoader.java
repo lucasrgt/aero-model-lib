@@ -101,7 +101,23 @@ public class Aero_AnimationLoader {
     }
 
     private static Aero_AnimationClip buildClip(String clipName, Map clipData) {
-        boolean loop   = clipData.containsKey("loop") && Boolean.TRUE.equals(clipData.get("loop"));
+        // The "loop" field accepts either a JSON boolean (legacy) or a
+        // string naming the GeckoLib-style loop type. Unknown strings
+        // degrade to PLAY_ONCE.
+        int loopType = Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE;
+        if (clipData.containsKey("loop")) {
+            Object loopVal = clipData.get("loop");
+            if (loopVal instanceof Boolean) {
+                loopType = ((Boolean) loopVal).booleanValue()
+                    ? Aero_AnimationClip.LOOP_TYPE_LOOP
+                    : Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE;
+            } else if (loopVal instanceof String) {
+                String s = (String) loopVal;
+                if      ("loop".equals(s))               loopType = Aero_AnimationClip.LOOP_TYPE_LOOP;
+                else if ("hold_on_last_frame".equals(s)) loopType = Aero_AnimationClip.LOOP_TYPE_HOLD;
+                else                                      loopType = Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE;
+            }
+        }
         float   length = clipData.containsKey("length") ? toFloat(clipData.get("length")) : 1f;
 
         Map bonesIn = clipData.containsKey("bones") ? (Map) clipData.get("bones") : new HashMap();
@@ -146,11 +162,76 @@ public class Aero_AnimationLoader {
             bi++;
         }
 
-        return new Aero_AnimationClip(clipName, loop, length,
+        // Optional non-pose keyframes block. Schema:
+        //   "keyframes": {
+        //       "sound":    { "0.5": "mob.zombie.hurt" },
+        //       "particle": { "1.0": "smoke" },
+        //       "custom":   { "0.5": "ATTACK_HITBOX" }
+        //   }
+        // Each channel maps timestamp → payload string. Times sort across
+        // ALL channels into a single array so playback fires them in real
+        // chronological order with one linear walk per tick.
+        float[]  evTimes    = null;
+        String[] evChannels = null;
+        String[] evData     = null;
+        if (clipData.containsKey("keyframes")) {
+            ParsedEvents pe = parseEvents((Map) clipData.get("keyframes"));
+            evTimes    = pe.times;
+            evChannels = pe.channels;
+            evData     = pe.data;
+        }
+
+        return new Aero_AnimationClip(clipName, loopType, length,
             boneNames,
             rotTimes, rotValues, rotInterps,
             posTimes, posValues, posInterps,
-            sclTimes, sclValues, sclInterps);
+            sclTimes, sclValues, sclInterps,
+            evTimes, evChannels, evData);
+    }
+
+    private static class ParsedEvents {
+        float[]  times;
+        String[] channels;
+        String[] data;
+    }
+
+    private static ParsedEvents parseEvents(Map kfRoot) {
+        // Flatten {channel: {time: payload}} into a list, then sort by time.
+        List rows = new ArrayList(); // float[]{time}, String channel, String data
+        Iterator it = kfRoot.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry chEntry = (Map.Entry) it.next();
+            String channel = (String) chEntry.getKey();
+            Object value   = chEntry.getValue();
+            if (!(value instanceof Map)) continue;
+            Map kfs = (Map) value;
+            Iterator kfIt = kfs.entrySet().iterator();
+            while (kfIt.hasNext()) {
+                Map.Entry e = (Map.Entry) kfIt.next();
+                float t = Float.parseFloat((String) e.getKey());
+                String payload = String.valueOf(e.getValue());
+                rows.add(new Object[]{ Float.valueOf(t), channel, payload });
+            }
+        }
+        Collections.sort(rows, new Comparator() {
+            public int compare(Object a, Object b) {
+                Float ta = (Float) ((Object[]) a)[0];
+                Float tb = (Float) ((Object[]) b)[0];
+                return ta.compareTo(tb);
+            }
+        });
+        ParsedEvents out = new ParsedEvents();
+        int n = rows.size();
+        out.times    = new float[n];
+        out.channels = new String[n];
+        out.data     = new String[n];
+        for (int i = 0; i < n; i++) {
+            Object[] row = (Object[]) rows.get(i);
+            out.times[i]    = ((Float)  row[0]).floatValue();
+            out.channels[i] = (String)  row[1];
+            out.data[i]     = (String)  row[2];
+        }
+        return out;
     }
 
     /** Parsed channel data with times, values and interp modes */
@@ -184,9 +265,11 @@ public class Aero_AnimationLoader {
                 y = toFloat(v.get(1));
                 z = toFloat(v.get(2));
                 if (kfObj.containsKey("interp")) {
-                    String mode = (String) kfObj.get("interp");
-                    if ("catmullrom".equals(mode)) interp = Aero_AnimationClip.INTERP_CATMULLROM;
-                    else if ("step".equals(mode)) interp = Aero_AnimationClip.INTERP_STEP;
+                    // Aero_Easing.byName accepts every registered curve
+                    // name (linear/catmullrom/step plus the easeIn*/easeOut*
+                    // /easeInOut* family), and falls back to LINEAR for
+                    // unknown strings.
+                    interp = Aero_Easing.byName((String) kfObj.get("interp"));
                 }
             } else {
                 // Legacy format: [x, y, z]
