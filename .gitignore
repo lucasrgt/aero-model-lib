@@ -17,3 +17,13 @@ tools/*.class
 *.iml
 .idea/
 .vscode/
+
+# Loom test mod (stationapi/test) build + run artifacts
+stationapi/test/build/
+stationapi/test/.gradle/
+stationapi/test/.idea/
+stationapi/test/run/
+stationapi/test/*.iml
+
+# Moved unit-test runner output
+modloader/tests/out/

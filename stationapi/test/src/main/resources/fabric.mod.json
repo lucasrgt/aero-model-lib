@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "${mod_id}",
+  "version": "${version}",
+
+  "name": "Aero ModelLib Test",
+  "description": "Smoke-test mod that consumes aero-model-lib on StationAPI by rendering a MegaCrusher OBJ at a custom block.",
+  "authors": ["lucasrgt"],
+  "license": "MIT",
+
+  "environment": "*",
+  "entrypoints": {
+    "stationapi:event_bus": [
+      "aero.modellib.test.AeroTestMod"
+    ],
+    "stationapi:event_bus_client": [
+      "aero.modellib.test.AeroTestModClient"
+    ]
+  },
+
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "1.0.0-beta.7.3",
+    "stationapi": "*",
+    "aero-model-lib": "*"
+  }
+}
