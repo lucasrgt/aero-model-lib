@@ -82,4 +82,145 @@ public class AnimationPlaybackTest {
             new float[][][]{{{0f, 0f, 0f}}}
         );
     }
+
+    private static Aero_AnimationClip clipWithLoopType(String name, float length, int loopType) {
+        return new Aero_AnimationClip(
+            name, loopType, length,
+            new String[]{"bone"},
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            null, null, null
+        );
+    }
+
+    @Test
+    public void playOnceClampsAndIsFinished() {
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "once")
+            .createPlayback(bundle(clipWithLoopType("once", 0.1f, Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE)));
+
+        // 0.1s clip = 2 ticks; the third tick should clamp at length and
+        // flip isFinished() so a state machine can advance.
+        for (int i = 0; i < 5; i++) playback.tick();
+
+        assertEquals(0.1f, playback.getInterpolatedTime(1f), DELTA);
+        assertTrue("PLAY_ONCE clip should be finished after clamping", playback.isFinished());
+    }
+
+    @Test
+    public void holdClampsButNeverFinishes() {
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "hold")
+            .createPlayback(bundle(clipWithLoopType("hold", 0.1f, Aero_AnimationClip.LOOP_TYPE_HOLD)));
+
+        for (int i = 0; i < 5; i++) playback.tick();
+
+        // HOLD clamps visually like PLAY_ONCE — but isFinished() stays false
+        // so callers can keep the pose without auto-advancing.
+        assertEquals(0.1f, playback.getInterpolatedTime(1f), DELTA);
+        assertFalse("HOLD clips should never report finished", playback.isFinished());
+    }
+
+    @Test
+    public void loopNeverFinishes() {
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "spin")
+            .createPlayback(bundle(loopClip("spin", 0.1f)));
+
+        for (int i = 0; i < 10; i++) playback.tick();
+
+        assertFalse("LOOP clips should never report finished", playback.isFinished());
+    }
+
+    // -----------------------------------------------------------------------
+    // Transition / blending tests
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void transitionAlphaRampsLinearlyOverTicks() {
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "a").state(1, "b")
+            .createPlayback(bundle(loopClip("a", 1f), loopClip("b", 1f)));
+
+        playback.setStateWithTransition(1, 4);
+        assertTrue(playback.inTransition());
+        // Right after setState, no ticks consumed yet → alpha=0 (full snapshot).
+        assertEquals(0f, playback.getTransitionAlpha(0f), DELTA);
+
+        playback.tick();
+        // After 1 tick of a 4-tick transition, alpha = 1/4 at partialTick=0.
+        assertEquals(0.25f, playback.getTransitionAlpha(0f), DELTA);
+
+        playback.tick();
+        playback.tick();
+        playback.tick();
+        // 4 ticks done — transition finished, alpha clamps at 1.
+        assertEquals(1f, playback.getTransitionAlpha(0f), DELTA);
+        assertFalse(playback.inTransition());
+    }
+
+    @Test
+    public void zeroTickTransitionBehavesLikePlainSetState() {
+        // Sanity: passing transitionTicks=0 should NOT enter a transition,
+        // just snap the state. Defensive against callers that compute the
+        // tick count dynamically and might get 0.
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "a").state(1, "b")
+            .createPlayback(bundle(loopClip("a", 1f), loopClip("b", 1f)));
+
+        playback.setStateWithTransition(1, 0);
+        assertFalse(playback.inTransition());
+        assertEquals(1, playback.currentState);
+    }
+
+    @Test
+    public void transitionToSameClipIsNoOp() {
+        // setStateWithTransition between two states that map to the SAME
+        // clip should not enter a transition (nothing to fade).
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "a").state(1, "a")
+            .createPlayback(bundle(loopClip("a", 1f)));
+
+        playback.setStateWithTransition(1, 4);
+        assertFalse("identical-clip transitions should be skipped", playback.inTransition());
+        assertEquals(1, playback.currentState);
+    }
+
+    @Test
+    public void blendedSampleLerpsBetweenSnapshotAndNewClip() {
+        // Build two clips that animate the same bone with distinct values
+        // so we can verify the lerp formula:
+        //   a → bone "x" rotation [10, 20, 30] at all times
+        //   b → bone "x" rotation [50, 60, 70] at all times
+        // After capturing snapshot from a (=10,20,30) and ticking 1/2 of a
+        // 4-tick transition (alpha=0.5), sampleRotBlended should return
+        // (snap + (new - snap) * 0.5) = (30, 40, 50).
+        Aero_AnimationClip clipA = constantRotClip("a", 10f, 20f, 30f);
+        Aero_AnimationClip clipB = constantRotClip("b", 50f, 60f, 70f);
+
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "a").state(1, "b")
+            .createPlayback(bundle(clipA, clipB));
+
+        playback.setStateWithTransition(1, 4);
+        playback.tick();
+        playback.tick();
+        // After 2 ticks of a 4-tick transition at partialTick=0 → alpha=0.5
+        float[] out = new float[3];
+        boolean ok = playback.sampleRotBlended(clipB, 0, "x", 0f, 0f, out);
+        assertTrue(ok);
+        assertEquals(30f, out[0], DELTA);
+        assertEquals(40f, out[1], DELTA);
+        assertEquals(50f, out[2], DELTA);
+    }
+
+    private static Aero_AnimationClip constantRotClip(String name, float rx, float ry, float rz) {
+        return new Aero_AnimationClip(
+            name, Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
+            new String[]{"x"},
+            new float[][]{{0f}}, new float[][][]{{{rx, ry, rz}}}, null,
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            null, null, null
+        );
+    }
 }

@@ -25,13 +25,42 @@ import java.util.Map;
  */
 public class Aero_AnimationClip {
 
-    /** Interpolation mode constants */
-    public static final int INTERP_LINEAR     = 0;
-    public static final int INTERP_CATMULLROM = 1;
-    public static final int INTERP_STEP       = 2;
+    /**
+     * Interpolation mode constants — kept here as aliases for the canonical
+     * {@link Aero_Easing} table so existing callers that reference
+     * {@code Aero_AnimationClip.INTERP_*} keep compiling. Any new easing
+     * curve gets added in {@code Aero_Easing} only; the sampler routes the
+     * raw int through {@link Aero_Easing#ease}.
+     */
+    public static final int INTERP_LINEAR     = Aero_Easing.LINEAR;
+    public static final int INTERP_CATMULLROM = Aero_Easing.CATMULLROM;
+    public static final int INTERP_STEP       = Aero_Easing.STEP;
+
+    /**
+     * Behaviour at the end of the clip.
+     * <ul>
+     *   <li>{@link #LOOP_TYPE_PLAY_ONCE} — playback clamps at {@link #length};
+     *       {@link Aero_AnimationState#isFinished()} returns true so callers
+     *       can chain into the next clip.</li>
+     *   <li>{@link #LOOP_TYPE_LOOP} — playback wraps back to 0; never
+     *       finishes.</li>
+     *   <li>{@link #LOOP_TYPE_HOLD} — playback clamps at {@link #length},
+     *       same as PLAY_ONCE visually, but {@link Aero_AnimationState#isFinished()}
+     *       stays {@code false} so the state holds the final pose forever.</li>
+     * </ul>
+     */
+    public static final int LOOP_TYPE_PLAY_ONCE = 0;
+    public static final int LOOP_TYPE_LOOP      = 1;
+    public static final int LOOP_TYPE_HOLD      = 2;
 
     public final String  name;
+    /**
+     * @deprecated use {@link #loopType} — true ↔ LOOP_TYPE_LOOP, false ↔
+     *     LOOP_TYPE_PLAY_ONCE. Kept for binary compat with existing callers.
+     */
+    @Deprecated
     public final boolean loop;
+    public final int     loopType;
     public final float   length;    // duration in seconds
 
     // Parallel arrays indexed by bone index (0-based, order of addition)
@@ -47,15 +76,54 @@ public class Aero_AnimationClip {
     final float[][][] sclValues;
     final int[][]     sclInterps;
 
-    /** Full constructor — used by Aero_AnimationLoader. */
-    Aero_AnimationClip(String name, boolean loop, float length,
+    /**
+     * Sorted-by-time non-pose keyframe events (sound / particle / custom).
+     * Parallel arrays — index {@code i} carries the event's time, channel,
+     * and payload. Empty arrays (length 0) when the clip has no events.
+     * <p>
+     * The sorted order lets {@link Aero_AnimationPlayback#tick()} fire them
+     * in chronological sequence with a single linear walk, instead of doing
+     * a per-frame search.
+     */
+    final float[]   eventTimes;
+    final String[]  eventChannels;
+    final String[]  eventData;
+
+    private static final float[]  EMPTY_FLOATS  = new float[0];
+    private static final String[] EMPTY_STRINGS = new String[0];
+
+    /** Full constructor with explicit loopType — used by Aero_AnimationLoader. */
+    Aero_AnimationClip(String name, int loopType, float length,
                   String[] boneNames,
                   float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
                   float[][] posTimes, float[][][] posValues, int[][] posInterps,
                   float[][] sclTimes, float[][][] sclValues, int[][] sclInterps) {
+        this(name, loopType, length, boneNames,
+             rotTimes, rotValues, rotInterps,
+             posTimes, posValues, posInterps,
+             sclTimes, sclValues, sclInterps,
+             EMPTY_FLOATS, EMPTY_STRINGS, EMPTY_STRINGS);
+    }
+
+    /**
+     * Full constructor including non-pose keyframe events. Kept package-private
+     * because the public schema for events is owned by
+     * {@link Aero_AnimationLoader}; tests that need explicit events for
+     * verification should go through the loader's parser path instead of
+     * constructing arrays directly.
+     */
+    Aero_AnimationClip(String name, int loopType, float length,
+                  String[] boneNames,
+                  float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
+                  float[][] posTimes, float[][][] posValues, int[][] posInterps,
+                  float[][] sclTimes, float[][][] sclValues, int[][] sclInterps,
+                  float[] eventTimes, String[] eventChannels, String[] eventData) {
         int n = boneNames.length;
         this.name       = name;
-        this.loop       = loop;
+        this.loopType   = loopType;
+        // Derived for the deprecated boolean field — true only when the
+        // clip actually wraps; HOLD and PLAY_ONCE both report false.
+        this.loop       = loopType == LOOP_TYPE_LOOP;
         this.length     = length;
         this.boneNames  = boneNames;
         this.boneIndexByName = buildBoneIndex(boneNames);
@@ -68,6 +136,32 @@ public class Aero_AnimationClip {
         this.sclTimes   = sclTimes   != null ? sclTimes   : new float[n][];
         this.sclValues  = sclValues  != null ? sclValues  : new float[n][][];
         this.sclInterps = sclInterps != null ? sclInterps : new int[n][];
+        this.eventTimes    = eventTimes    != null ? eventTimes    : EMPTY_FLOATS;
+        this.eventChannels = eventChannels != null ? eventChannels : EMPTY_STRINGS;
+        this.eventData     = eventData     != null ? eventData     : EMPTY_STRINGS;
+    }
+
+    /** True if this clip carries any non-pose keyframe events. */
+    public boolean hasEvents() {
+        return eventTimes.length > 0;
+    }
+
+    /**
+     * @deprecated boolean loop → int loopType: true ↔ {@link #LOOP_TYPE_LOOP},
+     *     false ↔ {@link #LOOP_TYPE_PLAY_ONCE}. Use the int-typed constructor
+     *     for new code so HOLD is reachable.
+     */
+    @Deprecated
+    Aero_AnimationClip(String name, boolean loop, float length,
+                  String[] boneNames,
+                  float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
+                  float[][] posTimes, float[][][] posValues, int[][] posInterps,
+                  float[][] sclTimes, float[][][] sclValues, int[][] sclInterps) {
+        this(name, loop ? LOOP_TYPE_LOOP : LOOP_TYPE_PLAY_ONCE, length,
+            boneNames,
+            rotTimes, rotValues, rotInterps,
+            posTimes, posValues, posInterps,
+            sclTimes, sclValues, sclInterps);
     }
 
     /**
@@ -78,7 +172,7 @@ public class Aero_AnimationClip {
                               String[] boneNames,
                               float[][] rotTimes, float[][][] rotValues,
                               float[][] posTimes, float[][][] posValues) {
-        this(name, loop, length, boneNames,
+        this(name, loop ? LOOP_TYPE_LOOP : LOOP_TYPE_PLAY_ONCE, length, boneNames,
              rotTimes, rotValues, null,
              posTimes, posValues, null,
              null, null, null);
@@ -185,10 +279,14 @@ public class Aero_AnimationClip {
             return true;
         }
 
-        // Linear (default)
-        out[0] = a[0] + (b[0] - a[0]) * alpha;
-        out[1] = a[1] + (b[1] - a[1]) * alpha;
-        out[2] = a[2] + (b[2] - a[2]) * alpha;
+        // Every other easing curve (sine/quad/cubic/back/elastic/bounce/...)
+        // is just a non-linear remap of alpha; the per-axis interpolation
+        // stays a single-segment lerp. ease() returns alpha for LINEAR and
+        // unknown modes so this branch is the universal fallback.
+        float eased = Aero_Easing.ease(mode, alpha);
+        out[0] = a[0] + (b[0] - a[0]) * eased;
+        out[1] = a[1] + (b[1] - a[1]) * eased;
+        out[2] = a[2] + (b[2] - a[2]) * eased;
         return true;
     }
 
