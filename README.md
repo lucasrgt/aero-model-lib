@@ -16,6 +16,7 @@ Demo Animated Machine on YouTube:
 - **Partial-tick interpolation** — Smooth 60fps animation from 20-tick updates
 - **Dedicated entity helper** — Render static or animated Aero models from mob/entity renderers with entity-origin yaw, brightness overloads and scale/offset transforms
 - **Render-distance aware culling** — Tile/block entities and Aero entity models scale with the player's render distance, with a safe default cap for high-distance stability
+- **Animation LOD** — Switch distant animated meshes to rest-pose rendering before culling, avoiding keyframe sampling and per-bone GL transforms
 - **Brightness optimization** — Triangles pre-classified into 4 groups, only 4 color calls per frame
 - **Built-in caching** — All loaders cache by resource path; JSON quads, mesh bounds, smooth-light metadata and animation lookups are cached too
 - **Dual loader support** — Shared Java 8 core with ModLoader and StationAPI render/state adapters
@@ -80,8 +81,13 @@ protected double getAeroMaxRenderDistance() {
 // ── TileEntitySpecialRenderer ──
 
 bindTextureByName("/block/my_texture_hq.png");
-Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
-    d, d1, d2, brightness, partialTick);
+Aero_RenderLod lod = Aero_RenderDistance.lodRelative(d, d1, d2, 2d, 48d);
+if (lod.shouldAnimate()) {
+    Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
+        d, d1, d2, brightness, partialTick);
+} else if (lod.isStaticOnly()) {
+    Aero_MeshRenderer.renderModelAtRest(MODEL, d, d1, d2, 0f, brightness);
+}
 ```
 
 ### Entity Model (Mob Renderer)
@@ -133,6 +139,7 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_EntityModelTransform` | Immutable entity offset/scale/yaw conversion settings |
 | `Aero_RenderDistance` | Loader adapter for current render distance, entity multipliers and culling checks |
 | `Aero_RenderDistanceCulling` | Pure shared culling math used by ModLoader and StationAPI |
+| `Aero_RenderLod` | Render-distance LOD result: animated, static-at-rest or culled |
 | `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Optional ModLoader/StationAPI bases that make special renderers scale with render distance under a configurable cap |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone |

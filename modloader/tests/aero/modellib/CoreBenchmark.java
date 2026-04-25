@@ -39,6 +39,9 @@ public final class CoreBenchmark {
         bench("renderdistance.cull", 500, 50000, new Bench() {
             public float run() { return resolveRenderDistanceCull(); }
         });
+        bench("renderdistance.lod", 500, 50000, new Bench() {
+            public float run() { return resolveRenderDistanceLod(); }
+        });
 
         System.out.println("sink=" + sink);
     }
@@ -119,6 +122,17 @@ public final class CoreBenchmark {
             if (Aero_RenderDistanceCulling.shouldRenderRelative(i, i & 15, i >>> 1, i & 3, 4d)) {
                 sum += i;
             }
+        }
+        return sum;
+    }
+
+    private static float resolveRenderDistanceLod() {
+        float sum = 0f;
+        for (int i = 0; i < 256; i++) {
+            Aero_RenderLod lod = Aero_RenderDistanceCulling.lodRelative(
+                i, i & 15, i >>> 1, i & 3, 4d, 32d);
+            if (lod.shouldAnimate()) sum += i;
+            else if (lod.isStaticOnly()) sum += i * 0.5f;
         }
         return sum;
     }

@@ -81,6 +81,29 @@ public final class Aero_EntityModelRenderer {
         }
     }
 
+    public static void renderAtRest(Aero_MeshModel model, Entity entity,
+                                    double x, double y, double z,
+                                    float yaw, float partialTick,
+                                    Aero_EntityModelTransform transform) {
+        renderAtRest(model, x, y, z, yaw, entity.getBrightness(partialTick), transform);
+    }
+
+    public static void renderAtRest(Aero_MeshModel model,
+                                    double x, double y, double z,
+                                    float yaw, float brightness,
+                                    Aero_EntityModelTransform transform) {
+        requireTransform(transform);
+        if (!shouldRender(x, y, z, transform)) return;
+        beginEntityTransform(x, y, z, yaw, transform);
+        try {
+            Aero_MeshRenderer.renderModelAtRest(model,
+                transform.offsetX, transform.offsetY, transform.offsetZ,
+                0f, brightness);
+        } finally {
+            GL11.glPopMatrix();
+        }
+    }
+
     public static void renderAnimated(Aero_MeshModel model,
                                       Aero_AnimationPlayback state,
                                       Entity entity,

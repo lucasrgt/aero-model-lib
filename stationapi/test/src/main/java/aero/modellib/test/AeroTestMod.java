@@ -30,6 +30,10 @@ public class AeroTestMod {
     public static CrystalChaosBlock crystalChaosBlock;
     public static AeroRobotEggItem robotEgg;
 
+    private static final int DEMO_BLOCK_SPACING_CHUNKS = 2;
+    private static final int DEMO_ENTITY_SPACING_CHUNKS = 4;
+    static final double DEMO_ANIMATED_LOD_DISTANCE_BLOCKS = 48d;
+
     static {
         EntrypointManager.registerLookup(MethodHandles.lookup());
     }
@@ -78,6 +82,8 @@ public class AeroTestMod {
 
     @EventListener
     private static void populateChunk(WorldGenEvent.ChunkDecoration event) {
+        if (!isChunkMultiple(event, DEMO_BLOCK_SPACING_CHUNKS)) return;
+
         // Each test block sits on top of the real terrain column in this
         // chunk — placing them at a fixed y=70 buried them inside stone in
         // hilly chunks (light = 0, model rendered as a pure-black silhouette).
@@ -95,7 +101,7 @@ public class AeroTestMod {
         // Entity renderer smoke test: one animated model entity every 4x4
         // chunks. Drop it 2 blocks above the column top so it lands on the
         // surface even in mountainous spawns.
-        if (!event.world.isRemote && (event.x & 63) == 0 && (event.z & 63) == 0) {
+        if (!event.world.isRemote && isChunkMultiple(event, DEMO_ENTITY_SPACING_CHUNKS)) {
             int ex = event.x + 8;
             int ez = event.z + 4;
             int ey = event.world.getTopSolidBlockY(ex, ez) + 2;
@@ -112,6 +118,13 @@ public class AeroTestMod {
             robot.setPositionAndAngles(rx + 0.5, ry, rz + 0.5, 0f, 0f);
             event.world.spawnEntity(robot);
         }
+    }
+
+    private static boolean isChunkMultiple(WorldGenEvent.ChunkDecoration event, int spacing) {
+        int chunkX = event.x >> 4;
+        int chunkZ = event.z >> 4;
+        return Math.floorMod(chunkX, spacing) == 0
+            && Math.floorMod(chunkZ, spacing) == 0;
     }
 
     /** Places a block + its BlockEntity on top of the chunk column. */

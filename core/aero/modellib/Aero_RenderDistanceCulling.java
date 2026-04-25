@@ -81,6 +81,36 @@ public final class Aero_RenderDistanceCulling {
         return squaredDistance(x, y, z) <= radius * radius;
     }
 
+    public static Aero_RenderLod lodRelative(double x, double y, double z,
+                                             int viewDistance,
+                                             double visualRadiusBlocks,
+                                             double animatedDistanceBlocks) {
+        return lodRelative(x, y, z, viewDistance, visualRadiusBlocks,
+            animatedDistanceBlocks, DEFAULT_SPECIAL_RENDER_RADIUS);
+    }
+
+    public static Aero_RenderLod lodRelative(double x, double y, double z,
+                                             int viewDistance,
+                                             double visualRadiusBlocks,
+                                             double animatedDistanceBlocks,
+                                             double maxRenderDistanceBlocks) {
+        requireFinite("x", x);
+        requireFinite("y", y);
+        requireFinite("z", z);
+        requireNonNegativeFinite("visualRadiusBlocks", visualRadiusBlocks);
+        requireNonNegativeFinite("animatedDistanceBlocks", animatedDistanceBlocks);
+        requirePositiveFinite("maxRenderDistanceBlocks", maxRenderDistanceBlocks);
+
+        double viewRadius = Math.min(blockRadiusForViewDistance(viewDistance), maxRenderDistanceBlocks);
+        double staticRadius = viewRadius + visualRadiusBlocks;
+        double distanceSq = squaredDistance(x, y, z);
+        if (distanceSq > staticRadius * staticRadius) return Aero_RenderLod.CULLED;
+
+        double animatedRadius = Math.min(animatedDistanceBlocks, viewRadius) + visualRadiusBlocks;
+        if (distanceSq <= animatedRadius * animatedRadius) return Aero_RenderLod.ANIMATED;
+        return Aero_RenderLod.STATIC;
+    }
+
     /**
      * Returns a synthetic distance squared for vanilla's hardcoded 64 block
      * BlockEntity/TileEntity dispatcher comparison.
