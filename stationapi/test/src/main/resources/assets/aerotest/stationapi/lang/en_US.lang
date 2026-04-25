@@ -4,3 +4,4 @@ tile.@.motor.name=Aero Motor (scale-pulse)
 tile.@.pump.name=Aero Pump (position-stroke)
 tile.@.crystal.name=Aero Crystal (rot+scale+pos all-axes)
 tile.@.crystal_chaos.name=Aero Crystal Chaos (multi-axis edge cases)
+item.@.robot_egg.name=Aero Robot Egg

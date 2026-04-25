@@ -92,7 +92,11 @@ public void onLivingUpdate() {
 
 // Renderer field: allocate once, not per frame
 private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.DEFAULT.withOffset(-0.5f, 0f, -0.5f).withScale(1f);
+    Aero_EntityModelTransform.DEFAULT
+        .withOffset(-0.5f, 0f, -0.5f)
+        .withScale(1f)
+        .withCullingRadius(2f)
+        .withMaxRenderDistance(96f);
 
 // Renderer method
 public void doRender(Entity entity, double x, double y, double z,
@@ -140,6 +144,8 @@ mindmap
         render entity-origin models
       Aero_EntityModelTransform
         offset scale yaw conversion
+      Aero_RenderDistance
+        render distance culling
       Aero_InventoryRenderer
         render JsonModel
         render MeshModel
@@ -250,6 +256,7 @@ sequenceDiagram
 | **State (mutable)** | `Aero_AnimationState` | Loader-specific NBT wrapper around playback. |
 | **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer`, `Aero_EntityModelRenderer`, `Aero_InventoryRenderer` | Static methods for OpenGL drawing. |
 | **Transforms** | `Aero_EntityModelTransform` | Immutable offset/scale/yaw settings for entity-origin rendering. |
+| **Culling** | `Aero_RenderDistance`, `Aero_RenderDistanceCulling`, `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Keeps Aero renderers aligned with the player's render distance under a configurable cap instead of Beta's fixed 64-block special-render cutoff. |
 
 ---
 
@@ -939,7 +946,47 @@ Immutable entity transform. Store as `static final`; do not allocate it inside r
 | `withOffset(x, y, z)` | Returns a copy with model-local offset |
 | `withScale(scale)` | Returns a copy with uniform scale; scale must be finite and non-zero |
 | `withYawOffset(degrees)` | Returns a copy with extra yaw adjustment |
+| `withCullingRadius(blocks)` | Adds a visual radius margin to entity culling; use for models wider than the entity hitbox |
+| `withMaxRenderDistance(blocks)` | Caps entity-model drawing distance; default is `96` blocks for high-distance stability |
 | `modelYaw(entityYaw)` | Converts vanilla entity yaw to model-space yaw (`180 - entityYaw + yawOffset`) |
+
+---
+
+### Aero_RenderDistance
+
+Loader-specific adapter for render-distance-aware culling. ModLoader reads
+`Minecraft.gameSettings.renderDistance`; StationAPI reads
+`EntityRenderDispatcher.INSTANCE.options.viewDistance`.
+
+| Method | Description |
+|--------|-------------|
+| `currentViewDistance()` | Returns Beta's option value: Far `0`, Normal `1`, Short `2`, Tiny `3` |
+| `currentBlockRadius()` | Maps the current option to an approximate block radius: `256`, `128`, `64`, `32` |
+| `shouldRenderRelative(x, y, z, visualRadiusBlocks)` | Fast entity/model culling check for render-relative coordinates |
+| `shouldRenderRelative(x, y, z, visualRadiusBlocks, maxRenderDistanceBlocks)` | Same check with an explicit cap for light/landmark models |
+| `applyEntityRenderDistance(entity, visualRadiusBlocks)` | Raises the entity dispatcher cutoff to the default safe Aero radius; `Aero_EntityModelRenderer` still culls drawing by the current render distance |
+| `applyEntityRenderDistance(entity, visualRadiusBlocks, maxRenderDistanceBlocks)` | Entity dispatcher setup for a custom capped distance |
+
+### Aero_RenderDistanceCulling
+
+Pure Java math shared by both loaders and covered by unit tests. It also
+normalizes block/tile entity distance for vanilla's hardcoded `64` block
+special-renderer dispatcher limit.
+
+### Aero_RenderDistanceTileEntity / Aero_RenderDistanceBlockEntity
+
+Optional base classes for special-rendered models:
+
+| Loader | Base class | Override |
+|--------|------------|----------|
+| ModLoader | `Aero_RenderDistanceTileEntity` | `protected double getAeroRenderRadius()` and optionally `getAeroMaxRenderDistance()` |
+| StationAPI | `Aero_RenderDistanceBlockEntity` | `protected double getAeroRenderRadius()` and optionally `getAeroMaxRenderDistance()` |
+
+Use these bases for large or animated tile/block entities. `getAeroRenderRadius()`
+is a margin in blocks around the block center, not the full render distance.
+`getAeroMaxRenderDistance()` defaults to `96` blocks so Far render distance does
+not explode special-renderer count. Use `128` or `256` only for light models or
+intentional landmarks.
 
 ---
 
@@ -1194,6 +1241,41 @@ if (Minecraft.isAmbientOcclusionEnabled()) {
 }
 ```
 
+### Render-distance culling
+
+Beta's special renderer dispatcher uses a fixed 64-block limit for
+tile/block entities. Aero's optional render-distance bases normalize that
+distance so Tiny/Short follow the player's setting and Normal/Far can extend
+past 64 blocks without rendering every special model out to 256 blocks.
+
+```java
+// ModLoader: extend Aero_RenderDistanceTileEntity.
+// StationAPI: extend Aero_RenderDistanceBlockEntity.
+public class MyMachineTile extends Aero_RenderDistanceTileEntity {
+    protected double getAeroRenderRadius() {
+        return 3.0d; // visual margin in blocks around the model
+    }
+
+    protected double getAeroMaxRenderDistance() {
+        return 96.0d; // default; use 128/256 only after profiling
+    }
+}
+```
+
+For entity models, set both sides when the model is larger than its hitbox:
+
+```java
+// In the entity constructor or init path
+Aero_RenderDistance.applyEntityRenderDistance(this, 3.0d);
+
+// In the renderer transform
+private static final Aero_EntityModelTransform MODEL_TRANSFORM =
+    Aero_EntityModelTransform.DEFAULT
+        .withOffset(-0.5f, 0f, -0.5f)
+        .withCullingRadius(3f)
+        .withMaxRenderDistance(96f);
+```
+
 ### Hierarchy resolution order
 
 The renderer resolves bones in this order:
@@ -1237,6 +1319,11 @@ public class MyMob extends EntityCreature {
 
     public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
 
+    public MyMob(World world) {
+        super(world);
+        Aero_RenderDistance.applyEntityRenderDistance(this, 2.0d);
+    }
+
     public void onLivingUpdate() {
         super.onLivingUpdate();
         animState.tick();
@@ -1267,7 +1354,9 @@ public class RenderMyMob extends Render {
     private static final Aero_EntityModelTransform MODEL_TRANSFORM =
         Aero_EntityModelTransform.DEFAULT
             .withOffset(-0.5f, 0f, -0.5f)
-            .withScale(1f);
+            .withScale(1f)
+            .withCullingRadius(2f)
+            .withMaxRenderDistance(96f);
 
     public void doRender(Entity entity, double x, double y, double z,
                          float yaw, float partialTick) {
@@ -1307,7 +1396,10 @@ import aero.modellib.Aero_EntityModelTransform;
 import net.minecraft.entity.Entity;
 
 private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.DEFAULT.withOffset(-0.5f, 0f, -0.5f);
+    Aero_EntityModelTransform.DEFAULT
+        .withOffset(-0.5f, 0f, -0.5f)
+        .withCullingRadius(2f)
+        .withMaxRenderDistance(96f);
 
 public void render(Entity entity, double x, double y, double z,
                    float yaw, float tickDelta) {
@@ -1323,6 +1415,8 @@ public void render(Entity entity, double x, double y, double z,
 - `withOffset(x, y, z)` moves the model in model-local units after yaw/scale
 - `withScale(scale)` applies uniform scale; scale must be finite and non-zero
 - `withYawOffset(degrees)` adjusts models exported facing a different direction
+- `withCullingRadius(blocks)` adds a render-distance margin for models wider than the entity hitbox
+- `withMaxRenderDistance(blocks)` caps expensive special/entity model rendering; default is `96`
 - Store transforms as `static final` fields to avoid per-frame allocations
 
 ### Key differences from tile entities
@@ -1336,6 +1430,7 @@ public void render(Entity entity, double x, double y, double z,
 | Render method | `renderTileEntityAt()` | `doRender()` or `doRenderLiving()` |
 | Position | `d, d1, d2` (block offset) | `x, y, z` (world-relative) |
 | Brightness | `world.getLightBrightness(x, y, z)` | Helper reads entity brightness; explicit brightness overloads are available |
+| Render distance | Extend `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Use `Aero_RenderDistance.applyEntityRenderDistance()` plus `withCullingRadius()` / `withMaxRenderDistance()` |
 
 Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT persistence) works identically.
 
@@ -1366,6 +1461,7 @@ Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT
 - **Smooth lighting:** Light is sampled once per unique XZ column in the model footprint, then interpolated from cached metadata
 - **Animation sampling:** Use `renderAnimated()` and the `sample*Into` path; it avoids per-frame vector allocation
 - **Inventory thumbnails:** Model AABBs are cached on `Aero_JsonModel` / `Aero_MeshModel`, so large inventories no longer rescan geometry every paint
+- **Render distance:** Use `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` so high render distances do not cut models at 64 blocks; keep the default `96` block cap unless profiling proves the model is cheap farther out
 - **Profiling:** Use `modloader/tests/bench.ps1` for CPU-side regressions, then confirm heavy scenes in-game for actual driver/OpenGL cost
 
 ### Common errors
@@ -1429,7 +1525,7 @@ package retronism.tile;
 import net.minecraft.src.*;
 import retronism.aero.*;
 
-public class Retronism_TileSimpleCrusher extends TileEntity {
+public class Retronism_TileSimpleCrusher extends Aero_RenderDistanceTileEntity {
 
     // --- Animation (static, shared) ---
     public static final int STATE_OFF = 0;
@@ -1447,6 +1543,14 @@ public class Retronism_TileSimpleCrusher extends TileEntity {
 
     // --- Machine logic ---
     public boolean isActive = false;
+
+    protected double getAeroRenderRadius() {
+        return 2.0d;
+    }
+
+    protected double getAeroMaxRenderDistance() {
+        return 96.0d;
+    }
 
     public void updateEntity() {
         // 1. Tick animation FIRST
@@ -1582,6 +1686,7 @@ powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
 - cached smooth-light metadata walks
 - animation bone lookup + sampling
 - entity yaw transform math
+- render-distance culling math
 - a linear lookup reference for comparison
 
 This benchmark is meant for regression checks. Final render performance should still
@@ -1624,6 +1729,8 @@ Validation checklist:
 - The whole model turns around the entity origin instead of the block center
 - Animated OBJ groups keep spinning while the entity yaw changes
 - Texture and brightness follow the normal entity render path
+- Far render distance keeps distant Aero block/entity probes visible past 64 blocks up to the configured cap
+- Tiny/Short render distances cull distant probes earlier
 - No GL state bleed: nearby blocks/items remain correctly lit and textured
 
 ---
@@ -1662,6 +1769,12 @@ graph LR
         ET[Aero_EntityModelTransform]
     end
 
+    subgraph Culling
+        RD[Aero_RenderDistance]
+        RDC[Aero_RenderDistanceCulling]
+        RDBE[Aero_RenderDistanceTileEntity / BlockEntity]
+    end
+
     ML --> M
     OL --> MM
     AL --> AB
@@ -1682,6 +1795,9 @@ graph LR
     ER --> MR
     ER --> MSR
     ER --> ET
+    ER --> RD
+    RD --> RDC
+    RDBE --> RD
     IR --> M
     IR --> MM
     IR --> MR

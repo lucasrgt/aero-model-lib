@@ -36,6 +36,9 @@ public final class CoreBenchmark {
         bench("entity.transform.yaw", 500, 50000, new Bench() {
             public float run() { return resolveEntityYaw(entityTransform); }
         });
+        bench("renderdistance.cull", 500, 50000, new Bench() {
+            public float run() { return resolveRenderDistanceCull(); }
+        });
 
         System.out.println("sink=" + sink);
     }
@@ -106,6 +109,16 @@ public final class CoreBenchmark {
         float sum = transform.offsetX + transform.offsetY + transform.offsetZ + transform.scale;
         for (int i = 0; i < 256; i++) {
             sum += transform.modelYaw(i * 1.40625f);
+        }
+        return sum;
+    }
+
+    private static float resolveRenderDistanceCull() {
+        float sum = 0f;
+        for (int i = 0; i < 256; i++) {
+            if (Aero_RenderDistanceCulling.shouldRenderRelative(i, i & 15, i >>> 1, i & 3, 4d)) {
+                sum += i;
+            }
         }
         return sum;
     }

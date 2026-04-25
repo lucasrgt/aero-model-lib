@@ -15,6 +15,7 @@ Demo Animated Machine on YouTube:
 - **Keyframe animation** — `.anim.json` format with rotation + position keyframes, loop/clamp, state machine
 - **Partial-tick interpolation** — Smooth 60fps animation from 20-tick updates
 - **Dedicated entity helper** — Render static or animated Aero models from mob/entity renderers with entity-origin yaw, brightness overloads and scale/offset transforms
+- **Render-distance aware culling** — Tile/block entities and Aero entity models scale with the player's render distance, with a safe default cap for high-distance stability
 - **Brightness optimization** — Triangles pre-classified into 4 groups, only 4 color calls per frame
 - **Built-in caching** — All loaders cache by resource path; JSON quads, mesh bounds, smooth-light metadata and animation lookups are cached too
 - **Dual loader support** — Shared Java 8 core with ModLoader and StationAPI render/state adapters
@@ -42,6 +43,11 @@ Aero_InventoryRenderer.render(renderer, MODEL);
 ```java
 // ── TileEntity ──
 
+// ModLoader: extend Aero_RenderDistanceTileEntity.
+// StationAPI: extend Aero_RenderDistanceBlockEntity.
+// Override getAeroRenderRadius() for models that visually extend past 1 block.
+// Override getAeroMaxRenderDistance() only for light/landmark models.
+
 public static final int STATE_OFF = 0;
 public static final int STATE_ON  = 1;
 
@@ -63,6 +69,14 @@ public void updateEntity() {
     animState.setState(isRunning ? STATE_ON : STATE_OFF); // AFTER tick
 }
 
+protected double getAeroRenderRadius() {
+    return 2.0d;
+}
+
+protected double getAeroMaxRenderDistance() {
+    return 96.0d; // default; use 128/256 only after profiling
+}
+
 // ── TileEntitySpecialRenderer ──
 
 bindTextureByName("/block/my_texture_hq.png");
@@ -76,6 +90,11 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 // In your Entity class
 public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
 
+public MyMob(World world) {
+    super(world);
+    Aero_RenderDistance.applyEntityRenderDistance(this, 2.0d);
+}
+
 public void onLivingUpdate() {
     super.onLivingUpdate();
     animState.tick();
@@ -84,7 +103,10 @@ public void onLivingUpdate() {
 
 // In your Render / EntityRenderer class
 private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.DEFAULT.withOffset(-0.5f, 0f, -0.5f);
+    Aero_EntityModelTransform.DEFAULT
+        .withOffset(-0.5f, 0f, -0.5f)
+        .withCullingRadius(2f)
+        .withMaxRenderDistance(96f);
 
 public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
@@ -109,6 +131,9 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_MeshRenderer` | Renders OBJ models (static, animated, per-group) |
 | `Aero_EntityModelRenderer` | Renders JSON/OBJ models from entity renderers with entity-origin transform |
 | `Aero_EntityModelTransform` | Immutable entity offset/scale/yaw conversion settings |
+| `Aero_RenderDistance` | Loader adapter for current render distance, entity multipliers and culling checks |
+| `Aero_RenderDistanceCulling` | Pure shared culling math used by ModLoader and StationAPI |
+| `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Optional ModLoader/StationAPI bases that make special renderers scale with render distance under a configurable cap |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone |
 | `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |

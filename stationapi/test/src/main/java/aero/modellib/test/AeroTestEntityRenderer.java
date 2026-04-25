@@ -16,7 +16,8 @@ public class AeroTestEntityRenderer extends EntityRenderer {
     private static final Aero_EntityModelTransform TRANSFORM =
         Aero_EntityModelTransform.DEFAULT
             .withOffset(-1.5f, 0f, -1.5f)
-            .withScale(0.45f);
+            .withScale(0.45f)
+            .withCullingRadius(3f);
 
     public AeroTestEntityRenderer() {
         shadowRadius = 0.8f;

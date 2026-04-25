@@ -17,7 +17,7 @@ public class CrystalChaosBlockEntityRenderer extends BlockEntityRenderer {
     public void render(BlockEntity blockEntity, double x, double y, double z, float partialTick) {
         CrystalChaosBlockEntity be = (CrystalChaosBlockEntity) blockEntity;
         bindTexture("/models/aerotest_crystal_chaos.png");
-        float brightness = be.world.method_1782(be.x, be.y + 1, be.z);
+        float brightness = AeroLight.brightnessAbove(be.world, be.x, be.y, be.z);
         Aero_MeshRenderer.renderAnimated(MODEL,
             CrystalChaosBlockEntity.BUNDLE,
             CrystalChaosBlockEntity.ANIM_DEF,

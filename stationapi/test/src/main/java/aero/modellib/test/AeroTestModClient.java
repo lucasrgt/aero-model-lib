@@ -29,6 +29,7 @@ public class AeroTestModClient {
 
     @EventListener
     private static void registerEntityRenderers(EntityRendererRegisterEvent event) {
-        event.renderers.put(AeroTestEntity.class, new AeroTestEntityRenderer());
+        event.renderers.put(AeroTestEntity.class,  new AeroTestEntityRenderer());
+        event.renderers.put(AeroRobotEntity.class, new AeroRobotEntityRenderer());
     }
 }

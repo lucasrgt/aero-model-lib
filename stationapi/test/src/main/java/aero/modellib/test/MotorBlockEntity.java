@@ -4,13 +4,13 @@ import aero.modellib.Aero_AnimationBundle;
 import aero.modellib.Aero_AnimationDefinition;
 import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
-import net.minecraft.block.entity.BlockEntity;
+import aero.modellib.Aero_RenderDistanceBlockEntity;
 
 /**
  * Permanently in STATE_PULSE — exercises {@link Aero_AnimationState} with
  * the scale channel of the {@code pulse} clip (core group, 1s loop).
  */
-public class MotorBlockEntity extends BlockEntity {
+public class MotorBlockEntity extends Aero_RenderDistanceBlockEntity {
 
     public static final int STATE_PULSE = 1;
 
@@ -21,6 +21,11 @@ public class MotorBlockEntity extends BlockEntity {
         new Aero_AnimationDefinition().state(STATE_PULSE, "pulse");
 
     public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+
+    @Override
+    protected double getAeroRenderRadius() {
+        return 2.0d;
+    }
 
     @Override
     public void tick() {

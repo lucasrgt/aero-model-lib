@@ -39,6 +39,7 @@ public final class Aero_EntityModelRenderer {
                               float yaw, float brightness,
                               Aero_EntityModelTransform transform) {
         requireTransform(transform);
+        if (!shouldRender(x, y, z, transform)) return;
         beginEntityTransform(x, y, z, yaw, transform);
         try {
             Aero_JsonModelRenderer.renderModel(model, transform.offsetX, transform.offsetY, transform.offsetZ, 0f, brightness);
@@ -71,6 +72,7 @@ public final class Aero_EntityModelRenderer {
                               float yaw, float brightness,
                               Aero_EntityModelTransform transform) {
         requireTransform(transform);
+        if (!shouldRender(x, y, z, transform)) return;
         beginEntityTransform(x, y, z, yaw, transform);
         try {
             Aero_MeshRenderer.renderModel(model, transform.offsetX, transform.offsetY, transform.offsetZ, 0f, brightness);
@@ -150,6 +152,7 @@ public final class Aero_EntityModelRenderer {
                                       float yaw, float brightness, float partialTick,
                                       Aero_EntityModelTransform transform) {
         requireTransform(transform);
+        if (!shouldRender(x, y, z, transform)) return;
         beginEntityTransform(x, y, z, yaw, transform);
         try {
             Aero_MeshRenderer.renderAnimated(model, bundle, def, state,
@@ -172,5 +175,11 @@ public final class Aero_EntityModelRenderer {
 
     private static void requireTransform(Aero_EntityModelTransform transform) {
         if (transform == null) throw new IllegalArgumentException("transform must not be null");
+    }
+
+    private static boolean shouldRender(double x, double y, double z,
+                                        Aero_EntityModelTransform transform) {
+        return Aero_RenderDistance.shouldRenderRelative(x, y, z,
+            transform.cullingRadius, transform.maxRenderDistance);
     }
 }

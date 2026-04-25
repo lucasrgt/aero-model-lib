@@ -4,7 +4,7 @@ import aero.modellib.Aero_AnimationBundle;
 import aero.modellib.Aero_AnimationDefinition;
 import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
-import net.minecraft.block.entity.BlockEntity;
+import aero.modellib.Aero_RenderDistanceBlockEntity;
 
 /**
  * BlockEntity that exposes an {@link Aero_AnimationState} driven by tick().
@@ -12,7 +12,7 @@ import net.minecraft.block.entity.BlockEntity;
  * "working" clip (loop=true, length=2s) without needing redstone — placing
  * the block is enough to see the keyframes play continuously.
  */
-public class AnimatedMegaModelBlockEntity extends BlockEntity {
+public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity {
 
     public static final int STATE_IDLE = 0;
     public static final int STATE_SPIN = 1;
@@ -32,6 +32,11 @@ public class AnimatedMegaModelBlockEntity extends BlockEntity {
 
     private long tickCount = 0;
     private boolean dumpedBundle = false;
+
+    @Override
+    protected double getAeroRenderRadius() {
+        return 4.0d;
+    }
 
     @Override
     public void tick() {
