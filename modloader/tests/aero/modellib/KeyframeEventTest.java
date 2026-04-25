@@ -100,6 +100,75 @@ public class KeyframeEventTest {
     }
 
     @Test
+    public void eventAtTimeZeroFiresOnLoopWrap() {
+        // Regression: the original window logic used t > fromExclusive on
+        // both legs of a wrap, which swallowed any t=0 event because the
+        // post-wrap leg was (0, now] instead of [0, now].
+        Aero_AnimationClip clip = clipWithEvents(0.1f, true,
+            new float[]{0f},
+            new String[]{"custom"},
+            new String[]{"CYCLE_START"});
+        Aero_AnimationPlayback playback = playbackOf(clip);
+
+        Recorder rec = new Recorder();
+        playback.setEventListener(rec);
+
+        // 0.1s clip = 2 ticks per cycle. After 6 ticks (3 cycles), the
+        // t=0 event should have fired 3 times — once per loop wrap.
+        for (int i = 0; i < 6; i++) playback.tick();
+        assertEquals(3, rec.calls.size());
+    }
+
+    @Test
+    public void locatorIsForwardedToListener() {
+        // Build a clip with a locator on each event and verify it survives
+        // the fireEvents → listener round-trip. Uses the 4-arg constructor
+        // path that the loader exercises for {"name":..., "locator":...}.
+        Aero_AnimationClip clip = new Aero_AnimationClip(
+            "loc", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
+            new String[]{"x"},
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            null, null, null,
+            new float[]{0.05f, 0.10f},
+            new String[]{"sound", "particle"},
+            new String[]{"random.click", "smoke"},
+            new String[]{"muzzle", "blade_tip"});
+        Aero_AnimationPlayback playback = playbackOf(clip);
+        Recorder rec = new Recorder();
+        playback.setEventListener(rec);
+
+        for (int i = 0; i < 3; i++) playback.tick();
+
+        assertEquals(2, rec.calls.size());
+        assertEquals("muzzle",    rec.get(0).locator);
+        assertEquals("blade_tip", rec.get(1).locator);
+    }
+
+    @Test
+    public void legacyListenerWithoutLocatorOverrideStillWorks() {
+        // Verifies the default-method bridge: a listener that only
+        // implements the 3-arg onEvent must still receive events fired
+        // by the lib (which always calls the 4-arg overload).
+        Aero_AnimationClip clip = clipWithEvents(1f, true,
+            new float[]{0.05f},
+            new String[]{"sound"},
+            new String[]{"random.click"});
+        Aero_AnimationPlayback playback = playbackOf(clip);
+        final boolean[] called = { false };
+        playback.setEventListener(new Aero_AnimationEventListener() {
+            public void onEvent(String channel, String data, float time) {
+                called[0] = true;
+            }
+            // intentionally NOT overriding the 4-arg form
+        });
+
+        playback.tick();
+        playback.tick();
+        assertTrue("3-arg-only listener should still fire via the default-method bridge", called[0]);
+    }
+
+    @Test
     public void clipWithoutEventsHasHasEventsFalse() {
         Aero_AnimationClip clip = new Aero_AnimationClip(
             "noevt", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
@@ -116,6 +185,12 @@ public class KeyframeEventTest {
 
     private static Aero_AnimationClip clipWithEvents(float length, boolean loop,
                                                      float[] times, String[] channels, String[] data) {
+        return clipWithEventsAndLocators(length, loop, times, channels, data, null);
+    }
+
+    private static Aero_AnimationClip clipWithEventsAndLocators(
+            float length, boolean loop,
+            float[] times, String[] channels, String[] data, String[] locators) {
         return new Aero_AnimationClip(
             "evtClip",
             loop ? Aero_AnimationClip.LOOP_TYPE_LOOP : Aero_AnimationClip.LOOP_TYPE_PLAY_ONCE,
@@ -124,7 +199,7 @@ public class KeyframeEventTest {
             new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
             new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
             null, null, null,
-            times, channels, data);
+            times, channels, data, locators);
     }
 
     private static Aero_AnimationPlayback playbackOf(Aero_AnimationClip clip) {
@@ -139,9 +214,17 @@ public class KeyframeEventTest {
     private static final class Recorder implements Aero_AnimationEventListener {
         final List calls = new ArrayList();
 
+        // The lib invokes the 4-arg overload; we override that so the
+        // recorder also captures the locator. The default 3-arg onEvent
+        // is the fallback for listeners that don't care.
         public void onEvent(String channel, String data, float time) {
+            // unused — covered by the 4-arg override below
+        }
+
+        @Override
+        public void onEvent(String channel, String data, String locator, float time) {
             Call c = new Call();
-            c.channel = channel; c.data = data; c.time = time;
+            c.channel = channel; c.data = data; c.locator = locator; c.time = time;
             calls.add(c);
         }
 
@@ -151,6 +234,7 @@ public class KeyframeEventTest {
     private static final class Call {
         String channel;
         String data;
+        String locator;
         float  time;
     }
 }

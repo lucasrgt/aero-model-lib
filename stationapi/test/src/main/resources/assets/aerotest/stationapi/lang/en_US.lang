@@ -4,4 +4,7 @@ tile.@.motor.name=Aero Motor (scale-pulse)
 tile.@.pump.name=Aero Pump (position-stroke)
 tile.@.crystal.name=Aero Crystal (rot+scale+pos all-axes)
 tile.@.crystal_chaos.name=Aero Crystal Chaos (multi-axis edge cases)
+tile.@.easing_showcase.name=Aero Easing Showcase (sine/quad/back/elastic/bounce)
+tile.@.easing_showcase_2.name=Aero Easing Showcase 2 (cubic/quart/quint/expo)
+tile.@.easing_showcase_3.name=Aero Easing Showcase 3 (circ + baselines)
 item.@.robot_egg.name=Aero Robot Egg

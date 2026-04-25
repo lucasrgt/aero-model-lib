@@ -55,6 +55,17 @@ public class Aero_AnimationBundle {
         return p != null ? p : ZERO_PIVOT;
     }
 
+    /**
+     * Reference equality against this bundle's "no pivot" sentinel — lets
+     * callers tell apart "bone has no pivot entry" (returns the shared
+     * zero array) from "bone has an explicit (0, 0, 0) pivot" (returns a
+     * fresh array). Stack rendering uses this to skip past bundles that
+     * don't know about a bone and try the next layer's bundle instead.
+     */
+    public float[] getPivotZero() {
+        return ZERO_PIVOT;
+    }
+
     /** Returns the parent animated bone for a child group, or null if none. */
     public String getParentBoneName(String childName) {
         return (String) childMap.get(childName);

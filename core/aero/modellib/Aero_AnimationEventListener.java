@@ -32,4 +32,23 @@ public interface Aero_AnimationEventListener {
      *                 listener wants to disambiguate.
      */
     void onEvent(String channel, String data, float time);
+
+    /**
+     * Optional richer overload that also reports the bone-name "locator"
+     * declared on the keyframe. The locator lets a multiblock or multi-
+     * bone mesh tell the listener WHERE the event should anchor (the tip
+     * of a blade, the muzzle of a cannon, the chimney on a furnace) so
+     * sounds, particles or projectiles can spawn at the right point in
+     * the model regardless of the BE's origin.
+     *
+     * <p>Default impl forwards to {@link #onEvent(String, String, float)}
+     * for backwards compat — existing listeners keep working without
+     * changes; new listeners override this method to receive the locator.
+     *
+     * @param locator bone name from the JSON, or {@code null} when the
+     *                keyframe used the legacy bare-string form.
+     */
+    default void onEvent(String channel, String data, String locator, float time) {
+        onEvent(channel, data, time);
+    }
 }

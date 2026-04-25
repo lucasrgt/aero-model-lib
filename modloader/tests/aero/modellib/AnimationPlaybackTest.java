@@ -223,4 +223,68 @@ public class AnimationPlaybackTest {
             null, null, null
         );
     }
+
+    // ----------------------------------------------------------------------
+    // getAnimatedPivot tests
+    // ----------------------------------------------------------------------
+
+    @Test
+    public void animatedPivotReturnsRestPositionWhenBoneIsStill() {
+        // Bundle has pivot for "x" at (0.5, 1.0, 0.5). Clip animates "x"
+        // with a constant rotation but ZERO position offset, so the
+        // animated pivot equals the rest pivot.
+        Map pivots = new HashMap();
+        pivots.put("x", new float[]{0.5f, 1.0f, 0.5f});
+        Map clips = new HashMap();
+        clips.put("idle", constantRotClip("idle", 0f, 0f, 0f));
+        Aero_AnimationBundle bundle = new Aero_AnimationBundle(clips, pivots, new HashMap());
+
+        Aero_AnimationPlayback pb = new Aero_AnimationDefinition()
+            .state(0, "idle").createPlayback(bundle);
+        pb.tick();
+
+        float[] out = new float[3];
+        assertTrue(pb.getAnimatedPivot("x", 0f, out));
+        assertEquals(0.5f, out[0], DELTA);
+        assertEquals(1.0f, out[1], DELTA);
+        assertEquals(0.5f, out[2], DELTA);
+    }
+
+    @Test
+    public void animatedPivotAppliesPositionOffsetInBlockUnits() {
+        // Pivot at (0, 0, 0); clip animates position to (16, 8, 0) in pixels.
+        // 16 px = 1 block, 8 px = 0.5 block. Expect (1.0, 0.5, 0).
+        Map pivots = new HashMap();
+        pivots.put("x", new float[]{0f, 0f, 0f});
+        Aero_AnimationClip clip = new Aero_AnimationClip(
+            "moving", Aero_AnimationClip.LOOP_TYPE_LOOP, 1f,
+            new String[]{"x"},
+            new float[][]{{0f}}, new float[][][]{{{0f, 0f, 0f}}}, null,
+            new float[][]{{0f}}, new float[][][]{{{16f, 8f, 0f}}}, null,
+            null, null, null);
+        Map clips = new HashMap();
+        clips.put("moving", clip);
+        Aero_AnimationBundle bundle = new Aero_AnimationBundle(clips, pivots, new HashMap());
+
+        Aero_AnimationPlayback pb = new Aero_AnimationDefinition()
+            .state(0, "moving").createPlayback(bundle);
+        pb.tick();
+
+        float[] out = new float[3];
+        assertTrue(pb.getAnimatedPivot("x", 0f, out));
+        assertEquals(1.0f, out[0], DELTA);
+        assertEquals(0.5f, out[1], DELTA);
+        assertEquals(0.0f, out[2], DELTA);
+    }
+
+    @Test
+    public void animatedPivotReturnsFalseForUnknownBone() {
+        Aero_AnimationPlayback pb = new Aero_AnimationDefinition()
+            .state(0, "idle").createPlayback(bundle(loopClip("idle", 1f)));
+
+        float[] out = {99f, 99f, 99f};
+        assertFalse(pb.getAnimatedPivot("not_a_bone", 0f, out));
+        // Out left untouched on miss so callers can keep their own fallback.
+        assertEquals(99f, out[0], DELTA);
+    }
 }

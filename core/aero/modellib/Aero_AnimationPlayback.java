@@ -87,32 +87,40 @@ public class Aero_AnimationPlayback {
 
         // Fire any non-pose keyframes whose timestamp lies in the just-
         // advanced window. For looped wraps the window splits in two
-        // (prev..length, then 0..now) so events at the very end and the
-        // very start of the loop don't get swallowed by the boundary.
+        // (prev..length], then [0..now) so events at the very end and the
+        // very start of the loop both fire each cycle without being double-
+        // counted. Non-wrap windows use the standard half-open interval.
         if (eventListener != null && clip.hasEvents()) {
             if (wrapped) {
-                fireEvents(clip, prevPlaybackTime, clip.length);
-                fireEvents(clip, 0f, playbackTime);
+                fireEvents(clip, prevPlaybackTime, clip.length, false);
+                fireEvents(clip, 0f, playbackTime, true);
             } else {
-                fireEvents(clip, prevPlaybackTime, playbackTime);
+                fireEvents(clip, prevPlaybackTime, playbackTime, false);
             }
         }
     }
 
     /**
-     * Fires every event in the clip whose time t satisfies
-     * {@code fromExclusive < t <= toInclusive}. Open lower bound stops the
-     * same event from firing twice when prev == event time on consecutive
-     * ticks (an edge case after {@link #setStateWithTransition} resets the
-     * playback head to 0).
+     * Fires every event in the clip whose time falls inside the advanced
+     * window. {@code includeFrom} controls whether the lower bound is
+     * inclusive — only the post-wrap leg of a looped tick passes
+     * {@code true}, so a {@code t = 0} event fires exactly once per loop
+     * cycle (it would otherwise be swallowed by the strict {@code t > 0}
+     * test that prevents double-firing on consecutive non-wrap ticks).
      */
-    private void fireEvents(Aero_AnimationClip clip, float fromExclusive, float toInclusive) {
-        if (toInclusive <= fromExclusive) return;
+    private void fireEvents(Aero_AnimationClip clip, float fromBound, float toInclusive,
+                            boolean includeFrom) {
+        if (toInclusive < fromBound || (toInclusive == fromBound && !includeFrom)) return;
         float[] times = clip.eventTimes;
         for (int i = 0; i < times.length; i++) {
             float t = times[i];
-            if (t > fromExclusive && t <= toInclusive) {
-                eventListener.onEvent(clip.eventChannels[i], clip.eventData[i], t);
+            boolean lowerOk = includeFrom ? (t >= fromBound) : (t > fromBound);
+            if (lowerOk && t <= toInclusive) {
+                // Forward to the 4-arg overload — it has a default impl that
+                // delegates to the 3-arg form for listeners that don't care
+                // about locators, so existing implementations keep working.
+                eventListener.onEvent(clip.eventChannels[i], clip.eventData[i],
+                    clip.eventLocators[i], t);
             }
         }
     }
@@ -337,6 +345,49 @@ public class Aero_AnimationPlayback {
 
     public Aero_AnimationBundle getBundle() { return bundle; }
     public Aero_AnimationDefinition getDef() { return def; }
+
+    /**
+     * Resolves a locator (bone name) to its current animated pivot in
+     * block units, relative to the BE / entity origin. Returns the
+     * keyframed-position-offset added to the bundle's rest pivot for that
+     * bone — so a locator declared on "muzzle" gives you "where the muzzle
+     * IS right now in the animation", not where it started.
+     *
+     * <p>Rotation and scale are deliberately NOT applied here: the pivot
+     * is a single point and rotation/scale don't move it (they rotate or
+     * scale the surrounding mesh AROUND the pivot). For "tip of a swinging
+     * blade" the OBJ should declare a separate bone at the tip with its
+     * own pivot — then this method returns the tip's animated position
+     * directly.
+     *
+     * <p>Returns {@code true} when the bone is known to the active clip
+     * AND the bundle (so {@code out} now holds a meaningful position);
+     * {@code false} otherwise, with {@code out} left untouched. Listeners
+     * that need a fallback should check the return and use the BE coords.
+     */
+    public boolean getAnimatedPivot(String boneName, float partialTick, float[] out) {
+        if (boneName == null || out == null) return false;
+        Aero_AnimationClip clip = getCurrentClip();
+        float[] pivot = bundle.getPivot(boneName);
+        if (pivot == null || pivot == bundle.getPivotZero()) return false;
+        out[0] = pivot[0]; out[1] = pivot[1]; out[2] = pivot[2];
+
+        if (clip != null) {
+            int bi = clip.indexOfBone(boneName);
+            if (bi >= 0) {
+                float[] tmp = new float[3];
+                if (clip.samplePosInto(bi, getInterpolatedTime(partialTick), tmp)) {
+                    // Position offsets are stored in pixels (Blockbench
+                    // convention); divide by 16 to bring them into the
+                    // block-unit space of the pivot.
+                    out[0] += tmp[0] * (1f / 16f);
+                    out[1] += tmp[1] * (1f / 16f);
+                    out[2] += tmp[2] * (1f / 16f);
+                }
+            }
+        }
+        return true;
+    }
 
     protected float getPlaybackTime() { return playbackTime; }
 

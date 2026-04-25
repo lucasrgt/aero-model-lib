@@ -79,7 +79,10 @@ public class Aero_AnimationClip {
     /**
      * Sorted-by-time non-pose keyframe events (sound / particle / custom).
      * Parallel arrays — index {@code i} carries the event's time, channel,
-     * and payload. Empty arrays (length 0) when the clip has no events.
+     * payload and optional locator (a bone name the consumer can use to
+     * anchor side-effects to a specific part of the moving mesh).
+     * Empty arrays (length 0) when the clip has no events; locator entries
+     * are {@code null} for events declared with the legacy bare-string form.
      * <p>
      * The sorted order lets {@link Aero_AnimationPlayback#tick()} fire them
      * in chronological sequence with a single linear walk, instead of doing
@@ -88,11 +91,17 @@ public class Aero_AnimationClip {
     final float[]   eventTimes;
     final String[]  eventChannels;
     final String[]  eventData;
+    final String[]  eventLocators;
 
     private static final float[]  EMPTY_FLOATS  = new float[0];
     private static final String[] EMPTY_STRINGS = new String[0];
 
     /** Full constructor with explicit loopType — used by Aero_AnimationLoader. */
+    /**
+     * Pose-only overload — convenience for tests and clips that don't
+     * declare non-pose keyframe events. Forwards to the full constructor
+     * with empty event arrays.
+     */
     Aero_AnimationClip(String name, int loopType, float length,
                   String[] boneNames,
                   float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
@@ -102,22 +111,23 @@ public class Aero_AnimationClip {
              rotTimes, rotValues, rotInterps,
              posTimes, posValues, posInterps,
              sclTimes, sclValues, sclInterps,
-             EMPTY_FLOATS, EMPTY_STRINGS, EMPTY_STRINGS);
+             EMPTY_FLOATS, EMPTY_STRINGS, EMPTY_STRINGS, null);
     }
 
     /**
-     * Full constructor including non-pose keyframe events. Kept package-private
-     * because the public schema for events is owned by
-     * {@link Aero_AnimationLoader}; tests that need explicit events for
-     * verification should go through the loader's parser path instead of
-     * constructing arrays directly.
+     * Full constructor including non-pose keyframe events with optional
+     * locators. Kept package-private because the public schema for events
+     * is owned by {@link Aero_AnimationLoader}; tests that need explicit
+     * events for verification should go through the loader's parser path
+     * instead of constructing arrays directly.
      */
     Aero_AnimationClip(String name, int loopType, float length,
                   String[] boneNames,
                   float[][] rotTimes, float[][][] rotValues, int[][] rotInterps,
                   float[][] posTimes, float[][][] posValues, int[][] posInterps,
                   float[][] sclTimes, float[][][] sclValues, int[][] sclInterps,
-                  float[] eventTimes, String[] eventChannels, String[] eventData) {
+                  float[] eventTimes, String[] eventChannels, String[] eventData,
+                  String[] eventLocators) {
         int n = boneNames.length;
         this.name       = name;
         this.loopType   = loopType;
@@ -139,6 +149,14 @@ public class Aero_AnimationClip {
         this.eventTimes    = eventTimes    != null ? eventTimes    : EMPTY_FLOATS;
         this.eventChannels = eventChannels != null ? eventChannels : EMPTY_STRINGS;
         this.eventData     = eventData     != null ? eventData     : EMPTY_STRINGS;
+        // Pad locators array to the same length as the event arrays even
+        // when the caller passed null — keeps the playback's fireEvents
+        // walk from needing a length check on every iteration.
+        if (eventLocators == null || eventLocators.length != this.eventTimes.length) {
+            this.eventLocators = new String[this.eventTimes.length];
+        } else {
+            this.eventLocators = eventLocators;
+        }
     }
 
     /** True if this clip carries any non-pose keyframe events. */
