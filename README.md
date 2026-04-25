@@ -148,7 +148,7 @@ Use `o` or `g` directives in the OBJ to define named groups that match your bone
 
 ```bash
 # Linux / macOS
-bash scripts/convert.sh MyMachine.bbmodel
+bash tools/convert.sh MyMachine.bbmodel
 
 # Windows
 scripts\convert.bat MyMachine.bbmodel

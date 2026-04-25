@@ -940,7 +940,7 @@ Custom format inspired by Bedrock Animation:
 
 ## 9. Asset Workflow & Converter
 
-AeroModelLib includes a converter in `scripts/` that converts Blockbench `.bbmodel` files to the `.anim.json` format used by the animation system. A pre-compiled `.class` is included so only a JRE is needed to run it. Wrapper scripts are provided for both platforms: `scripts/convert.sh` (Linux/macOS) and `scripts/convert.bat` (Windows).
+AeroModelLib includes a converter in `tools/` that converts Blockbench `.bbmodel` files to the `.anim.json` format used by the animation system. The wrapper scripts (`tools/convert.sh` for Linux/macOS, `tools/convert.bat` for Windows) compile `Aero_Convert.java` on first run, so a JDK 8+ is required.
 
 ### Full Workflow
 
@@ -973,13 +973,13 @@ The OBJ export preserves named groups from your bone structure. These group name
 
 ```bash
 # Linux / macOS
-bash scripts/convert.sh MyMachine.bbmodel
+bash tools/convert.sh MyMachine.bbmodel
 
 # Windows
 scripts\convert.bat MyMachine.bbmodel
 
 # Custom output path
-bash scripts/convert.sh MyMachine.bbmodel models/output.anim.json
+bash tools/convert.sh MyMachine.bbmodel models/output.anim.json
 ```
 
 **Requires:** Java 8+ (JRE to run, JDK only if recompiling `Aero_Convert.java`)
