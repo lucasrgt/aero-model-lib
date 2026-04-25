@@ -3,7 +3,10 @@ package aero.modellib.test;
 import aero.modellib.Aero_AnimationBundle;
 import aero.modellib.Aero_AnimationDefinition;
 import aero.modellib.Aero_AnimationLoader;
+import aero.modellib.Aero_AnimationPlayback;
+import aero.modellib.Aero_AnimationPredicate;
 import aero.modellib.Aero_AnimationState;
+import aero.modellib.Aero_AnimationStateRouter;
 import net.minecraft.entity.Entity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.world.World;
@@ -111,21 +114,39 @@ public class AeroRobotEntity extends Entity {
         double dz = z - prevZ;
         boolean isMoving = dx * dx + dz * dz > 1.0e-4;
 
-        // Anim state: meltdown clip wins outright (it bakes in head/arm/leg
-        // motion that doesn't compose with walk). Hot variant kicks in once
-        // we are halfway through OVERHEATING and stays through OVERHEAT.
-        // COOLING immediately returns to normal so the slowdown reads as a
-        // recovery rather than a stutter.
-        int s;
-        if (phase == PHASE_MELTDOWN) {
-            s = STATE_MELTDOWN;
-        } else {
-            boolean useHot = phase == PHASE_OVERHEAT
-                         || (phase == PHASE_OVERHEATING && overheatLevel >= 0.5f);
-            if (isMoving) s = useHot ? STATE_WALK_HOT : STATE_WALK;
-            else          s = useHot ? STATE_IDLE_HOT : STATE_IDLE;
-        }
-        animState.setState(s);
+        // State decision routed through Aero_AnimationStateRouter — predicates
+        // evaluate top-down and the first match wins, with smooth 6-tick
+        // transitions on every state change so e.g. swapping idle⇄walk
+        // doesn't snap the legs. Captures the local context (phase, overheat
+        // level, whether we are moving) into final locals so the predicates
+        // can close over them.
+        final int   localPhase    = phase;
+        final float localOverheat = overheatLevel;
+        final boolean localMoving = isMoving;
+        Aero_AnimationStateRouter router = new Aero_AnimationStateRouter()
+            .when(new Aero_AnimationPredicate() {
+                public boolean test(Aero_AnimationPlayback p) { return localPhase == PHASE_MELTDOWN; }
+            }, STATE_MELTDOWN)
+            .when(new Aero_AnimationPredicate() {
+                public boolean test(Aero_AnimationPlayback p) {
+                    boolean hot = localPhase == PHASE_OVERHEAT
+                              || (localPhase == PHASE_OVERHEATING && localOverheat >= 0.5f);
+                    return hot && localMoving;
+                }
+            }, STATE_WALK_HOT)
+            .when(new Aero_AnimationPredicate() {
+                public boolean test(Aero_AnimationPlayback p) {
+                    boolean hot = localPhase == PHASE_OVERHEAT
+                              || (localPhase == PHASE_OVERHEATING && localOverheat >= 0.5f);
+                    return hot;   // not moving but hot
+                }
+            }, STATE_IDLE_HOT)
+            .when(new Aero_AnimationPredicate() {
+                public boolean test(Aero_AnimationPlayback p) { return localMoving; }
+            }, STATE_WALK)
+            .otherwise(STATE_IDLE)
+            .withTransition(6);
+        router.applyTo(animState);
         animState.tick();
 
         // Yaw shortest-path normalisation (see AeroTestEntity).

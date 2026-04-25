@@ -174,11 +174,13 @@ public class Aero_AnimationLoader {
         float[]  evTimes    = null;
         String[] evChannels = null;
         String[] evData     = null;
+        String[] evLocators = null;
         if (clipData.containsKey("keyframes")) {
             ParsedEvents pe = parseEvents((Map) clipData.get("keyframes"));
             evTimes    = pe.times;
             evChannels = pe.channels;
             evData     = pe.data;
+            evLocators = pe.locators;
         }
 
         return new Aero_AnimationClip(clipName, loopType, length,
@@ -186,18 +188,23 @@ public class Aero_AnimationLoader {
             rotTimes, rotValues, rotInterps,
             posTimes, posValues, posInterps,
             sclTimes, sclValues, sclInterps,
-            evTimes, evChannels, evData);
+            evTimes, evChannels, evData, evLocators);
     }
 
     private static class ParsedEvents {
         float[]  times;
         String[] channels;
         String[] data;
+        String[] locators;
     }
 
     private static ParsedEvents parseEvents(Map kfRoot) {
         // Flatten {channel: {time: payload}} into a list, then sort by time.
-        List rows = new ArrayList(); // float[]{time}, String channel, String data
+        // Each keyframe value can be either:
+        //   - a bare string (legacy):     "0.5": "random.click"
+        //   - a structured object (new):  "0.5": { "name": "random.click", "locator": "muzzle" }
+        // The locator field is optional even on the structured form.
+        List rows = new ArrayList(); // Object[]{time, channel, data, locator}
         Iterator it = kfRoot.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry chEntry = (Map.Entry) it.next();
@@ -209,8 +216,19 @@ public class Aero_AnimationLoader {
             while (kfIt.hasNext()) {
                 Map.Entry e = (Map.Entry) kfIt.next();
                 float t = Float.parseFloat((String) e.getKey());
-                String payload = String.valueOf(e.getValue());
-                rows.add(new Object[]{ Float.valueOf(t), channel, payload });
+                Object payload = e.getValue();
+                String data;
+                String locator = null;
+                if (payload instanceof Map) {
+                    Map kf = (Map) payload;
+                    Object n = kf.get("name");
+                    data = n != null ? String.valueOf(n) : "";
+                    Object loc = kf.get("locator");
+                    if (loc != null) locator = String.valueOf(loc);
+                } else {
+                    data = String.valueOf(payload);
+                }
+                rows.add(new Object[]{ Float.valueOf(t), channel, data, locator });
             }
         }
         Collections.sort(rows, new Comparator() {
@@ -225,11 +243,13 @@ public class Aero_AnimationLoader {
         out.times    = new float[n];
         out.channels = new String[n];
         out.data     = new String[n];
+        out.locators = new String[n];
         for (int i = 0; i < n; i++) {
             Object[] row = (Object[]) rows.get(i);
             out.times[i]    = ((Float)  row[0]).floatValue();
             out.channels[i] = (String)  row[1];
             out.data[i]     = (String)  row[2];
+            out.locators[i] = (String)  row[3];
         }
         return out;
     }

@@ -198,6 +198,95 @@ public class Aero_MeshRenderer {
         renderAnimated(model, state.getBundle(), state.getDef(), state, x, y, z, brightness, partialTick);
     }
 
+    /**
+     * Render entry point for the multi-controller / additive layering API
+     * ({@link Aero_AnimationStack}). Walks the model's named groups by
+     * NAME and asks the stack for each bone's combined rotation /
+     * position / scale, so a base layer + secondary layers (head look,
+     * arm wave, hit reaction) all compose into a single GL transform per
+     * bone.
+     *
+     * <p>The stack is responsible for ticking its own layers — this
+     * renderer only samples them at {@code partialTick} for visual frames.
+     *
+     * <p>Pivots come from the FIRST layer's bundle that knows about the
+     * bone (via {@code Aero_AnimationBundle.getPivot}); secondary layers
+     * usually share the same bundle so the pivot resolves on the first
+     * hit. Bones missing from every layer's clip render at their rest
+     * pose, no GL transform applied.
+     */
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationStack stack,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick) {
+        if (stack == null) throw new IllegalArgumentException("stack must not be null");
+
+        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+
+        Tessellator tess = Tessellator.INSTANCE;
+        GL11.glPushMatrix();
+        GL11.glTranslated(x, y, z);
+        beginMeshState();
+
+        // Render the static (unnamed) geometry once at the BE origin.
+        drawGroups(tess, model.groups, model.invScale, brightness);
+
+        for (int e = 0; e < entries.length; e++) {
+            Aero_MeshModel.NamedGroup ng = entries[e];
+            String boneName = ng.name;
+
+            // Pull the pivot from the first layer that has a bundle entry
+            // for this bone. Falls back to {0,0,0} if every layer skips it.
+            float[] pivot = lookupPivot(stack, boneName);
+            float px = pivot[0], py = pivot[1], pz = pivot[2];
+
+            // Combined per-channel sample. SCRATCH_* doubles as the rot/pos/
+            // scl accumulator; sampleScl() initialises out to (1,1,1) before
+            // delegating so the multiplicative additive math composes right.
+            stack.sampleRot(boneName, partialTick, SCRATCH_ROT);
+            stack.samplePos(boneName, partialTick, SCRATCH_POS);
+            stack.sampleScl(boneName, partialTick, SCRATCH_SCL);
+
+            float rx = SCRATCH_ROT[0], ry = SCRATCH_ROT[1], rz = SCRATCH_ROT[2];
+            float dx = SCRATCH_POS[0] * PIXEL_TO_BLOCK;
+            float dy = SCRATCH_POS[1] * PIXEL_TO_BLOCK;
+            float dz = SCRATCH_POS[2] * PIXEL_TO_BLOCK;
+            float sx = SCRATCH_SCL[0], sy = SCRATCH_SCL[1], sz = SCRATCH_SCL[2];
+
+            GL11.glPushMatrix();
+            GL11.glTranslatef(px + dx, py + dy, pz + dz);
+            GL11.glRotatef(rz, 0f, 0f, 1f);
+            GL11.glRotatef(ry, 0f, 1f, 0f);
+            GL11.glRotatef(rx, 1f, 0f, 0f);
+            if (sx != 1f || sy != 1f || sz != 1f) {
+                GL11.glScalef(sx, sy, sz);
+            }
+            GL11.glTranslatef(-px, -py, -pz);
+
+            drawGroups(tess, ng.tris, model.invScale, brightness);
+            GL11.glPopMatrix();
+        }
+
+        endMeshState();
+        GL11.glPopMatrix();
+    }
+
+    private static final float[] ZERO_PIVOT = new float[]{0f, 0f, 0f};
+
+    /** First layer with a bundle pivot for {@code boneName} wins. */
+    private static float[] lookupPivot(Aero_AnimationStack stack, String boneName) {
+        for (int i = 0; i < stack.size(); i++) {
+            Aero_AnimationBundle bundle = stack.get(i).playback.getBundle();
+            if (bundle == null) continue;
+            float[] p = bundle.getPivot(boneName);
+            // getPivot returns ZERO_PIVOT (the bundle's shared sentinel) when
+            // the bone has no entry; treat that as "not found here, keep
+            // looking" so a later bundle with an actual entry can win.
+            if (p != null && p != bundle.getPivotZero()) return p;
+        }
+        return ZERO_PIVOT;
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------

@@ -1,44 +1,196 @@
 {
   "format_version": "1.0",
   "pivots": {
-    "core": [24, 0, 24],
-    "frame": [24, 0, 24],
-    "shell": [24, 0, 24],
-    "details": [24, 0, 24],
-    "shredder_L": [19, 50, 24],
-    "shred_core_L_rot": [19, 50, 24],
-    "sb_L_0_0": [19, 50, 24],
-    "shredder_R": [29, 50, 24],
-    "shred_core_R_rot": [29, 50, 24],
-    "turbine_l": [2.5, 24, 24],
-    "turbine_l_blade_grp_0": [2.5, 24, 24],
-    "turbine_l_blade_grp_1": [2.5, 24, 24],
-    "turbine_l_blade_grp_2": [2.5, 24, 24],
-    "turbine_l_blade_grp_3": [2.5, 24, 24],
-    "turbine_l_blade_grp_4": [2.5, 24, 24],
-    "turbine_l_blade_grp_5": [2.5, 24, 24],
-    "turbine_l_blade_grp_6": [2.5, 24, 24],
-    "turbine_l_blade_grp_7": [2.5, 24, 24],
-    "turbine_l_blade_grp_8": [2.5, 24, 24],
-    "turbine_l_blade_grp_9": [2.5, 24, 24],
-    "turbine_l_blade_grp_10": [2.5, 24, 24],
-    "turbine_l_blade_grp_11": [2.5, 24, 24],
-    "turbine_r": [45.5, 24, 24],
-    "turbine_r_blade_grp_0": [45.5, 24, 24],
-    "turbine_r_blade_grp_1": [45.5, 24, 24],
-    "turbine_r_blade_grp_2": [45.5, 24, 24],
-    "turbine_r_blade_grp_3": [45.5, 24, 24],
-    "turbine_r_blade_grp_4": [45.5, 24, 24],
-    "turbine_r_blade_grp_5": [45.5, 24, 24],
-    "turbine_r_blade_grp_6": [45.5, 24, 24],
-    "turbine_r_blade_grp_7": [45.5, 24, 24],
-    "turbine_r_blade_grp_8": [45.5, 24, 24],
-    "turbine_r_blade_grp_9": [45.5, 24, 24],
-    "turbine_r_blade_grp_10": [45.5, 24, 24],
-    "turbine_r_blade_grp_11": [45.5, 24, 24],
-    "hopper_lid": [24, 48, 24],
-    "drum_left": [19, 20, 24],
-    "drum_right": [29, 20, 24]
+    "core": [
+      24,
+      0,
+      24
+    ],
+    "frame": [
+      24,
+      0,
+      24
+    ],
+    "shell": [
+      24,
+      0,
+      24
+    ],
+    "details": [
+      24,
+      0,
+      24
+    ],
+    "shredder_L": [
+      19,
+      50,
+      24
+    ],
+    "shred_core_L_rot": [
+      19,
+      50,
+      24
+    ],
+    "sb_L_0_0": [
+      19,
+      50,
+      24
+    ],
+    "shredder_R": [
+      29,
+      50,
+      24
+    ],
+    "shred_core_R_rot": [
+      29,
+      50,
+      24
+    ],
+    "turbine_l": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_0": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_1": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_2": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_3": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_4": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_5": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_6": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_7": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_8": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_9": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_10": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_l_blade_grp_11": [
+      2.5,
+      24,
+      24
+    ],
+    "turbine_r": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_0": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_1": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_2": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_3": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_4": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_5": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_6": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_7": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_8": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_9": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_10": [
+      45.5,
+      24,
+      24
+    ],
+    "turbine_r_blade_grp_11": [
+      45.5,
+      24,
+      24
+    ],
+    "hopper_lid": [
+      24,
+      48,
+      24
+    ],
+    "drum_left": [
+      19,
+      20,
+      24
+    ],
+    "drum_right": [
+      29,
+      20,
+      24
+    ]
   },
   "childMap": {
     "chamber": "core",
@@ -223,46 +375,186 @@
       "bones": {
         "turbine_l": {
           "rotation": {
-            "0": [0, 0, 0],
-            "0.25": [-90, 0, 0],
-            "0.5": [-180, 0, 0],
-            "0.75": [-270, 0, 0],
-            "1": [-360, 0, 0],
-            "1.25": [-450, 0, 0],
-            "1.5": [-540, 0, 0],
-            "1.75": [-630, 0, 0],
-            "2": [-720, 0, 0]
+            "0": [
+              0,
+              0,
+              0
+            ],
+            "0.25": [
+              -90,
+              0,
+              0
+            ],
+            "0.5": [
+              -180,
+              0,
+              0
+            ],
+            "0.75": [
+              -270,
+              0,
+              0
+            ],
+            "1": [
+              -360,
+              0,
+              0
+            ],
+            "1.25": [
+              -450,
+              0,
+              0
+            ],
+            "1.5": [
+              -540,
+              0,
+              0
+            ],
+            "1.75": [
+              -630,
+              0,
+              0
+            ],
+            "2": [
+              -720,
+              0,
+              0
+            ]
           }
         },
         "turbine_r": {
           "rotation": {
-            "0": [0, 0, 0],
-            "0.25": [90, 0, 0],
-            "0.5": [180, 0, 0],
-            "0.75": [270, 0, 0],
-            "1": [360, 0, 0],
-            "1.25": [450, 0, 0],
-            "1.5": [540, 0, 0],
-            "1.75": [630, 0, 0],
-            "2": [720, 0, 0]
+            "0": [
+              0,
+              0,
+              0
+            ],
+            "0.25": [
+              90,
+              0,
+              0
+            ],
+            "0.5": [
+              180,
+              0,
+              0
+            ],
+            "0.75": [
+              270,
+              0,
+              0
+            ],
+            "1": [
+              360,
+              0,
+              0
+            ],
+            "1.25": [
+              450,
+              0,
+              0
+            ],
+            "1.5": [
+              540,
+              0,
+              0
+            ],
+            "1.75": [
+              630,
+              0,
+              0
+            ],
+            "2": [
+              720,
+              0,
+              0
+            ]
           }
         },
         "shredder_L": {
           "rotation": {
-            "0": [0, 0, 0],
-            "0.5": [0, 0, -90],
-            "1": [0, 0, -180],
-            "1.5": [0, 0, -270],
-            "2": [0, 0, -360]
+            "0": [
+              0,
+              0,
+              0
+            ],
+            "0.5": [
+              0,
+              0,
+              -90
+            ],
+            "1": [
+              0,
+              0,
+              -180
+            ],
+            "1.5": [
+              0,
+              0,
+              -270
+            ],
+            "2": [
+              0,
+              0,
+              -360
+            ]
           }
         },
         "shredder_R": {
           "rotation": {
-            "0": [0, 0, 0],
-            "0.5": [0, 0, 90],
-            "1": [0, 0, 180],
-            "1.5": [0, 0, 270],
-            "2": [0, 0, 360]
+            "0": [
+              0,
+              0,
+              0
+            ],
+            "0.5": [
+              0,
+              0,
+              90
+            ],
+            "1": [
+              0,
+              0,
+              180
+            ],
+            "1.5": [
+              0,
+              0,
+              270
+            ],
+            "2": [
+              0,
+              0,
+              360
+            ]
+          }
+        }
+      },
+      "keyframes": {
+        "sound": {
+          "0.5": {
+            "name": "random.click",
+            "locator": "turbine_l"
+          },
+          "1.5": {
+            "name": "mob.zombiehurt",
+            "locator": "shredder_R"
+          }
+        },
+        "particle": {
+          "1.0": {
+            "name": "smoke",
+            "locator": "turbine_r"
+          }
+        },
+        "custom": {
+          "0.0": {
+            "name": "CYCLE_START",
+            "locator": "core"
+          },
+          "1.0": {
+            "name": "CYCLE_HALF",
+            "locator": "core"
           }
         }
       }

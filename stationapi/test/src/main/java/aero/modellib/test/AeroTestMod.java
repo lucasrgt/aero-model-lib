@@ -28,6 +28,9 @@ public class AeroTestMod {
     public static PumpBlock pumpBlock;
     public static CrystalBlock crystalBlock;
     public static CrystalChaosBlock crystalChaosBlock;
+    public static EasingShowcaseBlock easingShowcaseBlock;
+    public static EasingShowcase2Block easingShowcase2Block;
+    public static EasingShowcase3Block easingShowcase3Block;
     public static AeroRobotEggItem robotEgg;
 
     private static final int DEMO_BLOCK_SPACING_CHUNKS = 2;
@@ -46,6 +49,9 @@ public class AeroTestMod {
         pumpBlock = new PumpBlock(Identifier.of(NAMESPACE, "pump"));
         crystalBlock = new CrystalBlock(Identifier.of(NAMESPACE, "crystal"));
         crystalChaosBlock = new CrystalChaosBlock(Identifier.of(NAMESPACE, "crystal_chaos"));
+        easingShowcaseBlock  = new EasingShowcaseBlock(Identifier.of(NAMESPACE, "easing_showcase"));
+        easingShowcase2Block = new EasingShowcase2Block(Identifier.of(NAMESPACE, "easing_showcase_2"));
+        easingShowcase3Block = new EasingShowcase3Block(Identifier.of(NAMESPACE, "easing_showcase_3"));
     }
 
     @EventListener
@@ -59,6 +65,9 @@ public class AeroTestMod {
         event.register.accept(PumpBlockEntity.class, NAMESPACE + ":pump");
         event.register.accept(CrystalBlockEntity.class, NAMESPACE + ":crystal");
         event.register.accept(CrystalChaosBlockEntity.class, NAMESPACE + ":crystal_chaos");
+        event.register.accept(EasingShowcaseBlockEntity.class,  NAMESPACE + ":easing_showcase");
+        event.register.accept(EasingShowcase2BlockEntity.class, NAMESPACE + ":easing_showcase_2");
+        event.register.accept(EasingShowcase3BlockEntity.class, NAMESPACE + ":easing_showcase_3");
     }
 
     @EventListener
@@ -97,6 +106,14 @@ public class AeroTestMod {
         // clipping into grass/water/snow neighbours.
         placeBEAbove(event, 8, 12, crystalBlock.id,        new CrystalBlockEntity());
         placeBEAbove(event, 4, 12, crystalChaosBlock.id,   new CrystalChaosBlockEntity());
+
+        // Easing showcases — three blocks lined up so all 30+ curves can
+        // be inspected at once. Block 1 covers sine/quad/back/elastic/
+        // bounce; block 2 covers cubic/quart/quint/expo; block 3 covers
+        // circ + bounce in/inout + linear/step/catmullrom baselines.
+        placeBEAbove(event, 0, 12, easingShowcaseBlock.id,  new EasingShowcaseBlockEntity());
+        placeBEAbove(event, 0, 8,  easingShowcase2Block.id, new EasingShowcase2BlockEntity());
+        placeBEAbove(event, 0, 4,  easingShowcase3Block.id, new EasingShowcase3BlockEntity());
 
         // Entity renderer smoke test: one animated model entity every 4x4
         // chunks. Drop it 2 blocks above the column top so it lands on the
