@@ -10,16 +10,15 @@ Demo Animated Machine on YouTube:
 
 ## Features
 
-- **Static models** — Load Blockbench JSON exports, render blocks and items with flat/smooth lighting
-- **OBJ mesh models** — Load `.obj` files with named groups for animated parts
-- **Keyframe animation** — `.anim.json` format with rotation + position keyframes, loop/clamp, state machine
-- **Partial-tick interpolation** — Smooth 60fps animation from 20-tick updates
-- **Dedicated entity helper** — Render static or animated Aero models from mob/entity renderers with entity-origin yaw, brightness overloads and scale/offset transforms
-- **Render-distance aware culling** — Tile/block entities and Aero entity models scale with the player's render distance, with a safe default cap for high-distance stability
-- **Animation LOD** — Switch distant animated meshes to rest-pose rendering before culling, avoiding keyframe sampling and per-bone GL transforms
-- **Brightness optimization** — Triangles pre-classified into 4 groups, only 4 color calls per frame
-- **Built-in caching** — All loaders cache by resource path; JSON quads, mesh bounds, smooth-light metadata and animation lookups are cached too
-- **Dual loader support** — Shared Java 8 core with ModLoader and StationAPI render/state adapters
+- **Blockbench model rendering** — Use exported JSON models for blocks, items and world renderers
+- **OBJ mesh rendering** — Bring textured mesh assets into Minecraft Beta with named parts for animation
+- **GeckoLib-style animation workflow** — Define reusable clips and states, then drive per-instance playback in game
+- **Smooth animation playback** — Interpolate between ticks for fluid motion on classic 20 TPS logic
+- **Entity model support** — Render the same Aero models from mob/entity renderers with reusable transforms
+- **Render-distance aware visibility** — Keep large block and entity models visible at the right player settings
+- **Distance LOD for animated scenes** — Tune when dense animated models render fully, render static, or disappear
+- **Inventory previews** — Reuse world models as item and block thumbnails
+- **ModLoader and StationAPI support** — Share one core model/animation pipeline across both loaders
 
 ## Quick Start
 
