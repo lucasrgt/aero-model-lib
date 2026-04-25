@@ -74,6 +74,29 @@ public class Aero_MeshRenderer {
     }
 
     /**
+     * Renders static geometry plus every named group at rest pose.
+     * This is useful for distant animation LOD because it avoids clip
+     * sampling, bone resolution and per-bone GL transforms.
+     */
+    public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
+                                         float rotation, float brightness) {
+        Tessellator tess = Tessellator.instance;
+        GL11.glPushMatrix();
+        GL11.glTranslated(x, y, z);
+        applyRotation(rotation);
+        beginMeshState();
+
+        drawGroups(tess, model.groups, model.invScale, brightness);
+        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+        for (int e = 0; e < entries.length; e++) {
+            drawGroups(tess, entries[e].tris, model.invScale, brightness);
+        }
+
+        endMeshState();
+        GL11.glPopMatrix();
+    }
+
+    /**
      * Renders static geometry with smooth lighting (bilinear world sample above structure).
      *
      * @param world   current world

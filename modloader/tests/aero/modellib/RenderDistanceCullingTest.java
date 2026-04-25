@@ -71,6 +71,30 @@ public class RenderDistanceCullingTest {
         assertEquals(259d, Aero_RenderDistanceCulling.maximumBlockRadiusWithMargin(3d, 256d), DELTA);
     }
 
+    @Test
+    public void lodRelativeChoosesAnimatedStaticAndCulledBands() {
+        assertEquals(Aero_RenderLod.ANIMATED, Aero_RenderDistanceCulling.lodRelative(
+            24d, 0d, 0d,
+            Aero_RenderDistanceCulling.VIEW_DISTANCE_FAR,
+            2d, 32d));
+        assertEquals(Aero_RenderLod.STATIC, Aero_RenderDistanceCulling.lodRelative(
+            64d, 0d, 0d,
+            Aero_RenderDistanceCulling.VIEW_DISTANCE_FAR,
+            2d, 32d));
+        assertEquals(Aero_RenderLod.CULLED, Aero_RenderDistanceCulling.lodRelative(
+            120d, 0d, 0d,
+            Aero_RenderDistanceCulling.VIEW_DISTANCE_FAR,
+            2d, 32d));
+    }
+
+    @Test
+    public void lodHonorsTinyViewDistanceBeforeAnimatedThreshold() {
+        assertEquals(Aero_RenderLod.CULLED, Aero_RenderDistanceCulling.lodRelative(
+            40d, 0d, 0d,
+            Aero_RenderDistanceCulling.VIEW_DISTANCE_TINY,
+            0d, 96d));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNegativeVisualRadius() {
         Aero_RenderDistanceCulling.shouldRenderRelative(0d, 0d, 0d, 2, -1d);

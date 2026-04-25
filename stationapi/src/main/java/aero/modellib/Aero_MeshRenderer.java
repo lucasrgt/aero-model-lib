@@ -48,6 +48,24 @@ public class Aero_MeshRenderer {
         GL11.glPopMatrix();
     }
 
+    public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
+                                         float rotation, float brightness) {
+        Tessellator tess = Tessellator.INSTANCE;
+        GL11.glPushMatrix();
+        GL11.glTranslated(x, y, z);
+        applyRotation(rotation);
+        beginMeshState();
+
+        drawGroups(tess, model.groups, model.invScale, brightness);
+        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+        for (int e = 0; e < entries.length; e++) {
+            drawGroups(tess, entries[e].tris, model.invScale, brightness);
+        }
+
+        endMeshState();
+        GL11.glPopMatrix();
+    }
+
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, World world, int ox, int topY, int oz) {
         Tessellator tess = Tessellator.INSTANCE;

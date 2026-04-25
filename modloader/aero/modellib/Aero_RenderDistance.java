@@ -38,6 +38,22 @@ public final class Aero_RenderDistance {
             x, y, z, currentViewDistance(), visualRadiusBlocks, maxRenderDistanceBlocks);
     }
 
+    public static Aero_RenderLod lodRelative(double x, double y, double z,
+                                             double visualRadiusBlocks,
+                                             double animatedDistanceBlocks) {
+        return lodRelative(x, y, z, visualRadiusBlocks, animatedDistanceBlocks,
+            Aero_RenderDistanceCulling.DEFAULT_SPECIAL_RENDER_RADIUS);
+    }
+
+    public static Aero_RenderLod lodRelative(double x, double y, double z,
+                                             double visualRadiusBlocks,
+                                             double animatedDistanceBlocks,
+                                             double maxRenderDistanceBlocks) {
+        return Aero_RenderDistanceCulling.lodRelative(
+            x, y, z, currentViewDistance(), visualRadiusBlocks,
+            animatedDistanceBlocks, maxRenderDistanceBlocks);
+    }
+
     public static double tileEntityDistanceFrom(TileEntity tile,
                                                 double cameraX, double cameraY, double cameraZ,
                                                 double visualRadiusBlocks) {

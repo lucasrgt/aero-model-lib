@@ -257,6 +257,7 @@ sequenceDiagram
 | **Rendering** | `Aero_JsonModelRenderer`, `Aero_MeshRenderer`, `Aero_EntityModelRenderer`, `Aero_InventoryRenderer` | Static methods for OpenGL drawing. |
 | **Transforms** | `Aero_EntityModelTransform` | Immutable offset/scale/yaw settings for entity-origin rendering. |
 | **Culling** | `Aero_RenderDistance`, `Aero_RenderDistanceCulling`, `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Keeps Aero renderers aligned with the player's render distance under a configurable cap instead of Beta's fixed 64-block special-render cutoff. |
+| **LOD** | `Aero_RenderLod` | Chooses animated, static-at-rest or culled rendering from camera-relative distance. |
 
 ---
 
@@ -911,6 +912,7 @@ Renders `Aero_MeshModel` (OBJ triangles) with OpenGL.
 | Method | Description |
 |--------|-------------|
 | `renderModel(model, x, y, z, rotation, brightness)` | Static geometry, flat lighting |
+| `renderModelAtRest(model, x, y, z, rotation, brightness)` | Static geometry plus named groups at rest pose; useful for distant animation LOD |
 | `renderModel(model, x, y, z, rotation, world, ox, topY, oz)` | Static geometry, smooth lighting (bilinear) |
 | `renderGroup(model, groupName, brightness)` | Named group, NO push/pop (caller controls GL) |
 | `renderGroupRotated(model, groupName, x, y, z, brightness, pivotX/Y/Z, angle, axisX/Y/Z)` | Group with pivot rotation |
@@ -928,6 +930,7 @@ Entity-specific renderer wrapper for `Render` / `EntityRenderer` implementations
 |--------|-------------|
 | `render(jsonModel, entity, x, y, z, yaw, partialTick[, transform])` | Static JSON model, brightness read from entity |
 | `render(meshModel, entity, x, y, z, yaw, partialTick[, transform])` | Static OBJ model, brightness read from entity |
+| `renderAtRest(meshModel, entity, x, y, z, yaw, partialTick, transform)` | Static OBJ model plus named groups at rest pose |
 | `renderAnimated(meshModel, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model using `playback.getBundle()` / `playback.getDef()` |
 | `renderAnimated(meshModel, bundle, def, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model with explicit bundle/definition |
 | `render(..., brightness[, transform])` | Brightness-explicit overloads for custom lighting |
@@ -964,8 +967,20 @@ Loader-specific adapter for render-distance-aware culling. ModLoader reads
 | `currentBlockRadius()` | Maps the current option to an approximate block radius: `256`, `128`, `64`, `32` |
 | `shouldRenderRelative(x, y, z, visualRadiusBlocks)` | Fast entity/model culling check for render-relative coordinates |
 | `shouldRenderRelative(x, y, z, visualRadiusBlocks, maxRenderDistanceBlocks)` | Same check with an explicit cap for light/landmark models |
+| `lodRelative(x, y, z, visualRadiusBlocks, animatedDistanceBlocks)` | Returns `Aero_RenderLod.ANIMATED`, `STATIC` or `CULLED` for animation LOD |
+| `lodRelative(x, y, z, visualRadiusBlocks, animatedDistanceBlocks, maxRenderDistanceBlocks)` | LOD with an explicit max render cap |
 | `applyEntityRenderDistance(entity, visualRadiusBlocks)` | Raises the entity dispatcher cutoff to the default safe Aero radius; `Aero_EntityModelRenderer` still culls drawing by the current render distance |
 | `applyEntityRenderDistance(entity, visualRadiusBlocks, maxRenderDistanceBlocks)` | Entity dispatcher setup for a custom capped distance |
+
+### Aero_RenderLod
+
+Distance LOD result used by callers to avoid expensive animation work:
+
+| Value | Recommended path |
+|-------|------------------|
+| `ANIMATED` | Full `renderAnimated(...)` |
+| `STATIC` | `renderModelAtRest(...)` or `Aero_EntityModelRenderer.renderAtRest(...)` |
+| `CULLED` | Skip texture binding, brightness sampling and drawing |
 
 ### Aero_RenderDistanceCulling
 
@@ -1276,6 +1291,22 @@ private static final Aero_EntityModelTransform MODEL_TRANSFORM =
         .withMaxRenderDistance(96f);
 ```
 
+### Animation LOD
+
+For dense scenes, reduce animation before reducing geometry. Let nearby
+models use full keyframes, draw mid-distance models at rest pose, and skip
+work entirely when the culling band says so.
+
+```java
+Aero_RenderLod lod = Aero_RenderDistance.lodRelative(d, d1, d2, 2d, 48d);
+if (lod.shouldAnimate()) {
+    Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, DEF, state,
+        d, d1, d2, brightness, partialTick);
+} else if (lod.isStaticOnly()) {
+    Aero_MeshRenderer.renderModelAtRest(MODEL, d, d1, d2, 0f, brightness);
+}
+```
+
 ### Hierarchy resolution order
 
 The renderer resolves bones in this order:
@@ -1460,6 +1491,7 @@ Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT
 - **Too many triangles:** Triangles are bucketed by brightness and drawn through `GL_TRIANGLES`; simplify very dense models if frame time still spikes
 - **Smooth lighting:** Light is sampled once per unique XZ column in the model footprint, then interpolated from cached metadata
 - **Animation sampling:** Use `renderAnimated()` and the `sample*Into` path; it avoids per-frame vector allocation
+- **Animation LOD:** In dense scenes, use `Aero_RenderDistance.lodRelative(...)` and `renderModelAtRest(...)` so distant models skip keyframe sampling and per-bone GL transforms
 - **Inventory thumbnails:** Model AABBs are cached on `Aero_JsonModel` / `Aero_MeshModel`, so large inventories no longer rescan geometry every paint
 - **Render distance:** Use `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` so high render distances do not cut models at 64 blocks; keep the default `96` block cap unless profiling proves the model is cheap farther out
 - **Profiling:** Use `modloader/tests/bench.ps1` for CPU-side regressions, then confirm heavy scenes in-game for actual driver/OpenGL cost
@@ -1687,6 +1719,7 @@ powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
 - animation bone lookup + sampling
 - entity yaw transform math
 - render-distance culling math
+- render-distance LOD band selection
 - a linear lookup reference for comparison
 
 This benchmark is meant for regression checks. Final render performance should still
