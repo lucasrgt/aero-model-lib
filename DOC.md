@@ -188,7 +188,7 @@ flowchart TD
         RM["Aero_JsonModelRenderer.renderModel()"]
         MR["Aero_MeshRenderer.renderAnimated()"]
         IR2["Aero_InventoryRenderer.render()"]
-        SG[Static geometry: 4 brightness groups]
+        SG[Static geometry]
         NG[Named groups: keyframe transforms]
     end
 
@@ -924,7 +924,7 @@ Renders `Aero_MeshModel` (OBJ triangles) with OpenGL.
 
 ### Aero_EntityModelRenderer
 
-Entity-specific renderer wrapper for `Render` / `EntityRenderer` implementations. It keeps texture binding in the caller, rotates around the entity origin and delegates to the optimized JSON/Mesh renderers.
+Entity-specific renderer wrapper for `Render` / `EntityRenderer` implementations. It keeps texture binding in the caller, rotates around the entity origin and delegates to the existing JSON/Mesh renderers.
 
 | Method | Description |
 |--------|-------------|
