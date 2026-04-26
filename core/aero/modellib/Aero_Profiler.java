@@ -9,13 +9,10 @@ import java.util.Map;
  * Lightweight named-section timer for hot animation/render paths.
  *
  * <p><b>Thread safety:</b> the profiler is intended for the Minecraft
- * Beta 1.7.3 client/server thread which is single-threaded by design.
- * {@link #start} and {@link #end} are NOT synchronized — they read/write
- * shared maps and the only concession to safety is on {@link #dump} and
- * {@link #reset}, which are synchronized so an off-thread debug call (e.g.
- * a JMX hook) cannot race with a partial section table. If you instrument
- * code that genuinely runs on background threads, wrap your own calls in
- * the same monitor or use Java Flight Recorder instead.
+ * Beta 1.7.3 client/server thread which is single-threaded by design, but
+ * enabled calls synchronize on the class monitor so an off-thread debug hook
+ * cannot corrupt the section maps. Disabled calls still short-circuit before
+ * taking a lock.
  *
  * <p>The profiler is fully off by default — every call short-circuits on a
  * single boolean read so untouched ship builds pay nothing. Enable it at
@@ -59,21 +56,25 @@ public final class Aero_Profiler {
 
     public static void start(String section) {
         if (!enabled) return;
-        openStarts.put(section, Long.valueOf(System.nanoTime()));
+        synchronized (Aero_Profiler.class) {
+            openStarts.put(section, Long.valueOf(System.nanoTime()));
+        }
     }
 
     public static void end(String section) {
         if (!enabled) return;
-        Long start = (Long) openStarts.remove(section);
-        if (start == null) return;
-        long elapsed = System.nanoTime() - start.longValue();
-        Section s = (Section) sections.get(section);
-        if (s == null) {
-            s = new Section();
-            sections.put(section, s);
+        synchronized (Aero_Profiler.class) {
+            Long start = (Long) openStarts.remove(section);
+            if (start == null) return;
+            long elapsed = System.nanoTime() - start.longValue();
+            Section s = (Section) sections.get(section);
+            if (s == null) {
+                s = new Section();
+                sections.put(section, s);
+            }
+            s.calls++;
+            s.totalNanos += elapsed;
         }
-        s.calls++;
-        s.totalNanos += elapsed;
     }
 
     /** Prints a one-shot table to stdout and resets counters. */

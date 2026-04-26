@@ -15,31 +15,39 @@ import org.lwjgl.opengl.GL11;
 public class Aero_JsonModelRenderer {
 
     public static void renderModel(Aero_JsonModel model, double x, double y, double z, float rotation, float brightness) {
-        Tessellator tessellator = Tessellator.INSTANCE;
-        GL11.glPushMatrix();
-        GL11.glTranslated(x, y, z);
+        Aero_Profiler.start("aero.json.render");
+        try {
+            Tessellator tessellator = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            try {
+                GL11.glTranslated(x, y, z);
 
-        if (rotation != 0) {
-            GL11.glTranslatef(0.5f, 0.5f, 0.5f);
-            GL11.glRotatef(rotation, 0.0f, 1.0f, 0.0f);
-            GL11.glTranslatef(-0.5f, -0.5f, -0.5f);
+                if (rotation != 0) {
+                    GL11.glTranslatef(0.5f, 0.5f, 0.5f);
+                    GL11.glRotatef(rotation, 0.0f, 1.0f, 0.0f);
+                    GL11.glTranslatef(-0.5f, -0.5f, -0.5f);
+                }
+
+                tessellator.startQuads();
+                final float cTop    = brightness * 1.0F;
+                final float cBottom = brightness * 0.5F;
+                final float cNS     = brightness * 0.8F;
+                final float cEW     = brightness * 0.6F;
+                float[][][] quads = model.quadsByFace;
+                drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_DOWN],  0.0F, -1.0F,  0.0F, cBottom);
+                drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_UP],    0.0F,  1.0F,  0.0F, cTop);
+                drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_NORTH], 0.0F,  0.0F, -1.0F, cNS);
+                drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_SOUTH], 0.0F,  0.0F,  1.0F, cNS);
+                drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_WEST], -1.0F,  0.0F,  0.0F, cEW);
+                drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_EAST],  1.0F,  0.0F,  0.0F, cEW);
+
+                tessellator.draw();
+            } finally {
+                GL11.glPopMatrix();
+            }
+        } finally {
+            Aero_Profiler.end("aero.json.render");
         }
-
-        tessellator.startQuads();
-        final float cTop    = brightness * 1.0F;
-        final float cBottom = brightness * 0.5F;
-        final float cNS     = brightness * 0.8F;
-        final float cEW     = brightness * 0.6F;
-        float[][][] quads = model.quadsByFace;
-        drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_DOWN],  0.0F, -1.0F,  0.0F, cBottom);
-        drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_UP],    0.0F,  1.0F,  0.0F, cTop);
-        drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_NORTH], 0.0F,  0.0F, -1.0F, cNS);
-        drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_SOUTH], 0.0F,  0.0F,  1.0F, cNS);
-        drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_WEST], -1.0F,  0.0F,  0.0F, cEW);
-        drawQuadGroup(tessellator, quads[Aero_JsonModel.FACE_EAST],  1.0F,  0.0F,  0.0F, cEW);
-
-        tessellator.draw();
-        GL11.glPopMatrix();
     }
 
     private static void drawQuadGroup(Tessellator tessellator, float[][] quads,
