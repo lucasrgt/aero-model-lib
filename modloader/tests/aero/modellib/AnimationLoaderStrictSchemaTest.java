@@ -85,11 +85,27 @@ public class AnimationLoaderStrictSchemaTest {
         // tests can use it as a setUp() hook unconditionally.
         Aero_AnimationLoader.clearCache();
         Aero_AnimationLoader.clearCache();   // idempotent
+        assertEquals(0, Aero_AnimationLoader.cacheSize());
 
         // Verify the loader still works after a clear.
         Aero_AnimationBundle bundle = Aero_AnimationLoader.loadFromString(
             "{" + VER + "\"animations\":{}}");
         assertNotNull(bundle);
+    }
+
+    @Test
+    public void allLoaderCachesCanBeClearedIdempotently() {
+        Aero_ObjLoader.clearCache();
+        Aero_JsonModelLoader.clearCache();
+        Aero_AnimationLoader.clearCache();
+
+        Aero_ObjLoader.clearCache();
+        Aero_JsonModelLoader.clearCache();
+        Aero_AnimationLoader.clearCache();
+
+        assertEquals(0, Aero_ObjLoader.cacheSize());
+        assertEquals(0, Aero_JsonModelLoader.cacheSize());
+        assertEquals(0, Aero_AnimationLoader.cacheSize());
     }
 
     private static void assertRejected(String json, String expectedMessage) {

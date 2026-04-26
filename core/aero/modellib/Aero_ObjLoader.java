@@ -4,7 +4,6 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,15 +42,22 @@ import java.util.Map;
  */
 public class Aero_ObjLoader {
 
-    private static final Map cache = new HashMap();
+    private static final int MAX_CACHE_ENTRIES =
+        Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
+
+    private static final Map cache = new LinkedHashMap(16, 0.75f, true) {
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return MAX_CACHE_ENTRIES > 0 && size() > MAX_CACHE_ENTRIES;
+        }
+    };
 
     /** Loads and caches an OBJ model from the classpath. */
-    public static Aero_MeshModel load(String resourcePath) {
+    public static synchronized Aero_MeshModel load(String resourcePath) {
         return load(resourcePath, resourcePath);
     }
 
     /** Loads and caches an OBJ model from the classpath with an explicit name. */
-    public static Aero_MeshModel load(String resourcePath, String name) {
+    public static synchronized Aero_MeshModel load(String resourcePath, String name) {
         if (cache.containsKey(resourcePath)) {
             return (Aero_MeshModel) cache.get(resourcePath);
         }
@@ -60,14 +66,27 @@ public class Aero_ObjLoader {
             if (is == null) {
                 throw new RuntimeException("AeroObjLoader: resource not found: " + resourcePath);
             }
-            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-            Aero_MeshModel model = parseObj(reader, name);
-            is.close();
+            Aero_MeshModel model;
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                model = parseObj(reader, name);
+            } finally {
+                is.close();
+            }
             cache.put(resourcePath, model);
             return model;
         } catch (Exception e) {
             throw new RuntimeException("AeroObjLoader: failed to load " + resourcePath + ": " + e.getMessage(), e);
         }
+    }
+
+    /** Drops all cached OBJ models. Useful for tests and hot-reload tooling. */
+    public static synchronized void clearCache() {
+        cache.clear();
+    }
+
+    static synchronized int cacheSize() {
+        return cache.size();
     }
 
     // -----------------------------------------------------------------------

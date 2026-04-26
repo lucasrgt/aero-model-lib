@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'fabric-loom' version '1.9.2'
     id 'babric-loom-extension' version '1.9.2'
 }
 
@@ -53,16 +53,40 @@ tasks.register('downloadAMI') {
         def modsDir = file('run/mods')
         modsDir.mkdirs()
         def downloads = [
-            'AlwaysMoreItems-1.9.0.jar': 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/AlwaysMoreItems/1.9.0/AlwaysMoreItems-1.9.0.jar',
-            'glass-networking-1.0.6.jar': 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/glass-networking/1.0.6/glass-networking-1.0.6.jar',
-            'GlassConfigAPI-3.2.5.jar': 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/GlassConfigAPI/3.2.5/GlassConfigAPI-3.2.5.jar',
-            'modmenu-1.1.1.jar': 'https://maven.glass-launcher.net/releases/net/danygames2014/modmenu/1.1.1/modmenu-1.1.1.jar',
+            'AlwaysMoreItems-1.9.0.jar': [
+                url: 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/AlwaysMoreItems/1.9.0/AlwaysMoreItems-1.9.0.jar',
+                sha256: 'b590e2482f28b304ed512d9ad7550ba11e7221a0e9281dc15a825f0d1a2d7ab5'
+            ],
+            'glass-networking-1.0.6.jar': [
+                url: 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/glass-networking/1.0.6/glass-networking-1.0.6.jar',
+                sha256: '353010d31e8b77a417e990f196e12cec6750c7bb1f66e109d918f52c9bfbb53e'
+            ],
+            'GlassConfigAPI-3.2.5.jar': [
+                url: 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/GlassConfigAPI/3.2.5/GlassConfigAPI-3.2.5.jar',
+                sha256: '521fd621dd3aede2132fa06572e3493cd2dc99e453cc5a1fde79aee9f37c639f'
+            ],
+            'modmenu-1.1.1.jar': [
+                url: 'https://maven.glass-launcher.net/releases/net/danygames2014/modmenu/1.1.1/modmenu-1.1.1.jar',
+                sha256: 'f9cae45c4de9f8b440701e95b3335dc3b7865e2a5993f6c9f6205aac6044c654'
+            ],
         ]
-        downloads.each { name, url ->
+        downloads.each { name, metadata ->
             def out = new File(modsDir, name)
             if (!out.exists()) {
                 println "  Downloading ${name}..."
-                out.bytes = new java.net.URL(url).bytes
+                out.bytes = new java.net.URL(metadata.url).bytes
+            }
+            def digest = java.security.MessageDigest.getInstance('SHA-256')
+            out.withInputStream { input ->
+                byte[] buffer = new byte[8192]
+                int read
+                while ((read = input.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            def actual = digest.digest().encodeHex().toString()
+            if (!actual.equalsIgnoreCase(metadata.sha256)) {
+                throw new GradleException("Checksum mismatch for ${name}: expected ${metadata.sha256}, got ${actual}")
             }
         }
     }

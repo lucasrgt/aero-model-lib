@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -19,15 +20,22 @@ import java.util.Map;
  */
 public class Aero_JsonModelLoader {
 
-    private static final Map cache = new HashMap();
+    private static final int MAX_CACHE_ENTRIES =
+        Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
+
+    private static final Map cache = new LinkedHashMap(16, 0.75f, true) {
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return MAX_CACHE_ENTRIES > 0 && size() > MAX_CACHE_ENTRIES;
+        }
+    };
 
     /** Loads and caches a Blockbench model from the classpath. */
-    public static Aero_JsonModel load(String resourcePath) {
+    public static synchronized Aero_JsonModel load(String resourcePath) {
         return load(resourcePath, resourcePath);
     }
 
     /** Loads and caches a Blockbench model from the classpath with an explicit name. */
-    public static Aero_JsonModel load(String resourcePath, String name) {
+    public static synchronized Aero_JsonModel load(String resourcePath, String name) {
         if (cache.containsKey(resourcePath)) {
             return (Aero_JsonModel) cache.get(resourcePath);
         }
@@ -39,14 +47,26 @@ public class Aero_JsonModelLoader {
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             byte[] tmp = new byte[4096];
             int n;
-            while ((n = is.read(tmp)) != -1) buf.write(tmp, 0, n);
-            is.close();
+            try {
+                while ((n = is.read(tmp)) != -1) buf.write(tmp, 0, n);
+            } finally {
+                is.close();
+            }
             Aero_JsonModel model = fromJson(parseJson(buf.toString("UTF-8"), new int[]{0}), name);
             cache.put(resourcePath, model);
             return model;
         } catch (Exception e) {
             throw new RuntimeException("AeroModelLoader: failed to load " + resourcePath + ": " + e.getMessage(), e);
         }
+    }
+
+    /** Drops all cached JSON models. Useful for tests and hot-reload tooling. */
+    public static synchronized void clearCache() {
+        cache.clear();
+    }
+
+    static synchronized int cacheSize() {
+        return cache.size();
     }
 
     // -----------------------------------------------------------------------

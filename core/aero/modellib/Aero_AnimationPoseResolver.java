@@ -51,21 +51,16 @@ final class Aero_AnimationPoseResolver {
         lookupStackPivotInto(stack, boneName, scratchPivot);
         out.setPivot(scratchPivot);
 
-        if (stack.sampleRot(boneName, partialTick, scratchRot)) {
-            out.rotX = scratchRot[0];
-            out.rotY = scratchRot[1];
-            out.rotZ = scratchRot[2];
-        }
-        if (stack.samplePos(boneName, partialTick, scratchPos)) {
-            out.offsetX = scratchPos[0] * PIXEL_TO_BLOCK;
-            out.offsetY = scratchPos[1] * PIXEL_TO_BLOCK;
-            out.offsetZ = scratchPos[2] * PIXEL_TO_BLOCK;
-        }
-        if (stack.sampleScl(boneName, partialTick, scratchScl)) {
-            out.scaleX = scratchScl[0];
-            out.scaleY = scratchScl[1];
-            out.scaleZ = scratchScl[2];
-        }
+        stack.samplePose(boneName, partialTick, scratchRot, scratchPos, scratchScl);
+        out.rotX = scratchRot[0];
+        out.rotY = scratchRot[1];
+        out.rotZ = scratchRot[2];
+        out.offsetX = scratchPos[0] * PIXEL_TO_BLOCK;
+        out.offsetY = scratchPos[1] * PIXEL_TO_BLOCK;
+        out.offsetZ = scratchPos[2] * PIXEL_TO_BLOCK;
+        out.scaleX = scratchScl[0];
+        out.scaleY = scratchScl[1];
+        out.scaleZ = scratchScl[2];
     }
 
     private static boolean sampleRot(Aero_AnimationClip clip, Aero_AnimationPlayback playback,

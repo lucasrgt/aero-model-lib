@@ -56,6 +56,50 @@ public final class Aero_AnimationStack {
         return sampleChannel(boneName, partialTick, out, CHANNEL_SCL);
     }
 
+    /**
+     * Samples rotation, position and scale in one layer walk. Renderers use
+     * this to avoid doing the same clip lookup, bone-name map lookup and
+     * interpolated-time calculation once per channel.
+     */
+    public boolean samplePose(String boneName, float partialTick,
+                              float[] outRot, float[] outPos, float[] outScl) {
+        if (outRot == null || outPos == null || outScl == null) {
+            throw new IllegalArgumentException("pose outputs must not be null");
+        }
+
+        outRot[0] = 0f; outRot[1] = 0f; outRot[2] = 0f;
+        outPos[0] = 0f; outPos[1] = 0f; outPos[2] = 0f;
+        outScl[0] = 1f; outScl[1] = 1f; outScl[2] = 1f;
+
+        boolean any = false;
+        for (int i = 0; i < layers.length; i++) {
+            Aero_AnimationLayer layer = layers[i];
+            Aero_AnimationPlayback pb = layer.getPlayback();
+            Aero_AnimationClip clip = pb.getCurrentClip();
+            if (clip == null) continue;
+            int bi = clip.indexOfBone(boneName);
+            if (bi < 0) continue;
+
+            float time = pb.getInterpolatedTime(partialTick);
+            float weight = layer.getWeight();
+            boolean additive = layer.isAdditive();
+
+            if (pb.sampleRotBlended(clip, bi, boneName, time, partialTick, tmp)) {
+                compose(outRot, tmp, weight, additive, CHANNEL_ROT);
+                any = true;
+            }
+            if (pb.samplePosBlended(clip, bi, boneName, time, partialTick, tmp)) {
+                compose(outPos, tmp, weight, additive, CHANNEL_POS);
+                any = true;
+            }
+            if (pb.sampleSclBlended(clip, bi, boneName, time, partialTick, tmp)) {
+                compose(outScl, tmp, weight, additive, CHANNEL_SCL);
+                any = true;
+            }
+        }
+        return any;
+    }
+
     private static final int CHANNEL_ROT = 0;
     private static final int CHANNEL_POS = 1;
     private static final int CHANNEL_SCL = 2;
@@ -83,25 +127,29 @@ public final class Aero_AnimationStack {
             }
             if (!got) continue;
 
-            float w = layer.getWeight();
-            if (layer.isAdditive()) {
-                if (channel == CHANNEL_SCL) {
-                    out[0] *= 1f + (tmp[0] - 1f) * w;
-                    out[1] *= 1f + (tmp[1] - 1f) * w;
-                    out[2] *= 1f + (tmp[2] - 1f) * w;
-                } else {
-                    out[0] += tmp[0] * w;
-                    out[1] += tmp[1] * w;
-                    out[2] += tmp[2] * w;
-                }
-            } else {
-                out[0] = out[0] + (tmp[0] - out[0]) * w;
-                out[1] = out[1] + (tmp[1] - out[1]) * w;
-                out[2] = out[2] + (tmp[2] - out[2]) * w;
-            }
+            compose(out, tmp, layer.getWeight(), layer.isAdditive(), channel);
             any = true;
         }
         return any;
+    }
+
+    private static void compose(float[] out, float[] value, float weight,
+                                boolean additive, int channel) {
+        if (additive) {
+            if (channel == CHANNEL_SCL) {
+                out[0] *= 1f + (value[0] - 1f) * weight;
+                out[1] *= 1f + (value[1] - 1f) * weight;
+                out[2] *= 1f + (value[2] - 1f) * weight;
+            } else {
+                out[0] += value[0] * weight;
+                out[1] += value[1] * weight;
+                out[2] += value[2] * weight;
+            }
+        } else {
+            out[0] = out[0] + (value[0] - out[0]) * weight;
+            out[1] = out[1] + (value[1] - out[1]) * weight;
+            out[2] = out[2] + (value[2] - out[2]) * weight;
+        }
     }
 
     public static final class Builder {

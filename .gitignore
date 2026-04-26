@@ -27,3 +27,4 @@ stationapi/test/*.iml
 
 # Moved unit-test runner output
 modloader/tests/out/
+modloader/tests/bench-out/

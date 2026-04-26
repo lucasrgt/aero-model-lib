@@ -8,25 +8,34 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Loads .anim.json files and returns a cached Aero_AnimationBundle.
  *
- * Loads strict v2 .anim.json files. Pose keyframes use
- * { "value": [x, y, z], "interp": "linear" }, loop is a string, and
- * non-pose events use { "name": "...", "locator": "..." } objects.
+ * Loads .anim.json files at format_version "1.0" with strict validation.
+ * Pose keyframes use { "value": [x, y, z], "interp": "linear" }, loop is
+ * a string, and non-pose events use { "name": "...", "locator": "..." }
+ * objects.
  */
 public class Aero_AnimationLoader {
 
     /** Schema version this loader understands. */
     public static final String SUPPORTED_FORMAT_VERSION = "1.0";
 
-    private static final Map cache = new HashMap();
+    private static final int MAX_CACHE_ENTRIES =
+        Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
+
+    private static final Map cache = new LinkedHashMap(16, 0.75f, true) {
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return MAX_CACHE_ENTRIES > 0 && size() > MAX_CACHE_ENTRIES;
+        }
+    };
 
     /** Loads and caches a .anim.json from the classpath. */
-    public static Aero_AnimationBundle load(String resourcePath) {
+    public static synchronized Aero_AnimationBundle load(String resourcePath) {
         if (cache.containsKey(resourcePath)) {
             return (Aero_AnimationBundle) cache.get(resourcePath);
         }
@@ -35,11 +44,14 @@ public class Aero_AnimationLoader {
             if (is == null) {
                 throw new RuntimeException("Aero_AnimationLoader: resource not found: " + resourcePath);
             }
-            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
             StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
-            is.close();
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+            } finally {
+                is.close();
+            }
 
             Map root = (Map) new JsonParser(sb.toString()).parseValue();
             Aero_AnimationBundle bundle = buildBundle(root);
@@ -55,8 +67,12 @@ public class Aero_AnimationLoader {
      * fixtures from the same resource path or reload a hot-swapped
      * {@code .anim.json}; production code should not need this.
      */
-    public static void clearCache() {
+    public static synchronized void clearCache() {
         cache.clear();
+    }
+
+    static synchronized int cacheSize() {
+        return cache.size();
     }
 
     static Aero_AnimationBundle loadFromString(String json) {
@@ -74,7 +90,7 @@ public class Aero_AnimationLoader {
 
     private static Aero_AnimationBundle buildBundle(Map root) {
         // --- format_version ---
-        // Strict v2 schema declares "1.0". Reject anything else loudly so
+        // The strict schema declares format_version "1.0". Reject anything else loudly so
         // future schema bumps surface as a clear loader error rather than
         // a silent half-parsed bundle.
         if (!root.containsKey("format_version")) {

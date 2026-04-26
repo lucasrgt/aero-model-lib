@@ -141,6 +141,32 @@ public class AnimationStackTest {
     }
 
     @Test
+    public void samplePoseMatchesSeparateChannelSampling() {
+        Aero_AnimationStack stack = Aero_AnimationStack.builder()
+            .replace(playbackOf(fullPoseClip("base", 10f, 2f, 1.5f)))
+            .additive(playbackOf(fullPoseClip("addon", 5f, 4f, 2.0f)), 0.5f)
+            .build();
+        stack.tick();
+
+        float partialTick = 0.25f;
+        float[] rot = new float[3];
+        float[] pos = new float[3];
+        float[] scl = new float[3];
+        float[] poseRot = new float[3];
+        float[] posePos = new float[3];
+        float[] poseScl = new float[3];
+
+        assertTrue(stack.sampleRot("x", partialTick, rot));
+        assertTrue(stack.samplePos("x", partialTick, pos));
+        assertTrue(stack.sampleScl("x", partialTick, scl));
+        assertTrue(stack.samplePose("x", partialTick, poseRot, posePos, poseScl));
+
+        assertArrayEquals(rot, poseRot, DELTA);
+        assertArrayEquals(pos, posePos, DELTA);
+        assertArrayEquals(scl, poseScl, DELTA);
+    }
+
+    @Test
     public void layerBuilderRejectsInvalidWeight() {
         try {
             Aero_AnimationLayer.builder(playbackOf(constantRotClip("bad", 0f, 0f, 0f)))
@@ -185,6 +211,27 @@ public class AnimationStackTest {
                 .scale(
                     new float[]{0f},
                     new float[][]{{s, s, s}},
+                    new Aero_Easing[]{Aero_Easing.LINEAR})
+                .endBone()
+            .build();
+    }
+
+    private static Aero_AnimationClip fullPoseClip(String name, float rotX, float posX, float scale) {
+        return Aero_AnimationClip.builder(name)
+            .loop(Aero_AnimationLoop.LOOP)
+            .length(1f)
+            .bone("x")
+                .rotation(
+                    new float[]{0f},
+                    new float[][]{{rotX, 0f, 0f}},
+                    new Aero_Easing[]{Aero_Easing.LINEAR})
+                .position(
+                    new float[]{0f},
+                    new float[][]{{posX, 0f, 0f}},
+                    new Aero_Easing[]{Aero_Easing.LINEAR})
+                .scale(
+                    new float[]{0f},
+                    new float[][]{{scale, scale, scale}},
                     new Aero_Easing[]{Aero_Easing.LINEAR})
                 .endBone()
             .build();
