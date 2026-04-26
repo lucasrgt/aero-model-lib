@@ -70,19 +70,32 @@ public final class Aero_AnimationStateRouter {
      * already short-circuits identical state transitions.
      */
     public void applyTo(Aero_AnimationPlayback playback) {
+        applyTo(playback, 0);
+    }
+
+    /**
+     * Same as {@link #applyTo(Aero_AnimationPlayback)} but uses
+     * {@code defaultTransitionTicks} when the router itself was not
+     * configured via {@link #withTransition(int)}. Used by
+     * {@link Aero_AnimationSpec#applyState(Aero_AnimationPlayback, Aero_AnimationStateRouter)}
+     * so a spec's {@code defaultTransitionTicks} composes naturally with a
+     * predicate router that didn't declare its own crossfade.
+     */
+    public void applyTo(Aero_AnimationPlayback playback, int defaultTransitionTicks) {
+        int effective = transitionTicks > 0 ? transitionTicks : defaultTransitionTicks;
         for (int i = 0; i < rules.size(); i++) {
             Rule rule = (Rule) rules.get(i);
             if (rule.predicate.test(playback)) {
-                set(playback, rule.stateId);
+                set(playback, rule.stateId, effective);
                 return;
             }
         }
         if (hasFallback) {
-            set(playback, fallbackState);
+            set(playback, fallbackState, effective);
         }
     }
 
-    private void set(Aero_AnimationPlayback playback, int stateId) {
+    private static void set(Aero_AnimationPlayback playback, int stateId, int transitionTicks) {
         if (transitionTicks > 0) {
             playback.setStateWithTransition(stateId, transitionTicks);
         } else {

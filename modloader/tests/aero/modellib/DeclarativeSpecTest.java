@@ -163,6 +163,57 @@ public class DeclarativeSpecTest {
         assertEquals(0, spec.getDefaultTransitionTicks());
     }
 
+    @Test
+    public void specApplyStateWithRouterUsesRouterTransitionWhenSet() {
+        Aero_AnimationSpec spec = Aero_AnimationSpec.builder(bundleWith("a", "b"))
+            .state(0, "a").state(1, "b")
+            .defaultTransitionTicks(2)
+            .build();
+        Aero_AnimationStateRouter router = new Aero_AnimationStateRouter()
+            .when(new Aero_AnimationPredicate() {
+                public boolean test(Aero_AnimationPlayback p) { return true; }
+            }, 1)
+            .withTransition(8);
+
+        Aero_AnimationPlayback playback = spec.createPlayback();
+        spec.applyState(playback, router);
+
+        // Router's withTransition wins over spec.defaultTransitionTicks.
+        assertEquals(1, playback.getCurrentState());
+        assertTrue(playback.inTransition());
+        assertEquals(0f, playback.getTransitionAlpha(0f), 1e-4f);
+        playback.tick();
+        assertEquals(0.125f, playback.getTransitionAlpha(0f), 1e-4f);   // 1/8
+    }
+
+    @Test
+    public void specApplyStateWithRouterFallsBackToSpecTransitionTicks() {
+        Aero_AnimationSpec spec = Aero_AnimationSpec.builder(bundleWith("a", "b"))
+            .state(0, "a").state(1, "b")
+            .defaultTransitionTicks(4)
+            .build();
+        Aero_AnimationStateRouter router = new Aero_AnimationStateRouter()
+            .when(new Aero_AnimationPredicate() {
+                public boolean test(Aero_AnimationPlayback p) { return true; }
+            }, 1);
+        // No withTransition — spec.defaultTransitionTicks must apply.
+
+        Aero_AnimationPlayback playback = spec.createPlayback();
+        spec.applyState(playback, router);
+
+        assertTrue(playback.inTransition());
+        playback.tick();
+        assertEquals(0.25f, playback.getTransitionAlpha(0f), 1e-4f);   // 1/4
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void specApplyStateRejectsNullRouter() {
+        Aero_AnimationSpec spec = Aero_AnimationSpec.builder(bundleWith("a"))
+            .state(0, "a")
+            .build();
+        spec.applyState(spec.createPlayback(), (Aero_AnimationStateRouter) null);
+    }
+
     private static Aero_AnimationBundle bundleWith(String... clipNames) {
         Map clips = new HashMap();
         for (int i = 0; i < clipNames.length; i++) {

@@ -85,6 +85,19 @@ public class Aero_AnimationDefinition {
         return new Aero_AnimationState(this, bundle);
     }
 
+    /**
+     * Same as {@link #createState(Aero_AnimationBundle)} but persists under
+     * a custom NBT key prefix. Use when a tile entity carries more than one
+     * {@code Aero_AnimationState} that would otherwise collide on the
+     * default {@code "Anim_state"} / {@code "Anim_time"} keys.
+     *
+     * <p>Example: {@code def.createState(bundle, "Arm_")} writes
+     * {@code "Arm_state"} and {@code "Arm_time"}.
+     */
+    public Aero_AnimationState createState(Aero_AnimationBundle bundle, String nbtKeyPrefix) {
+        return new Aero_AnimationState(this, bundle, nbtKeyPrefix);
+    }
+
     private static String[] copyOf(String[] source) {
         String[] copy = new String[source.length];
         System.arraycopy(source, 0, copy, 0, source.length);

@@ -67,6 +67,14 @@ public final class Aero_AnimationSpec {
     }
 
     /**
+     * Creates a state with a custom NBT key prefix — see
+     * {@link Aero_AnimationDefinition#createState(Aero_AnimationBundle, String)}.
+     */
+    public Aero_AnimationState createState(String nbtKeyPrefix) {
+        return definition.createState(bundle, nbtKeyPrefix);
+    }
+
+    /**
      * Sets {@code playback}'s state honoring this spec's default transition.
      * When {@code defaultTransitionTicks > 0} this is equivalent to
      * {@link Aero_AnimationPlayback#setStateWithTransition}; otherwise it
@@ -79,6 +87,19 @@ public final class Aero_AnimationSpec {
         } else {
             playback.setState(stateId);
         }
+    }
+
+    /**
+     * Runs {@code router} against {@code playback}, using this spec's
+     * {@code defaultTransitionTicks} when the router itself wasn't
+     * configured via {@link Aero_AnimationStateRouter#withTransition}. Lets
+     * the modder declare the spec once and route via predicates without
+     * tracking transition counts in two places.
+     */
+    public void applyState(Aero_AnimationPlayback playback, Aero_AnimationStateRouter router) {
+        if (playback == null) throw new IllegalArgumentException("playback must not be null");
+        if (router == null) throw new IllegalArgumentException("router must not be null");
+        router.applyTo(playback, defaultTransitionTicks);
     }
 
     public static final class Builder {

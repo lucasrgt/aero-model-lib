@@ -8,6 +8,15 @@ import java.util.Map;
 /**
  * Lightweight named-section timer for hot animation/render paths.
  *
+ * <p><b>Thread safety:</b> the profiler is intended for the Minecraft
+ * Beta 1.7.3 client/server thread which is single-threaded by design.
+ * {@link #start} and {@link #end} are NOT synchronized — they read/write
+ * shared maps and the only concession to safety is on {@link #dump} and
+ * {@link #reset}, which are synchronized so an off-thread debug call (e.g.
+ * a JMX hook) cannot race with a partial section table. If you instrument
+ * code that genuinely runs on background threads, wrap your own calls in
+ * the same monitor or use Java Flight Recorder instead.
+ *
  * <p>The profiler is fully off by default — every call short-circuits on a
  * single boolean read so untouched ship builds pay nothing. Enable it at
  * launch with {@code -Daero.profiler=true} (or programmatically via
