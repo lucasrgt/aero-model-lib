@@ -132,6 +132,11 @@ public final class Aero_ModelSpec {
         return getAnimationSpec().createState();
     }
 
+    /** Creates a state with a custom NBT key prefix. */
+    public Aero_AnimationState createState(String nbtKeyPrefix) {
+        return getAnimationSpec().createState(nbtKeyPrefix);
+    }
+
     /**
      * Sets {@code playback}'s state honoring the configured default transition.
      * Equivalent to {@link Aero_AnimationSpec#applyState}; provided here so the
@@ -139,6 +144,11 @@ public final class Aero_ModelSpec {
      */
     public void applyState(Aero_AnimationPlayback playback, int stateId) {
         getAnimationSpec().applyState(playback, stateId);
+    }
+
+    /** Routes the playback via {@code router} honoring the spec's defaultTransitionTicks. */
+    public void applyState(Aero_AnimationPlayback playback, Aero_AnimationStateRouter router) {
+        getAnimationSpec().applyState(playback, router);
     }
 
     public int getDefaultTransitionTicks() {

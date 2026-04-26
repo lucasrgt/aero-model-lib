@@ -325,7 +325,7 @@ public class Aero_MeshRenderer {
             float[][] tris = groups[g];
             if (tris.length == 0) continue;
             float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
-            tess.color(bright * options.tintR, bright * options.tintG, bright * options.tintB);
+            tess.color(bright * options.tintR, bright * options.tintG, bright * options.tintB, options.alpha);
             for (int i = 0; i < tris.length; i++) {
                 float[] t = tris[i];
                 tess.vertex(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
@@ -387,7 +387,7 @@ public class Aero_MeshRenderer {
                 float b01 = cache[row1 + cx];
                 float b11 = cache[row1 + cx + 1];
                 float bright = lerp(lerp(b00, b10, tx), lerp(b01, b11, tx), tz) * factor;
-                tess.color(bright * options.tintR, bright * options.tintG, bright * options.tintB);
+                tess.color(bright * options.tintR, bright * options.tintG, bright * options.tintB, options.alpha);
                 tess.vertex(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
                 tess.vertex(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
                 tess.vertex(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);
@@ -404,11 +404,25 @@ public class Aero_MeshRenderer {
     }
 
     private static void beginMeshState() {
+        beginMeshState(Aero_RenderOptions.DEFAULT);
+    }
+
+    private static void beginMeshState(Aero_RenderOptions options) {
         GL11.glPushAttrib(MESH_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_LIGHTING);
-        GL11.glDisable(GL11.GL_BLEND);
+        if (options.blend) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        } else {
+            GL11.glDisable(GL11.GL_BLEND);
+        }
         GL11.glDisable(GL11.GL_ALPHA_TEST);
+        if (options.depthTest) {
+            GL11.glEnable(GL11.GL_DEPTH_TEST);
+        } else {
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+        }
         GL11.glDepthMask(true);
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }

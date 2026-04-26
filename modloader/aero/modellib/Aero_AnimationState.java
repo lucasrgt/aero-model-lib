@@ -21,12 +21,33 @@ import net.minecraft.src.NBTTagCompound;
  *   animState.writeToNBT(nbt);
  *   animState.readFromNBT(nbt);
  * </pre>
+ *
+ * <p>Default NBT keys are {@code "Anim_state"} and {@code "Anim_time"}. To
+ * carry more than one Aero_AnimationState on the same tile entity, build
+ * each with a distinct prefix via
+ * {@link Aero_AnimationDefinition#createState(Aero_AnimationBundle, String)}.
  */
 public class Aero_AnimationState extends Aero_AnimationPlayback {
 
+    /** Default NBT key prefix when no override is supplied. */
+    public static final String DEFAULT_NBT_KEY_PREFIX = "Anim_";
+
+    private final String stateKey;
+    private final String timeKey;
+
     /** Built by Aero_AnimationDefinition.createState(). */
     Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle) {
+        this(def, bundle, DEFAULT_NBT_KEY_PREFIX);
+    }
+
+    Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle,
+                        String nbtKeyPrefix) {
         super(def, bundle);
+        if (nbtKeyPrefix == null || nbtKeyPrefix.length() == 0) {
+            throw new IllegalArgumentException("nbtKeyPrefix must not be empty");
+        }
+        this.stateKey = nbtKeyPrefix + "state";
+        this.timeKey = nbtKeyPrefix + "time";
     }
 
     // -----------------------------------------------------------------------
@@ -35,11 +56,12 @@ public class Aero_AnimationState extends Aero_AnimationPlayback {
 
     /**
      * Persists state and playback time.
-     * Keys: "Anim_state", "Anim_time"
+     * Keys: {@code <prefix>state}, {@code <prefix>time} (default prefix
+     * {@code "Anim_"}).
      */
     public void writeToNBT(NBTTagCompound nbt) {
-        nbt.setInteger("Anim_state", getCurrentState());
-        nbt.setFloat("Anim_time", getPlaybackTime());
+        nbt.setInteger(stateKey, getCurrentState());
+        nbt.setFloat(timeKey, getPlaybackTime());
     }
 
     /**
@@ -49,8 +71,8 @@ public class Aero_AnimationState extends Aero_AnimationPlayback {
      */
     public void readFromNBT(NBTTagCompound nbt) {
         restorePlayback(
-            nbt.getInteger("Anim_state"),
-            nbt.hasKey("Anim_time") ? nbt.getFloat("Anim_time") : 0f
+            nbt.getInteger(stateKey),
+            nbt.hasKey(timeKey) ? nbt.getFloat(timeKey) : 0f
         );
     }
 }

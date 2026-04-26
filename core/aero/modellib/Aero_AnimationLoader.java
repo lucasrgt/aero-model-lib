@@ -20,6 +20,9 @@ import java.util.Map;
  */
 public class Aero_AnimationLoader {
 
+    /** Schema version this loader understands. */
+    public static final String SUPPORTED_FORMAT_VERSION = "1.0";
+
     private static final Map cache = new HashMap();
 
     /** Loads and caches a .anim.json from the classpath. */
@@ -47,6 +50,15 @@ public class Aero_AnimationLoader {
         }
     }
 
+    /**
+     * Drops every cached bundle. Intended for tests that load multiple
+     * fixtures from the same resource path or reload a hot-swapped
+     * {@code .anim.json}; production code should not need this.
+     */
+    public static void clearCache() {
+        cache.clear();
+    }
+
     static Aero_AnimationBundle loadFromString(String json) {
         try {
             Map root = (Map) new JsonParser(json).parseValue();
@@ -61,6 +73,23 @@ public class Aero_AnimationLoader {
     // -----------------------------------------------------------------------
 
     private static Aero_AnimationBundle buildBundle(Map root) {
+        // --- format_version ---
+        // Strict v2 schema declares "1.0". Reject anything else loudly so
+        // future schema bumps surface as a clear loader error rather than
+        // a silent half-parsed bundle.
+        if (!root.containsKey("format_version")) {
+            throw new RuntimeException("missing required \"format_version\" — "
+                + "expected \"" + SUPPORTED_FORMAT_VERSION + "\"");
+        }
+        Object versionObj = root.get("format_version");
+        if (!(versionObj instanceof String)) {
+            throw new RuntimeException("format_version must be a string");
+        }
+        if (!SUPPORTED_FORMAT_VERSION.equals(versionObj)) {
+            throw new RuntimeException("unsupported format_version \"" + versionObj
+                + "\" — this loader supports \"" + SUPPORTED_FORMAT_VERSION + "\"");
+        }
+
         // --- Pivots ---
         Map pivotsOut = new HashMap();
         if (root.containsKey("pivots")) {
