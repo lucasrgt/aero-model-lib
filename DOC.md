@@ -115,8 +115,7 @@ public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
     MyMob mob = (MyMob) entity;
     loadTexture(MODEL.getTexturePath());
-    Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
-    Aero_EntityModelRenderer.render(MODEL, mob.animState, lod,
+    Aero_EntityModelRenderer.render(MODEL, mob.animState,
         entity, x, y, z, yaw, partialTick);
 }
 ```
@@ -1210,7 +1209,8 @@ Entity-specific renderer wrapper for `Render` / `EntityRenderer` implementations
 | `renderAnimated(meshModel, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model using `playback.getBundle()` / `playback.getDef()` |
 | `renderAnimated(meshModel, bundle, def, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model with explicit bundle/definition |
 | `render(modelSpec, entity, x, y, z, yaw, partialTick)` | Static JSON/mesh spec render |
-| `render(modelSpec, playback, lod, entity, x, y, z, yaw, partialTick)` | Declarative animated entity render; LOD chooses animated/rest/culled |
+| `render(modelSpec, playback, entity, x, y, z, yaw, partialTick)` | Declarative animated entity render; LOD is computed from the spec |
+| `render(modelSpec, playback, lod, entity, x, y, z, yaw, partialTick)` | Advanced overload when the caller wants to branch on LOD manually |
 | `render(..., brightness[, transform])` | Brightness-explicit overloads for custom lighting |
 | `..., Aero_RenderOptions options` | Brightness-explicit mesh overloads can pass tint/options without global state |
 
@@ -1231,7 +1231,7 @@ renderer-global state.
 
 ```java
 Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
-Aero_EntityModelRenderer.render(MODEL, state, lod,
+Aero_EntityModelRenderer.render(MODEL, state,
     x, y, z, yaw, brightness, partialTick, hot);
 ```
 

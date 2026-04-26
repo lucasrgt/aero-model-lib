@@ -35,6 +35,34 @@ public final class Aero_EntityModelRenderer {
     }
 
     public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
+                              Entity entity,
+                              double x, double y, double z,
+                              float yaw, float partialTick) {
+        requireSpec(spec);
+        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(spec, x, y, z);
+        if (!lod.shouldRender()) return;
+        float brightness = entity.getEntityBrightness(partialTick);
+        render(spec, state, lod, x, y, z, yaw, brightness, partialTick);
+    }
+
+    public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
+                              double x, double y, double z,
+                              float yaw, float brightness, float partialTick) {
+        render(spec, state, x, y, z, yaw, brightness, partialTick,
+            spec != null ? spec.getRenderOptions() : Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
+                              double x, double y, double z,
+                              float yaw, float brightness, float partialTick,
+                              Aero_RenderOptions options) {
+        requireSpec(spec);
+        requireOptions(options);
+        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(spec, x, y, z);
+        render(spec, state, lod, x, y, z, yaw, brightness, partialTick, options);
+    }
+
+    public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
                               Aero_RenderLod lod, Entity entity,
                               double x, double y, double z,
                               float yaw, float partialTick) {
