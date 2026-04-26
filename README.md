@@ -21,8 +21,8 @@ Blockbench, OBJ, GeckoLib `.anim.json` — to the engine that started it
 all.
 
 - **Author once in Blockbench**, render on both ModLoader and StationAPI.
-- **Strict v2 schema** — typos in easing names, loop types or keyframes
-  fail fast at load time, not silently mid-game.
+- **Strict schema validation** — typos in easing names, loop types or
+  keyframes fail fast at load time, not silently mid-game.
 - **Cross-platform spec API** — declare model + texture + animations +
   transform + LOD as `static final` data; the renderer reads everything
   from one object.
@@ -114,7 +114,43 @@ Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick)
 ```
 
 Scale composes multiplicatively, rotation/position add. Bones missing
-from a layer's clip pass through unchanged.
+from a layer's clip pass through unchanged. The Stack renderer resolves a
+bone's full pose in one pass (`samplePose`) instead of repeating layer,
+clip and bone lookups for rotation, position and scale separately.
+
+### Procedural pose hook (vehicles, input-driven rotations)
+
+Keyframed animation handles idle/walk/attack cleanly, but a tank's turret
+follows the rider's mouse and a plane's propeller spins proportional to
+throttle — those don't fit in a `.anim.json` track. `Aero_ProceduralPose`
+is a per-frame render hook that **layers runtime rotations on top of the
+keyframe pose**, so the spec stays declarative and the input-driven parts
+compose without escaping into a parallel render path:
+
+```java
+// Spec stays pure data, shared as static final.
+public static final Aero_ModelSpec MODEL =
+    Aero_ModelSpec.mesh("/models/Tank.obj")
+        .animations(Aero_AnimationSpec.builder("/models/Tank.anim.json")
+            .state(0, "idle").state(1, "moving")
+            .build())
+        .build();
+
+// At render time, inject per-frame deltas:
+Aero_EntityModelRenderer.render(MODEL, tank.animState,
+    entity, x, y, z, yaw, partialTick,
+    new Aero_ProceduralPose() {
+        public void apply(String bone, Aero_BoneRenderPose p) {
+            if ("turret".equals(bone))    p.rotY += tank.turretYaw;
+            if ("barrel".equals(bone))    p.rotX += tank.barrelPitch;
+            if ("propeller".equals(bone)) p.rotX += (tank.age + partialTick) * tank.rpm;
+        }
+    });
+```
+
+This unlocks Flans-mod-style vehicles (tanks, planes, helicopters) inside
+the same declarative spec API used for blocks, multiblocks, and mobs.
+Composes with the multi-layer Stack as well.
 
 ### Predicate state router
 
@@ -191,7 +227,10 @@ application work.
 from your Blockbench file. The transpile pipeline turns the StationAPI
 sources into ModLoader-flat layout for RetroMCP automatically. JFR launch
 script for full method-level profiling. Pure-Java unit test suite (no MC
-runtime needed) so refactors stay safe.
+runtime needed) so refactors stay safe. GitHub Actions also run tests,
+StationAPI builds, CodeQL, dependency review, Gitleaks, Trivy and Gradle
+wrapper validation; Actions are pinned by SHA and Gradle dependency updates
+are tracked by Dependabot.
 
 ---
 
@@ -248,38 +287,45 @@ if (lod.shouldAnimate()) {
 
 ### Animated mob (Entity + Renderer)
 
+The `Aero_ModelSpec` lives on the Entity class so the constructor and the
+renderer share the same culling/LOD configuration — no redundant literals
+to keep in sync.
+
 ```java
 // In your Entity class:
-public static final Aero_AnimationSpec ANIMATION =
-    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
-        .state(0, "idle").state(1, "walk").state(2, "attack")
-        .defaultTransitionTicks(4)
+public static final Aero_ModelSpec MODEL =
+    Aero_ModelSpec.mesh("/models/MyMob.obj")
+        .texture("/mob/my_mob.png")
+        .animations(Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+            .state(0, "idle").state(1, "walk").state(2, "attack")
+            .defaultTransitionTicks(4)
+            .build())
+        .offset(-0.5f, 0f, -0.5f)
+        .cullingRadius(2f)        // visual radius — used by both ctor and LOD
+        .animatedDistance(48d)    // beyond this, render at-rest
         .build();
 
-public final Aero_AnimationState animState = ANIMATION.createState();
+public final Aero_AnimationState animState = MODEL.createState();
+
+public MyMob(World world) {
+    super(world);
+    // Reads the spec's cullingRadius + maxRenderDistance — single source of truth.
+    Aero_RenderDistance.applyEntityRenderDistance(this, MODEL);
+}
 
 public void onLivingUpdate() {
     super.onLivingUpdate();
     animState.tick();
-    ANIMATION.applyState(animState,
+    MODEL.applyState(animState,
         isSwinging ? 2 : isMoving() ? 1 : 0);
 }
 
 // In your Renderer:
-private static final Aero_ModelSpec MODEL =
-    Aero_ModelSpec.mesh("/models/MyMob.obj")
-        .texture("/mob/my_mob.png")
-        .animations(MyMob.ANIMATION)
-        .offset(-0.5f, 0f, -0.5f)
-        .cullingRadius(2f)
-        .animatedDistance(48d)
-        .build();
-
 public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
-    loadTexture(MODEL.getTexturePath());
-    Aero_EntityModelRenderer.render(MODEL, ((MyMob) entity).animState,
-        entity, x, y, z, yaw, partialTick);
+    loadTexture(MyMob.MODEL.getTexturePath());
+    Aero_EntityModelRenderer.render(MyMob.MODEL, ((MyMob) entity).animState,
+        entity, x, y, z, yaw, partialTick);   // computes LOD from the spec
 }
 ```
 
@@ -296,7 +342,7 @@ public void doRender(Entity entity, double x, double y, double z,
                                                                                   ▼
                                                                           ┌────────────────┐
                                                                           │  .anim.json    │
-                                                                          │  (strict v2)   │
+                                                                          │  (strict 1.0)  │
                                                                           └───────┬────────┘
                                                                                   │
                                           ┌───────────────────────────────────────┘
@@ -339,7 +385,7 @@ Java that compiles and runs identical on both.
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single clip with keyframes per bone, plus optional non-pose events |
 | `Aero_AnimationLoop` | Loop type enum: `LOOP` / `PLAY_ONCE` / `HOLD_ON_LAST_FRAME` |
-| `Aero_AnimationLoader` | Loads + caches `.anim.json` files; strict v2 validation |
+| `Aero_AnimationLoader` | Loads + caches `.anim.json` files; strict format-1.0 validation |
 | `Aero_Easing` | 33 interpolation curves (linear / step / catmullrom + 30 GeckoLib-style) |
 | **Animation runtime** | |
 | `Aero_AnimationDefinition` | Maps state IDs to clip names |
@@ -355,6 +401,9 @@ Java that compiles and runs identical on both.
 | `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain |
 | `Aero_AnimationEventListener` | Receives sound / particle / custom keyframes with optional bone locator |
 | `Aero_AnimationEventRouter` | Declarative `(channel, name) → handler` event routing |
+| **Procedural pose** | |
+| `Aero_ProceduralPose` | Render-time hook that layers runtime / input-driven rotations on top of the keyframe pose |
+| `Aero_BoneRenderPose` | Mutable per-bone pose (rotation/offset/scale fields) passed to the procedural hook |
 | **Multiplayer + observability** | |
 | `Aero_AnimationSide` | `isServerSide(world)` / `isClientSide(world)` — gate event side-effects per side |
 | `Aero_Profiler` | Always-on, zero-cost-when-off section timer; auto-instruments hot paths |
@@ -365,7 +414,7 @@ Java that compiles and runs identical on both.
 
 ## File formats
 
-### `.anim.json` (strict v2)
+### `.anim.json` (format 1.0, strict)
 
 ```json
 {
@@ -420,7 +469,8 @@ for animated parts — those names become the bone identifiers in the
 - Store loaders + specs as `static final` fields — caching is automatic.
 - Loader caches are synchronized and bounded to 512 entries by default;
   override with `-Daero.modellib.cache.maxEntries=N` for unusual hot-reload
-  workflows.
+  workflows. `clearCache()` is available on every loader for tests and
+  tooling.
 - Call `tick()` **before** `setState()` / `applyState()` every tick.
 - Persist animation state via `writeToNBT()` / `readFromNBT()`.
 - Use `STATE_OFF = 0` as default (NBT returns 0 when the key is absent).
@@ -469,6 +519,11 @@ cd test
 # In-game StationAPI smoke test (animated entity probe in spawn chunks)
 .\gradlew.bat runClient
 ```
+
+The CI workflow mirrors these checks and adds security coverage: CodeQL,
+dependency review, Gitleaks secret scan, Trivy filesystem scan, Gradle
+wrapper validation, pinned GitHub Actions and Dependabot for GitHub Actions
+and Gradle updates.
 
 ---
 
