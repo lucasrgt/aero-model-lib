@@ -244,7 +244,10 @@ public class Aero_AnimationPlayback {
     public boolean sampleSclBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
                                     float time, float partialTick, float[] out) {
         boolean got = clip != null && boneIdx >= 0 && clip.sampleSclInto(boneIdx, time, out);
-        return blendWithSnapshot(snapshotScl, boneName, partialTick, got, out);
+        // Scale rests at 1 (identity), not 0. A bone present in the OLD clip
+        // but absent from the NEW one must fade its scale toward 1, not 0 —
+        // otherwise the part collapses into the pivot during crossfade.
+        return blendWithSnapshot(snapshotScl, boneName, partialTick, got, out, 1f);
     }
 
     /**
@@ -256,13 +259,19 @@ public class Aero_AnimationPlayback {
      *   <li>both → linear lerp from snapshot to new value, ratio = alpha</li>
      *   <li>only new → return new value as-is (no fade-in needed since the
      *       previous pose for this bone was identity)</li>
-     *   <li>only snapshot → fade snapshot value out toward 0 as alpha→1
-     *       (so a bone present in the OLD clip but absent from the NEW one
-     *       returns to its rest pose smoothly instead of snapping)</li>
+     *   <li>only snapshot → fade snapshot value out toward {@code restValue}
+     *       as alpha→1 (rotation/position rest at 0, scale rests at 1) so a
+     *       bone present in the OLD clip but absent from the NEW one
+     *       returns to its rest pose smoothly instead of snapping</li>
      * </ul>
      */
     private boolean blendWithSnapshot(Map snapshotMap, String boneName, float partialTick,
                                       boolean newSampleValid, float[] out) {
+        return blendWithSnapshot(snapshotMap, boneName, partialTick, newSampleValid, out, 0f);
+    }
+
+    private boolean blendWithSnapshot(Map snapshotMap, String boneName, float partialTick,
+                                      boolean newSampleValid, float[] out, float restValue) {
         if (!inTransition() || snapshotMap == null || boneName == null) {
             return newSampleValid;
         }
@@ -275,10 +284,10 @@ public class Aero_AnimationPlayback {
             out[1] = snap[1] + (out[1] - snap[1]) * a;
             out[2] = snap[2] + (out[2] - snap[2]) * a;
         } else {
-            float k = 1f - a;
-            out[0] = snap[0] * k;
-            out[1] = snap[1] * k;
-            out[2] = snap[2] * k;
+            // Lerp snapshot → restValue as alpha goes 0 → 1.
+            out[0] = snap[0] + (restValue - snap[0]) * a;
+            out[1] = snap[1] + (restValue - snap[1]) * a;
+            out[2] = snap[2] + (restValue - snap[2]) * a;
         }
         return true;
     }

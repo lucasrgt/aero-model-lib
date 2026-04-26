@@ -144,6 +144,53 @@ public class AnimationPlaybackTest {
     }
 
     @Test
+    public void scaleBlendFadesTowardOneWhenNewClipLacksTheBone() {
+        // Old clip has the bone with scale 2.0; new clip doesn't animate it
+        // at all. The lib must fade the snapshot scale toward the rest value
+        // (1.0), NOT 0 — otherwise the part collapses into its pivot during
+        // crossfade. Regression guard for the rotation-vs-scale rest-pose
+        // mismatch (rotation rests at 0, scale rests at 1).
+        Aero_AnimationClip oldClip = TestClips.constantSclClip("old", 2f);
+        Aero_AnimationClip newClip = TestClips.loopClip("new", 1f);   // no scale track for "x"
+
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "old").state(1, "new")
+            .createPlayback(TestClips.bundle(oldClip, newClip));
+
+        playback.setStateWithTransition(1, 4);
+        playback.tick();
+        playback.tick();   // alpha = 0.5 → halfway through fade
+
+        float[] out = new float[3];
+        assertTrue(playback.sampleSclBlended(newClip, -1, "x", 0f, 0f, out));
+        // At alpha=0.5, snapshot=2 should fade halfway toward rest=1 → 1.5
+        assertEquals(1.5f, out[0], DELTA);
+        assertEquals(1.5f, out[1], DELTA);
+        assertEquals(1.5f, out[2], DELTA);
+    }
+
+    @Test
+    public void rotationBlendStillFadesTowardZeroWhenNewClipLacksTheBone() {
+        // Rotation rest IS 0 — verify the legacy fade-to-zero behavior is
+        // preserved for rotation/position channels.
+        Aero_AnimationClip oldClip = TestClips.constantRotClip("old", 90f, 0f, 0f);
+        Aero_AnimationClip newClip = TestClips.loopClip("new", 1f);   // no rotation for "x"
+
+        Aero_AnimationPlayback playback = new Aero_AnimationDefinition()
+            .state(0, "old").state(1, "new")
+            .createPlayback(TestClips.bundle(oldClip, newClip));
+
+        playback.setStateWithTransition(1, 4);
+        playback.tick();
+        playback.tick();   // alpha = 0.5
+
+        float[] out = new float[3];
+        assertTrue(playback.sampleRotBlended(newClip, -1, "x", 0f, 0f, out));
+        // At alpha=0.5, snapshot=90 should fade halfway toward rest=0 → 45
+        assertEquals(45f, out[0], DELTA);
+    }
+
+    @Test
     public void blendedSampleLerpsBetweenSnapshotAndNewClip() {
         Aero_AnimationClip clipA = TestClips.constantRotClip("a", 10f, 20f, 30f);
         Aero_AnimationClip clipB = TestClips.constantRotClip("b", 50f, 60f, 70f);
