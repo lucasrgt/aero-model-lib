@@ -43,16 +43,21 @@ public class Aero_MeshRenderer {
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, float brightness,
                                     Aero_RenderOptions options) {
-        Tessellator tess = Tessellator.INSTANCE;
-        GL11.glPushMatrix();
-        GL11.glTranslated(x, y, z);
-        applyRotation(rotation);
-        beginMeshState();
+        Aero_Profiler.start("aero.mesh.render");
+        try {
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            GL11.glTranslated(x, y, z);
+            applyRotation(rotation);
+            beginMeshState(options);
 
-        drawGroups(tess, model.groups, model.invScale, brightness, options);
+            drawGroups(tess, model.groups, model.invScale, brightness, options);
 
-        endMeshState();
-        GL11.glPopMatrix();
+            endMeshState();
+            GL11.glPopMatrix();
+        } finally {
+            Aero_Profiler.end("aero.mesh.render");
+        }
     }
 
     public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
@@ -63,20 +68,25 @@ public class Aero_MeshRenderer {
     public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
                                          float rotation, float brightness,
                                          Aero_RenderOptions options) {
-        Tessellator tess = Tessellator.INSTANCE;
-        GL11.glPushMatrix();
-        GL11.glTranslated(x, y, z);
-        applyRotation(rotation);
-        beginMeshState();
+        Aero_Profiler.start("aero.mesh.render");
+        try {
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            GL11.glTranslated(x, y, z);
+            applyRotation(rotation);
+            beginMeshState(options);
 
-        drawGroups(tess, model.groups, model.invScale, brightness, options);
-        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
-        for (int e = 0; e < entries.length; e++) {
-            drawGroups(tess, entries[e].tris, model.invScale, brightness, options);
+            drawGroups(tess, model.groups, model.invScale, brightness, options);
+            Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            for (int e = 0; e < entries.length; e++) {
+                drawGroups(tess, entries[e].tris, model.invScale, brightness, options);
+            }
+
+            endMeshState();
+            GL11.glPopMatrix();
+        } finally {
+            Aero_Profiler.end("aero.mesh.render");
         }
-
-        endMeshState();
-        GL11.glPopMatrix();
     }
 
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
@@ -87,17 +97,22 @@ public class Aero_MeshRenderer {
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, World world, int ox, int topY, int oz,
                                     Aero_RenderOptions options) {
-        Tessellator tess = Tessellator.INSTANCE;
-        GL11.glPushMatrix();
-        GL11.glTranslated(x, y, z);
-        applyRotation(rotation);
-        beginMeshState();
+        Aero_Profiler.start("aero.mesh.render");
+        try {
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            GL11.glTranslated(x, y, z);
+            applyRotation(rotation);
+            beginMeshState(options);
 
-        drawGroupsSmooth(tess, model.groups, model.invScale, model.getStaticSmoothLightData(),
-            world, ox, topY, oz, options);
+            drawGroupsSmooth(tess, model.groups, model.invScale, model.getStaticSmoothLightData(),
+                world, ox, topY, oz, options);
 
-        endMeshState();
-        GL11.glPopMatrix();
+            endMeshState();
+            GL11.glPopMatrix();
+        } finally {
+            Aero_Profiler.end("aero.mesh.render");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -138,7 +153,7 @@ public class Aero_MeshRenderer {
         GL11.glTranslatef(pivotX, pivotY, pivotZ);
         GL11.glRotatef(angle, axisX, axisY, axisZ);
         GL11.glTranslatef(-pivotX, -pivotY, -pivotZ);
-        beginMeshState();
+        beginMeshState(options);
 
         drawGroups(tess, ng, model.invScale, brightness, options);
 
@@ -188,38 +203,43 @@ public class Aero_MeshRenderer {
                                        double x, double y, double z,
                                        float brightness, float partialTick,
                                        Aero_RenderOptions options) {
-        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
-        Aero_AnimationClip clip = null;
-        float time = 0f;
-        Aero_MeshModel.BoneRef[] refs = null;
-        if (entries.length != 0) {
-            clip = state.getCurrentClip();
-            time = state.getInterpolatedTime(partialTick);
-            refs = model.boneRefsFor(clip, bundle);
-        }
+        Aero_Profiler.start("aero.mesh.renderAnimated");
+        try {
+            Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            Aero_AnimationClip clip = null;
+            float time = 0f;
+            Aero_MeshModel.BoneRef[] refs = null;
+            if (entries.length != 0) {
+                clip = state.getCurrentClip();
+                time = state.getInterpolatedTime(partialTick);
+                refs = model.boneRefsFor(clip, bundle);
+            }
 
-        Tessellator tess = Tessellator.INSTANCE;
-        GL11.glPushMatrix();
-        GL11.glTranslated(x, y, z);
-        beginMeshState();
-
-        drawGroups(tess, model.groups, model.invScale, brightness, options);
-
-        for (int e = 0; e < entries.length; e++) {
-            Aero_MeshModel.NamedGroup ng = entries[e];
-            Aero_MeshModel.BoneRef    rf = refs[e];
-
-            Aero_AnimationPoseResolver.resolveClip(rf, clip, state, time, partialTick,
-                SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
-
+            Tessellator tess = Tessellator.INSTANCE;
             GL11.glPushMatrix();
-            applyPose(SCRATCH_POSE);
-            drawGroups(tess, ng.tris, model.invScale, brightness, options);
-            GL11.glPopMatrix();
-        }
+            GL11.glTranslated(x, y, z);
+            beginMeshState(options);
 
-        endMeshState();
-        GL11.glPopMatrix();
+            drawGroups(tess, model.groups, model.invScale, brightness, options);
+
+            for (int e = 0; e < entries.length; e++) {
+                Aero_MeshModel.NamedGroup ng = entries[e];
+                Aero_MeshModel.BoneRef    rf = refs[e];
+
+                Aero_AnimationPoseResolver.resolveClip(rf, clip, state, time, partialTick,
+                    SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
+
+                GL11.glPushMatrix();
+                applyPose(SCRATCH_POSE);
+                drawGroups(tess, ng.tris, model.invScale, brightness, options);
+                GL11.glPopMatrix();
+            }
+
+            endMeshState();
+            GL11.glPopMatrix();
+        } finally {
+            Aero_Profiler.end("aero.mesh.renderAnimated");
+        }
     }
 
     public static void renderAnimated(Aero_MeshModel model,
@@ -275,7 +295,7 @@ public class Aero_MeshRenderer {
         Tessellator tess = Tessellator.INSTANCE;
         GL11.glPushMatrix();
         GL11.glTranslated(x, y, z);
-        beginMeshState();
+        beginMeshState(options);
 
         // Render the static (unnamed) geometry once at the BE origin.
         drawGroups(tess, model.groups, model.invScale, brightness, options);
@@ -411,12 +431,7 @@ public class Aero_MeshRenderer {
         GL11.glPushAttrib(MESH_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_LIGHTING);
-        if (options.blend) {
-            GL11.glEnable(GL11.GL_BLEND);
-            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        } else {
-            GL11.glDisable(GL11.GL_BLEND);
-        }
+        applyBlendMode(options.blend);
         GL11.glDisable(GL11.GL_ALPHA_TEST);
         if (options.depthTest) {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
@@ -425,6 +440,22 @@ public class Aero_MeshRenderer {
         }
         GL11.glDepthMask(true);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static void applyBlendMode(Aero_MeshBlendMode mode) {
+        switch (mode) {
+            case ALPHA:
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                break;
+            case ADDITIVE:
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+                break;
+            default:
+                GL11.glDisable(GL11.GL_BLEND);
+                break;
+        }
     }
 
     private static void endMeshState() {

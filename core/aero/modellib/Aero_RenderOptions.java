@@ -16,7 +16,7 @@ public final class Aero_RenderOptions {
     public final float tintG;
     public final float tintB;
     public final float alpha;
-    public final boolean blend;
+    public final Aero_MeshBlendMode blend;
     public final boolean depthTest;
 
     public static Builder builder() {
@@ -27,9 +27,19 @@ public final class Aero_RenderOptions {
         return builder().tint(r, g, b).build();
     }
 
-    /** Translucent variant: enables blending, sets alpha, leaves tint white. */
+    /** Translucent variant: enables alpha blending, sets alpha, leaves tint white. */
     public static Aero_RenderOptions translucent(float alpha) {
-        return builder().alpha(alpha).blend(true).build();
+        return builder().alpha(alpha).blend(Aero_MeshBlendMode.ALPHA).build();
+    }
+
+    /**
+     * Additive variant: enables additive blending so the mesh brightens
+     * whatever is behind it. Tint multiplies the contribution; alpha scales
+     * its intensity. Pair with a glow texture (e.g. white-on-black) for
+     * energy/plasma effects.
+     */
+    public static Aero_RenderOptions additive(float alpha) {
+        return builder().alpha(alpha).blend(Aero_MeshBlendMode.ADDITIVE).build();
     }
 
     private Aero_RenderOptions(Builder builder) {
@@ -57,7 +67,7 @@ public final class Aero_RenderOptions {
         private float tintG = 1f;
         private float tintB = 1f;
         private float alpha = 1f;
-        private boolean blend = false;
+        private Aero_MeshBlendMode blend = Aero_MeshBlendMode.OFF;
         private boolean depthTest = true;
 
         private Builder() {}
@@ -72,16 +82,23 @@ public final class Aero_RenderOptions {
             return this;
         }
 
-        /** Per-render alpha multiplier (0..1). Renderers ignore it unless {@link #blend} is on. */
+        /** Per-render alpha multiplier (0..1). Renderers ignore it unless blending is on. */
         public Builder alpha(float value) {
             validateUnit("alpha", value);
             this.alpha = value;
             return this;
         }
 
-        /** Toggles GL_BLEND (with the standard SRC_ALPHA / ONE_MINUS_SRC_ALPHA pair). */
+        /** Selects the blend mode (OFF/ALPHA/ADDITIVE). */
+        public Builder blend(Aero_MeshBlendMode mode) {
+            if (mode == null) throw new IllegalArgumentException("blend mode must not be null");
+            this.blend = mode;
+            return this;
+        }
+
+        /** Convenience: {@code true} = ALPHA blending, {@code false} = OFF. */
         public Builder blend(boolean enabled) {
-            this.blend = enabled;
+            this.blend = enabled ? Aero_MeshBlendMode.ALPHA : Aero_MeshBlendMode.OFF;
             return this;
         }
 
