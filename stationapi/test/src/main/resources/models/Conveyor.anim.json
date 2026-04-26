@@ -1,0 +1,20 @@
+{
+  "format_version": "1.0",
+  "pivots": {
+    "belt": [8, 1, 8]
+  },
+  "animations": {
+    "scroll": {
+      "loop": "loop",
+      "length": 2.0,
+      "bones": {
+        "belt": {
+          "uv_offset": {
+            "0":   { "value": [0, 0, 0], "interp": "linear" },
+            "2.0": { "value": [1, 0, 0], "interp": "linear" }
+          }
+        }
+      }
+    }
+  }
+}

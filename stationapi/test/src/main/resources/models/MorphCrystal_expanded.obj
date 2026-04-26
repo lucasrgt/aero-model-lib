@@ -1,0 +1,24 @@
+# Variant — same topology as MorphCrystal.obj (no named group), with
+# the top face raised from y=0.6 to y=1.0. Pure Y translation on top
+# verts; face normals stay axis-aligned identical to base.
+
+vt 0 0
+vt 1 0
+vt 1 1
+vt 0 1
+
+v 0.3 0.0 0.3
+v 0.7 0.0 0.3
+v 0.7 0.0 0.7
+v 0.3 0.0 0.7
+v 0.3 1.0 0.3
+v 0.7 1.0 0.3
+v 0.7 1.0 0.7
+v 0.3 1.0 0.7
+
+f 5/1 6/2 7/3 8/4
+f 1/1 4/2 3/3 2/4
+f 1/1 2/2 6/3 5/4
+f 4/1 1/2 5/3 8/4
+f 3/1 4/2 8/3 7/4
+f 2/1 3/2 7/3 6/4

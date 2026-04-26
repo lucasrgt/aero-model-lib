@@ -29,6 +29,11 @@ public class AeroTestModClient {
         event.renderers.put(EasingShowcase2BlockEntity.class, new EasingShowcase2BlockEntityRenderer());
         event.renderers.put(EasingShowcase3BlockEntity.class, new EasingShowcase3BlockEntityRenderer());
         event.renderers.put(PlasmaCrystalBlockEntity.class,   new PlasmaCrystalBlockEntityRenderer());
+        event.renderers.put(ConveyorBlockEntity.class,        new ConveyorBlockEntityRenderer());
+        event.renderers.put(SpellCircleBlockEntity.class,     new SpellCircleBlockEntityRenderer());
+        event.renderers.put(TurretIKBlockEntity.class,        new TurretIKBlockEntityRenderer());
+        event.renderers.put(MorphCrystalBlockEntity.class,    new MorphCrystalBlockEntityRenderer());
+        event.renderers.put(GraphPoweredBlockEntity.class,    new GraphPoweredBlockEntityRenderer());
     }
 
     @EventListener

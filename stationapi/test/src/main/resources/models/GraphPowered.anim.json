@@ -1,0 +1,36 @@
+{
+  "format_version": "1.0",
+  "pivots": {
+    "core": [8, 10, 8]
+  },
+  "animations": {
+    "slow": {
+      "loop": "loop",
+      "length": 2.0,
+      "bones": {
+        "core": {
+          "rotation": {
+            "0":   { "value": [0,  0, 0], "interp": "linear" },
+            "1.0": { "value": [0, 15, 0], "interp": "linear" },
+            "2.0": { "value": [0,  0, 0], "interp": "linear" }
+          }
+        }
+      }
+    },
+    "fast": {
+      "loop": "loop",
+      "length": 2.0,
+      "bones": {
+        "core": {
+          "rotation": {
+            "0":   { "value": [0,    0, 0], "interp": "linear" },
+            "0.5": { "value": [0,  180, 0], "interp": "linear" },
+            "1.0": { "value": [0,  360, 0], "interp": "linear" },
+            "1.5": { "value": [0,  540, 0], "interp": "linear" },
+            "2.0": { "value": [0,  720, 0], "interp": "linear" }
+          }
+        }
+      }
+    }
+  }
+}

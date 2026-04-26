@@ -32,6 +32,11 @@ public class AeroTestMod {
     public static EasingShowcase2Block easingShowcase2Block;
     public static EasingShowcase3Block easingShowcase3Block;
     public static PlasmaCrystalBlock plasmaCrystalBlock;
+    public static ConveyorBlock conveyorBlock;
+    public static SpellCircleBlock spellCircleBlock;
+    public static TurretIKBlock turretIkBlock;
+    public static MorphCrystalBlock morphCrystalBlock;
+    public static GraphPoweredBlock graphPoweredBlock;
     public static AeroRobotEggItem robotEgg;
 
     private static final int DEMO_BLOCK_SPACING_CHUNKS = 2;
@@ -54,6 +59,11 @@ public class AeroTestMod {
         easingShowcase2Block = new EasingShowcase2Block(Identifier.of(NAMESPACE, "easing_showcase_2"));
         easingShowcase3Block = new EasingShowcase3Block(Identifier.of(NAMESPACE, "easing_showcase_3"));
         plasmaCrystalBlock   = new PlasmaCrystalBlock(Identifier.of(NAMESPACE, "plasma_crystal"));
+        conveyorBlock        = new ConveyorBlock(Identifier.of(NAMESPACE, "conveyor"));
+        spellCircleBlock     = new SpellCircleBlock(Identifier.of(NAMESPACE, "spell_circle"));
+        turretIkBlock        = new TurretIKBlock(Identifier.of(NAMESPACE, "turret_ik"));
+        morphCrystalBlock    = new MorphCrystalBlock(Identifier.of(NAMESPACE, "morph_crystal"));
+        graphPoweredBlock    = new GraphPoweredBlock(Identifier.of(NAMESPACE, "graph_powered"));
     }
 
     @EventListener
@@ -71,6 +81,11 @@ public class AeroTestMod {
         event.register.accept(EasingShowcase2BlockEntity.class, NAMESPACE + ":easing_showcase_2");
         event.register.accept(EasingShowcase3BlockEntity.class, NAMESPACE + ":easing_showcase_3");
         event.register.accept(PlasmaCrystalBlockEntity.class,   NAMESPACE + ":plasma_crystal");
+        event.register.accept(ConveyorBlockEntity.class,        NAMESPACE + ":conveyor");
+        event.register.accept(SpellCircleBlockEntity.class,     NAMESPACE + ":spell_circle");
+        event.register.accept(TurretIKBlockEntity.class,        NAMESPACE + ":turret_ik");
+        event.register.accept(MorphCrystalBlockEntity.class,    NAMESPACE + ":morph_crystal");
+        event.register.accept(GraphPoweredBlockEntity.class,    NAMESPACE + ":graph_powered");
     }
 
     @EventListener
@@ -121,6 +136,13 @@ public class AeroTestMod {
         // ProceduralPose + ADDITIVE blend showcase: cyan-tinted glowing
         // crystal that spins via runtime time, reusing Crystal.obj.
         placeBEAbove(event, 12, 0, plasmaCrystalBlock.id, new PlasmaCrystalBlockEntity());
+
+        // v0.2.0 showcase row — one block per new feature.
+        placeBEAbove(event, 0,  0, conveyorBlock.id,     new ConveyorBlockEntity());     // UV scroll
+        placeBEAbove(event, 4,  0, spellCircleBlock.id,  new SpellCircleBlockEntity());  // UV combo
+        placeBEAbove(event, 8,  0, turretIkBlock.id,     new TurretIKBlockEntity());     // IK CCD
+        placeBEAbove(event, 8,  4, morphCrystalBlock.id, new MorphCrystalBlockEntity()); // Morph
+        placeBEAbove(event, 12, 4, graphPoweredBlock.id, new GraphPoweredBlockEntity()); // Graph
 
         // Entity renderer smoke test: one animated model entity every 4x4
         // chunks. Drop it 2 blocks above the column top so it lands on the

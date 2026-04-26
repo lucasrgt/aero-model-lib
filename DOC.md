@@ -59,6 +59,272 @@ v0.1 showcase blocks (Motor, Pump, Crystal, CrystalChaos, EasingShowcase
 their animated bones have animated ancestors — the hybrid hierarchy
 collapses to flat rendering for them.
 
+### v0.2.0 features in depth
+
+The five new features in detail, each with the JSON / Java surface
+needed to reach for them. Every example assumes the v0.1 setup pattern
+already in place (a tile + spec + state + renderer triple) and only
+shows the deltas.
+
+#### UV animation
+
+Per-bone `uv_offset` and `uv_scale` channels animate the texture
+coordinates of every vertex emitted under that bone. Channel values are
+vec3 with the third component reserved (only the x = u and y = v
+components are consumed). Renderer applies
+`u' = u * uScale + uOffset; v' = v * vScale + vOffset` per vertex, then
+calls `tess.addVertexWithUV(x, y, z, u', v')`. Identity transform
+(offset 0/0, scale 1/1) fast-paths to the raw emit so a bone without
+UV channels pays zero per-vertex cost.
+
+```json
+{
+  "format_version": "1.0",
+  "pivots": { "belt": [8, 1, 8] },
+  "animations": {
+    "scroll": {
+      "loop": "loop",
+      "length": 2.0,
+      "bones": {
+        "belt": {
+          "uv_offset": {
+            "0":   { "value": [0, 0, 0], "interp": "linear" },
+            "2.0": { "value": [1, 0, 0], "interp": "linear" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+The loop wraps cleanly when both endpoints are integer multiples of 1
+(or any integer that matches your texture's tiling) — the GPU's wrap
+mode handles `u=1.0` ≡ `u=0.0` for tileable textures.
+
+UV scroll + scale combine for breathing magic-circle effects:
+
+```json
+"uv_scale": {
+  "0":   { "value": [1.0, 1.0, 0], "interp": "easeInOutSine" },
+  "2.0": { "value": [1.2, 1.2, 0], "interp": "easeInOutSine" },
+  "4.0": { "value": [1.0, 1.0, 0], "interp": "easeInOutSine" }
+}
+```
+
+`uv_scale` returns to identity at the loop boundary so it composes with
+any `uv_offset` cleanly. Drives `Aero_BoneRenderPose.uOffset/vOffset/
+uScale/vScale` — see the public field list on
+{@link Aero_BoneRenderPose} for procedural overrides.
+
+Stack-side composition: `Aero_AnimationStack.samplePose(...)` accepts
+optional `outUvOffset / outUvScale` arrays. Pass them to compose UV
+across multiple layers (additive offsets, multiplicative scale).
+
+#### Skeletal IK with CCD solver + hierarchical rendering
+
+Two related changes ship together:
+
+1. **Hierarchical rendering** — the renderer now walks every animated
+   bone's ancestor chain via `Aero_AnimationBundle.childMap` and
+   composes parent transforms before drawing the child. A child bone's
+   geometry inherits the parent's rotation automatically, like
+   Blockbench's animator. v0.1 showcases without nested animated bones
+   collapse to the same single-bone path → identical output.
+
+2. **CCD solver + IK chain interface** — `Aero_IkChain` is a single-
+   method opt-in: pass an array to the renderer, the lib walks each
+   chain backward from the end-effector and rotates intermediate bones
+   to bring the tip toward your target. Built on top of
+   `Aero_BoneFK` (hierarchy-aware FK walker) and `Aero_Quaternion`
+   (axis-angle multiply).
+
+Bones in the chain must exist in the active clip's bone list (the
+solver looks them up by name). Pivots come from the bundle. The
+end-effector itself is treated as a marker — only intermediate bones
+get rotated.
+
+```java
+// .anim.json declares hierarchy + animated bones:
+//   "pivots": { "turret_base": [8,4,8], "turret_arm": [8,8,11], "turret_tip": [8,12,14] }
+//   "childMap": { "turret_arm": "turret_base", "turret_tip": "turret_arm" }
+//   "animations.rest.bones.{turret_base,turret_arm,turret_tip}.rotation": [0,0,0]
+
+private static final String[] CHAIN = {"turret_base", "turret_arm", "turret_tip"};
+
+Aero_IkChain trackPlayer = new Aero_IkChain() {
+    public String[] getBoneChain() { return CHAIN; }
+    public boolean resolveTargetInto(float[] worldPos) {
+        EntityPlayer p = world.getClosestPlayer(x, y, z, 16.0);
+        if (p == null) return false;
+        // Convert player world pos → block-local pixel coords (matches
+        // the bundle's pivot frame). Renderer's outer glTranslate puts
+        // the block at the world origin already.
+        worldPos[0] = (float) ((p.posX - blockX) * 16.0);
+        worldPos[1] = (float) ((p.posY + p.getEyeHeight() - blockY) * 16.0);
+        worldPos[2] = (float) ((p.posZ - blockZ) * 16.0);
+        return true;
+    }
+};
+
+Aero_MeshRenderer.renderAnimated(MODEL, bundle, def, animState,
+    x, y, z, brightness, partialTick,
+    Aero_RenderOptions.DEFAULT, /* proceduralPose */ null,
+    new Aero_IkChain[]{ trackPlayer });
+```
+
+Solver caps at `Aero_CCDSolver.MAX_ITER = 16` iterations per chain per
+frame and stops early at `DEFAULT_TOLERANCE = 0.001f` blocks of error.
+Chains shorter than 2 bones are no-ops (CCD has no intermediate bones
+to rotate).
+
+`Aero_BoneFK.computePivotInto(chainBoneIdx, chainPivots, pool, outWorldPos)`
+is exposed publicly — useful for procedural-pose code that needs the
+post-animation world position of any bone (anchor a particle or sound
+to a moving bone tip).
+
+#### Morph targets / blend shapes
+
+Morph targets blend vertex positions in addition to bone rotation —
+the kind of deformation a simple `glRotatef`/`glScalef` chain can't do
+on its own. Each target is a separate OBJ with **identical topology**
+to the base mesh (same triangle count per brightness group, same
+vertex order); the lib computes per-vertex deltas at load time and the
+renderer applies `final = base + Σ(weight × delta)` per vertex on
+static geometry.
+
+The bundle declares variant resource paths under `morph_targets`
+(schema `format_version: "1.1"`). v1.0 bundles still load fine — the
+loader accepts both versions; bundles without a `morph_targets` block
+get an empty map.
+
+```json
+{
+  "format_version": "1.1",
+  "morph_targets": {
+    "expanded":   "/models/Crystal_expanded.obj",
+    "frown":      "/models/Robot_frown.obj"
+  },
+  "animations": { "rest": { "loop": "loop", "length": 1.0, "bones": {} } }
+}
+```
+
+```java
+// Renderer side — attach variants once at class load.
+public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/MorphCrystal.obj");
+static {
+    Aero_MorphTarget.attachAllFromBundle(MODEL, BUNDLE);
+}
+
+// Tile side — drive weights from gameplay.
+public final Aero_MorphState morphState = new Aero_MorphState();
+public void updateEntity() {
+    animState.tick();
+    float phase = (tick++ % 40) / 40f * (float) (2.0 * Math.PI);
+    morphState.set("expanded", 0.5f + 0.5f * (float) Math.sin(phase));
+}
+
+// Render call passes the state.
+Aero_MeshRenderer.renderAnimated(MODEL, bundle, def, animState,
+    x, y, z, brightness, partialTick,
+    Aero_RenderOptions.DEFAULT, /* proceduralPose */ null,
+    /* ikChains */ null, morphState);
+```
+
+`Aero_MorphState` ships with a `StringFloatBag` adapter for NBT
+save/restore — pass your own writer/reader and the lib handles the
+weight serialization without dragging MC's NbtCompound into `core/`.
+Setting a weight of 0 removes the entry (saves render-time iteration).
+
+The morph blend currently applies to **static geometry only**
+(`model.groups`). Per-bone named groups don't morph in v0.2.0 — author
+the morph mesh without an `o`/`g` directive so the triangles land in
+the unnamed static array. Topology mismatch (different triangle counts
+between base and variant) surfaces as a clear `IllegalArgumentException`
+at attach time.
+
+#### Animation graph (Blend1D + Additive nodes)
+
+`Aero_AnimationGraph` is a tree-shaped composition layer that coexists
+with the existing flat `Aero_AnimationStack`. Use Stack for simple
+"replace + N additive overlays" cases, switch to Graph when blends are
+parameter-driven (movement speed → walk/run blend, intensity →
+charging spell layered on idle, etc.). Three node types ship in v0.2:
+
+- `Aero_GraphClipNode(playback)` — leaf, plays a single clip via an
+  `Aero_AnimationPlayback`.
+- `Aero_GraphBlend1DNode(paramName, thresholds[], children[])` — lerps
+  N children by a single float param. Children are sorted by threshold;
+  the param picks the surrounding pair and interpolates between them.
+  Below the lowest threshold the lowest child plays alone, above the
+  highest the highest does — clamped at the edges.
+- `Aero_GraphAdditiveNode(base, overlays[], weightParams[])` — base
+  pose plus N additive overlays, each weighted by an optional float
+  param (or 1.0 if the param entry is null).
+
+Graph parameters live in `Aero_GraphParams` — float, boolean, and
+one-shot triggers (consumed on read, useful for state-machine pulses).
+
+```java
+private static final String SPEED = "speed";
+private final Aero_GraphParams params = new Aero_GraphParams();
+
+private final Aero_AnimationPlayback slow = ...;  // 0 → small wobble
+private final Aero_AnimationPlayback fast = ...;  // 0 → wide swing
+
+private final Aero_AnimationGraph graph = new Aero_AnimationGraph(
+    new Aero_GraphBlend1DNode(SPEED,
+        new float[]{ 0f, 1f },
+        new Aero_GraphNode[]{
+            new Aero_GraphClipNode(slow),
+            new Aero_GraphClipNode(fast)
+        }),
+    params);
+
+public void updateEntity() {
+    slow.tick();
+    fast.tick();
+    params.setFloat(SPEED, normalisedSpeed);
+}
+
+// Renderer:
+Aero_MeshRenderer.renderAnimated(MODEL, graph, bundle,
+    x, y, z, brightness, partialTick);
+```
+
+The graph renderer is **flat** in v0.2.0 — no hierarchical bone
+composition, only direct per-bone-name lookup. Use the clip-based
+`renderAnimated` path when you need hierarchy + IK; use Graph when you
+need parameter-driven blending and the model is single-bone or has
+flat structure.
+
+#### Quaternion slerp on rotation channels
+
+Rotation channels now interpolate via spherical linear interpolation
+(quaternion slerp) on segments where every euler axis delta between
+adjacent keyframes is **strictly less than 180°**. Multi-axis poses
+follow the geodesic path on the rotation sphere — no gimbal-style
+stutter when two or more axes animate simultaneously. Position and
+scale channels are unaffected.
+
+The hybrid heuristic falls back to euler-lerp on long-arc segments
+(any axis delta `≥ 180°`) so a `0 → 360` Y rotation in 2 keyframes
+(the canonical fan-spin pattern) keeps its v0.1 visual: slerp would
+collapse it to "no rotation" because both endpoints are the same
+quat-space orientation. If you need slerp to handle a long rotation,
+split it into multiple keyframes (`0 → 120 → 240 → 360`) — each
+sub-segment under 180° will slerp.
+
+`catmullrom` on rotation is demoted to LINEAR-eased slerp on short-arc
+segments (no spherical Catmull-Rom — squad's complexity isn't worth
+the marginal benefit on rotation curves where slerp is already smooth).
+Long-arc segments retain euler Catmull-Rom.
+
+`Aero_Quaternion` is exposed publicly with `fromEulerDegrees`,
+`toEulerDegrees`, `slerp`, `fromAxisAngle`, `multiply`, and
+`rotateVec` — useful for procedural-pose code that wants to rotate
+into bones in quaternion space.
+
 ---
 
 ## 1. Quick Start

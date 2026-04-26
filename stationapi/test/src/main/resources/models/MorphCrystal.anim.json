@@ -1,0 +1,22 @@
+{
+  "format_version": "1.1",
+  "pivots": {
+    "crystal": [8, 0, 8]
+  },
+  "morph_targets": {
+    "expanded": "/models/MorphCrystal_expanded.obj"
+  },
+  "animations": {
+    "rest": {
+      "loop": "loop",
+      "length": 1.0,
+      "bones": {
+        "crystal": {
+          "rotation": {
+            "0": { "value": [0, 0, 0], "interp": "linear" }
+          }
+        }
+      }
+    }
+  }
+}

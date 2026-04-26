@@ -1,0 +1,25 @@
+{
+  "format_version": "1.0",
+  "pivots": {
+    "belt": [8, 1, 8]
+  },
+  "animations": {
+    "channel": {
+      "loop": "loop",
+      "length": 4.0,
+      "bones": {
+        "belt": {
+          "uv_offset": {
+            "0":   { "value": [0, 0, 0], "interp": "linear" },
+            "4.0": { "value": [1, 1, 0], "interp": "linear" }
+          },
+          "uv_scale": {
+            "0":   { "value": [1.0, 1.0, 0], "interp": "easeInOutSine" },
+            "2.0": { "value": [1.2, 1.2, 0], "interp": "easeInOutSine" },
+            "4.0": { "value": [1.0, 1.0, 0], "interp": "easeInOutSine" }
+          }
+        }
+      }
+    }
+  }
+}
