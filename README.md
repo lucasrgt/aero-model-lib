@@ -179,6 +179,7 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain that picks the next state |
 | `Aero_AnimationEventRouter` | `on(channel, name, ...)` / `onChannel(...)` / `otherwise(...)` listener that routes keyframe events declaratively |
 | `Aero_AnimationSide` | `isServerSide(world)` / `isClientSide(world)` — gates event side-effects so SMP doesn't double-play sounds |
+| `Aero_MeshBlendMode` | `OFF` / `ALPHA` / `ADDITIVE` — selects the GL blend func used by mesh renderers |
 | `Aero_Profiler` | Optional named-section timer for manual profiling |
 | `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
 

@@ -58,6 +58,15 @@ public class Aero_AnimationPlayback {
 
     /** Advances playback by one game tick. Call before setState(). */
     public void tick() {
+        Aero_Profiler.start("aero.playback.tick");
+        try {
+            tickBody();
+        } finally {
+            Aero_Profiler.end("aero.playback.tick");
+        }
+    }
+
+    private void tickBody() {
         if (transitionRemaining > 0) transitionRemaining--;
         prevPlaybackTime = playbackTime;
 

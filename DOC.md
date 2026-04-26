@@ -1244,21 +1244,25 @@ The ModLoader adapter uses `entity.getEntityBrightness(partialTick)`. The Statio
 
 ### Aero_RenderOptions
 
-Immutable per-call render styling. Use this for mesh tint, alpha, blending
-and depth-test toggles instead of renderer-global state.
+Immutable per-call render styling. Use this for mesh tint, alpha, blend
+mode and depth-test toggles instead of renderer-global state.
 
 | Method / Field | Description |
 |----------------|-------------|
 | `DEFAULT` | White tint, full alpha, no blend, depth test on |
 | `tint(r, g, b)` | Convenience factory for a 0..1 RGB multiplier |
-| `translucent(alpha)` | Convenience factory: white tint, blend on, alpha set |
-| `builder().tint(...).alpha(...).blend(...).depthTest(...).build()` | Full builder |
+| `translucent(alpha)` | Convenience factory: white tint, ALPHA blend, alpha set |
+| `additive(alpha)` | Convenience factory: ADDITIVE blend (energy beams, glow halos, plasma) |
+| `builder().tint(...).alpha(...).blend(Aero_MeshBlendMode.X).depthTest(...).build()` | Full builder |
+| `builder().blend(boolean)` | Legacy convenience: `true` = ALPHA, `false` = OFF |
 | `toBuilder()` | Round-trips an existing options instance into a fresh builder |
 | Field `tintR/G/B`, `alpha`, `blend`, `depthTest` | Public final fields for renderers |
 
 The mesh renderer applies the knobs as follows:
 - `tint` and `alpha` go through `setColorRGBA_F` once per group;
-- `blend` toggles `GL_BLEND` with the standard `SRC_ALPHA / ONE_MINUS_SRC_ALPHA` pair;
+- `blend` selects the GL blend pair: `OFF` disables blending, `ALPHA` uses
+  `SRC_ALPHA / ONE_MINUS_SRC_ALPHA` (translucency), `ADDITIVE` uses
+  `SRC_ALPHA / ONE` (additive glow);
 - `depthTest` toggles `GL_DEPTH_TEST` (defaults on; turn off for X-ray/overlay renders).
 
 ```java
@@ -1268,11 +1272,14 @@ Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
 // Translucent overlay (e.g. a ghost preview):
 Aero_RenderOptions ghost = Aero_RenderOptions.translucent(0.4f);
 
-// Custom mix:
+// Energy beam / plasma glow (additive blending):
+Aero_RenderOptions beam = Aero_RenderOptions.additive(0.8f);
+
+// Custom mix (X-ray-style overlay):
 Aero_RenderOptions xray = Aero_RenderOptions.builder()
     .tint(1f, 1f, 1f)
     .alpha(0.6f)
-    .blend(true)
+    .blend(Aero_MeshBlendMode.ALPHA)
     .depthTest(false)
     .build();
 
@@ -2345,7 +2352,10 @@ be verified in-game because OpenGL 1.1 driver behavior and scene state matter.
 
 ### Profiling
 
-`Aero_Profiler` is a manual section timer that costs zero unless explicitly enabled.
+`Aero_Profiler` is a section timer that costs zero unless explicitly enabled.
+Disabled calls short-circuit on a single volatile boolean read, so the
+instrumentation can stay in production builds and be flipped on by users
+investigating a slowdown.
 
 ```bash
 # Enable for a launch via system property:
@@ -2355,10 +2365,23 @@ java -Daero.profiler=true ...
 Aero_Profiler.setEnabled(true);
 ```
 
+The lib auto-instruments the hot paths so consumers don't need to wrap
+anything by default. Sections you'll see in `dump()`:
+
+| Section | Where |
+|---------|-------|
+| `aero.playback.tick` | Every `Aero_AnimationPlayback.tick()` |
+| `aero.mesh.render` | Static mesh `renderModel`, `renderModelAtRest`, smooth-light overload |
+| `aero.mesh.renderAnimated` | Single-clip + Stack-based animated mesh renders |
+| `aero.json.render` | Blockbench JSON `renderModel` |
+
+You can add your own sections for application-level work (multiblock
+brightness sample, recipe match, etc.):
+
 ```java
-Aero_Profiler.start("aero.tick");
-try { playback.tick(); }
-finally { Aero_Profiler.end("aero.tick"); }
+Aero_Profiler.start("retronism.crusher.cookTick");
+try { /* hot logic */ }
+finally { Aero_Profiler.end("retronism.crusher.cookTick"); }
 
 // Periodically (e.g. every N seconds, or on a hotkey):
 Aero_Profiler.dump();   // prints + resets
