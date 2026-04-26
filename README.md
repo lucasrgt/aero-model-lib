@@ -529,7 +529,7 @@ and Gradle updates.
 
 ## Author
 
-**lucasrgt** — [aerocoding.dev](https://aerocoding.dev)
+**lucasrgt**
 
 ## License
 
