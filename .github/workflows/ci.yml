@@ -102,7 +102,7 @@ jobs:
           format: sarif
           output: trivy-results.sarif
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@865f5f5c36632f18690a3d569fa0a764f2da0c3e # v3
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
         with:
           sarif_file: trivy-results.sarif
 
@@ -122,7 +122,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@865f5f5c36632f18690a3d569fa0a764f2da0c3e # v3
+        uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
         with:
           languages: java-kotlin
       - name: Build for CodeQL
@@ -131,4 +131,4 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon build
       - name: Analyze
-        uses: github/codeql-action/analyze@865f5f5c36632f18690a3d569fa0a764f2da0c3e # v3
+        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
