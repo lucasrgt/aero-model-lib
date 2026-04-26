@@ -177,6 +177,7 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_AnimationEventListener` | Receives sound / particle / custom keyframes with optional bone locator |
 | `Aero_AnimationPredicate` | Single-method `test(playback) → bool` for the state router |
 | `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain that picks the next state |
+| `Aero_AnimationEventRouter` | `on(channel, name, ...)` / `onChannel(...)` / `otherwise(...)` listener that routes keyframe events declaratively |
 | `Aero_Profiler` | Optional named-section timer for manual profiling |
 | `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
 
@@ -348,6 +349,18 @@ in or out cleanly).
 animState.setStateWithTransition(STATE_WALK, 6);  // 6-tick blend
 ```
 
+Or declare the default once on the spec and call `applyState`:
+
+```java
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+        .state(0, "idle").state(1, "walk").state(2, "attack")
+        .defaultTransitionTicks(6)
+        .build();
+
+ANIMATION.applyState(animState, isWalking ? 1 : 0);   // 6-tick blend, no manual transition arg
+```
+
 ### Keyframe events with locators
 
 Declare non-pose keyframes alongside the pose tracks; register a listener
@@ -364,6 +377,19 @@ animState.setEventListener((channel, data, locator, time) -> {
         world.playSound(x + p[0], y + p[1], z + p[2], data, 0.6f, 1.0f);
     }
 });
+```
+
+For multiple events of different shapes, route declaratively with
+`Aero_AnimationEventRouter` instead of one giant `if/else` lambda:
+
+```java
+Aero_AnimationEventListener listener = Aero_AnimationEventRouter.builder()
+    .on("sound", "random.click", (ch, name, locator, t) -> playClick(locator))
+    .on("particle", "smoke",     (ch, name, locator, t) -> emitSmoke(locator))
+    .onChannel("custom",         (ch, name, locator, t) -> handleCustom(name))
+    .build();
+
+animState.setEventListener(listener);
 ```
 
 ### Multi-layer playback (Stack)

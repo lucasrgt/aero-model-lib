@@ -1061,17 +1061,23 @@ from the spec.
 | `builder(bundle)` | `Builder` | Uses an already-loaded bundle |
 | `state(stateId, clipName)` | `Builder` | Adds a state mapping |
 | `definition(def)` | `Builder` | Uses an explicit `Aero_AnimationDefinition` |
+| `defaultTransitionTicks(n)` | `Builder` | Default crossfade applied by `applyState`; `0` = snap |
 | `createPlayback()` | `Aero_AnimationPlayback` | Platform-neutral playback |
 | `createState()` | `Aero_AnimationState` | Loader-specific NBT-aware state |
+| `applyState(playback, stateId)` | `void` | Updates the playback honoring `defaultTransitionTicks` |
 
 ```java
 public static final Aero_AnimationSpec ANIMATION =
     Aero_AnimationSpec.builder("/models/MyMob.anim.json")
         .state(0, "idle")
         .state(1, "walk")
+        .defaultTransitionTicks(6)
         .build();
 
 public final Aero_AnimationState animState = ANIMATION.createState();
+
+// In tick():
+ANIMATION.applyState(animState, isWalking ? 1 : 0);   // 6-tick blend, no manual transition arg
 ```
 
 ---
@@ -1412,6 +1418,33 @@ The lib does not dispatch sounds or particles itself — consumer mods
 route the channel + payload through their own MC API calls.
 {@link Aero_AnimationPlayback#getAnimatedPivot} is the standard helper
 for resolving the locator to a current world position.
+
+---
+
+### Aero_AnimationEventRouter
+
+Routing listener that dispatches by `(channel, name)` to small focused
+handlers — replaces the giant `if/else` in a hand-rolled lambda.
+
+| Method | Description |
+|--------|-------------|
+| `builder()` | Starts a builder |
+| `on(channel, name, handler)` | Routes when both channel AND name match exactly |
+| `onChannel(channel, handler)` | Channel-wide fallback for events not claimed by `on(...)` |
+| `otherwise(handler)` | Catch-all for everything else |
+| `build()` | Returns an `Aero_AnimationEventListener` ready for `setEventListener` |
+
+Lookup order: exact `(channel, name)` → channel fallback → otherwise.
+Events with no matching route are silently dropped.
+
+```java
+Aero_AnimationEventListener listener = Aero_AnimationEventRouter.builder()
+    .on("sound", "random.click", clickHandler)
+    .on("particle", "smoke", smokeHandler)
+    .onChannel("custom", customHandler)
+    .build();
+playback.setEventListener(listener);
+```
 
 ---
 
