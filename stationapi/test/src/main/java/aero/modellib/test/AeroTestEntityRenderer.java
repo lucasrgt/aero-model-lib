@@ -1,9 +1,7 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_EntityModelRenderer;
-import aero.modellib.Aero_EntityModelTransform;
-import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_ObjLoader;
+import aero.modellib.Aero_ModelSpec;
 import aero.modellib.Aero_RenderDistance;
 import aero.modellib.Aero_RenderLod;
 import net.minecraft.client.render.entity.EntityRenderer;
@@ -12,14 +10,14 @@ import org.lwjgl.opengl.GL11;
 
 public class AeroTestEntityRenderer extends EntityRenderer {
 
-    private static final Aero_MeshModel MODEL =
-        Aero_ObjLoader.load("/models/MegaCrusher.obj");
-
-    private static final Aero_EntityModelTransform TRANSFORM =
-        Aero_EntityModelTransform.builder()
+    private static final Aero_ModelSpec MODEL =
+        Aero_ModelSpec.mesh("/models/MegaCrusher.obj")
+            .texture("/models/retronism_megacrusher.png")
+            .animations(AeroTestEntity.ANIMATION)
             .offset(-1.5f, 0f, -1.5f)
             .scale(0.45f)
             .cullingRadius(3f)
+            .animatedDistance(AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS)
             .build();
 
     public AeroTestEntityRenderer() {
@@ -30,18 +28,12 @@ public class AeroTestEntityRenderer extends EntityRenderer {
     public void render(Entity entity, double x, double y, double z,
                        float yaw, float partialTick) {
         AeroTestEntity testEntity = (AeroTestEntity) entity;
-        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(
-            x, y, z, 3d, AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS);
+        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
         if (!lod.shouldRender()) return;
 
-        bindTexture("/models/retronism_megacrusher.png");
+        bindTexture(MODEL.getTexturePath());
         GL11.glColor4f(1f, 1f, 1f, 1f);
-        if (lod.shouldAnimate()) {
-            Aero_EntityModelRenderer.renderAnimated(MODEL, testEntity.animState,
-                entity, x, y, z, yaw, partialTick, TRANSFORM);
-        } else {
-            Aero_EntityModelRenderer.renderAtRest(MODEL,
-                entity, x, y, z, yaw, partialTick, TRANSFORM);
-        }
+        Aero_EntityModelRenderer.render(MODEL, testEntity.animState, lod,
+            entity, x, y, z, yaw, partialTick);
     }
 }

@@ -1,10 +1,8 @@
 package aero.modellib.test;
 
-import aero.modellib.Aero_AnimationBundle;
-import aero.modellib.Aero_AnimationDefinition;
-import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationPlayback;
 import aero.modellib.Aero_AnimationPredicate;
+import aero.modellib.Aero_AnimationSpec;
 import aero.modellib.Aero_AnimationState;
 import aero.modellib.Aero_AnimationStateRouter;
 import net.minecraft.entity.Entity;
@@ -57,18 +55,16 @@ public class AeroRobotEntity extends Entity {
     private static final int PHASE_MELTDOWN_TICKS    = 80;  // 4s
     private static final int PHASE_COOLING_TICKS     = 80;  // 4s
 
-    public static final Aero_AnimationBundle BUNDLE =
-        Aero_AnimationLoader.load("/models/Robot.anim.json");
-
-    public static final Aero_AnimationDefinition ANIM_DEF =
-        new Aero_AnimationDefinition()
+    public static final Aero_AnimationSpec ANIMATION =
+        Aero_AnimationSpec.builder("/models/Robot.anim.json")
             .state(STATE_IDLE,     "idle")
             .state(STATE_WALK,     "walk")
             .state(STATE_IDLE_HOT, "idle_hot")
             .state(STATE_WALK_HOT, "walk_hot")
-            .state(STATE_MELTDOWN, "meltdown");
+            .state(STATE_MELTDOWN, "meltdown")
+            .build();
 
-    public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+    public final Aero_AnimationState animState = ANIMATION.createState();
 
     private final Random random = new Random();
     private float walkYaw;

@@ -1,9 +1,7 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_EntityModelRenderer;
-import aero.modellib.Aero_EntityModelTransform;
-import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_ObjLoader;
+import aero.modellib.Aero_ModelSpec;
 import aero.modellib.Aero_RenderDistance;
 import aero.modellib.Aero_RenderLod;
 import aero.modellib.Aero_RenderOptions;
@@ -18,15 +16,15 @@ import org.lwjgl.opengl.GL11;
  */
 public class AeroRobotEntityRenderer extends EntityRenderer {
 
-    private static final Aero_MeshModel MODEL =
-        Aero_ObjLoader.load("/models/Robot.obj");
-
     // Pivot the model so its centre (in the OBJ's local x/z = 8 px) lands
     // on the entity origin instead of being offset by the OBJ-coordinate
     // bias.
-    private static final Aero_EntityModelTransform TRANSFORM =
-        Aero_EntityModelTransform.builder()
+    private static final Aero_ModelSpec MODEL =
+        Aero_ModelSpec.mesh("/models/Robot.obj")
+            .texture("/models/aerotest_robot.png")
+            .animations(AeroRobotEntity.ANIMATION)
             .offset(-0.5f, 0f, -0.5f)
+            .animatedDistance(AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS)
             .build();
 
     public AeroRobotEntityRenderer() {
@@ -37,11 +35,10 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
     public void render(Entity entity, double x, double y, double z,
                        float yaw, float partialTick) {
         AeroRobotEntity bot = (AeroRobotEntity) entity;
-        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(
-            x, y, z, 2d, AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS);
+        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
         if (!lod.shouldRender()) return;
 
-        bindTexture("/models/aerotest_robot.png");
+        bindTexture(MODEL.getTexturePath());
 
         // Lerp the tint white → red as the robot heats up. Drop the green
         // and blue channels rather than boosting red so we never go over 1.0
@@ -74,14 +71,8 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
         float brightness = AeroLight.brightnessAbove(entity.world, ex, ey, ez);
 
         Aero_RenderOptions renderOptions = Aero_RenderOptions.tint(1f, g, b);
-        if (lod.shouldAnimate()) {
-            Aero_EntityModelRenderer.renderAnimated(
-                MODEL, bot.animState,
-                x, y, z, yaw, brightness, partialTick, TRANSFORM, renderOptions);
-        } else {
-            Aero_EntityModelRenderer.renderAtRest(
-                MODEL, x, y, z, yaw, brightness, TRANSFORM, renderOptions);
-        }
+        Aero_EntityModelRenderer.render(MODEL, bot.animState, lod,
+            x, y, z, yaw, brightness, partialTick, renderOptions);
 
         // Reset the GL color register too — defensive against any caller
         // that reads it before issuing its own tess.color().

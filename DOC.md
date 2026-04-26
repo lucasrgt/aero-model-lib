@@ -81,8 +81,15 @@ Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
 ### Entity model quick start
 
 ```java
-// Entity field
-public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+// Entity class
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+        .state(0, "idle")
+        .state(1, "walk")
+        .state(2, "attack")
+        .build();
+
+public final Aero_AnimationState animState = ANIMATION.createState();
 
 // Entity tick
 public void onLivingUpdate() {
@@ -91,12 +98,15 @@ public void onLivingUpdate() {
     animState.setState(isSwinging ? STATE_ATTACK : isMoving() ? STATE_WALK : STATE_IDLE);
 }
 
-// Renderer field: allocate once, not per frame
-private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.builder()
+// Renderer field: declare once, not per frame
+private static final Aero_ModelSpec MODEL =
+    Aero_ModelSpec.mesh("/models/MyMob.obj")
+        .texture("/mob/my_mob.png")
+        .animations(MyMob.ANIMATION)
         .offset(-0.5f, 0f, -0.5f)
         .scale(1f)
         .cullingRadius(2f)
+        .animatedDistance(48d)
         .maxRenderDistance(96f)
         .build();
 
@@ -104,9 +114,10 @@ private static final Aero_EntityModelTransform MODEL_TRANSFORM =
 public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
     MyMob mob = (MyMob) entity;
-    loadTexture("/mob/my_mob.png");
-    Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
-        entity, x, y, z, yaw, partialTick, MODEL_TRANSFORM);
+    loadTexture(MODEL.getTexturePath());
+    Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
+    Aero_EntityModelRenderer.render(MODEL, mob.animState, lod,
+        entity, x, y, z, yaw, partialTick);
 }
 ```
 
@@ -253,6 +264,7 @@ sequenceDiagram
 |-------|---------|---------------|
 | **Data (immutable)** | `Aero_JsonModel`, `Aero_MeshModel`, `Aero_AnimationBundle`, `Aero_AnimationClip` | Store loaded data. Thread-safe. Store as `static final`. |
 | **Loading (cached)** | `Aero_JsonModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path. |
+| **Specs (declarative)** | `Aero_AnimationSpec`, `Aero_ModelSpec` | Bundle common integration wiring into reusable static declarations. |
 | **Definition** | `Aero_AnimationDefinition` | Maps state IDs to clip names. One per machine/entity type. |
 | **Playback (mutable)** | `Aero_AnimationPlayback` | Platform-neutral tick, setState, interpolation, clip cache. |
 | **State (mutable)** | `Aero_AnimationState` | Loader-specific NBT wrapper around playback. |
@@ -611,7 +623,9 @@ See the [Architecture section](#sequence-diagram-per-frame) for the full Mermaid
 
 ### Overview
 
-The animation system includes a built-in **state machine** that manages transitions between animation clips. It is intentionally simple: immediate transitions with no blending or crossfade — designed for discrete machine modes (idle/processing, on/off, etc.).
+The animation system includes a built-in **state machine** that manages
+transitions between animation clips. State changes are immediate by default,
+with optional transition ticks for clips that should visually crossfade.
 
 ```mermaid
 stateDiagram-v2
@@ -628,6 +642,7 @@ stateDiagram-v2
 
 | Class | Role | Lifecycle |
 |-------|------|-----------|
+| `Aero_AnimationSpec` | Declarative bundle + state map | `static final`, one per model family |
 | `Aero_AnimationDefinition` | Maps state IDs → clip names (blueprint) | `static final`, one per machine/entity type |
 | `Aero_AnimationPlayback` | Shared playback engine: tick, setState, interpolation, clip cache | One per animated instance when no Minecraft NBT adapter is needed |
 | `Aero_AnimationState` | Loader-specific playback + NBT adapter | Instance field, one per TileEntity/Entity |
@@ -1035,12 +1050,40 @@ binary search and clamps outside keyframe bounds.
 
 ---
 
+### Aero_AnimationSpec
+
+Declarative animation contract: one bundle plus one state definition. Store it
+as `static final` on the entity/tile type, then create per-instance playback
+from the spec.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `builder(animationPath)` | `Builder` | Loads the `.anim.json` when built |
+| `builder(bundle)` | `Builder` | Uses an already-loaded bundle |
+| `state(stateId, clipName)` | `Builder` | Adds a state mapping |
+| `definition(def)` | `Builder` | Uses an explicit `Aero_AnimationDefinition` |
+| `createPlayback()` | `Aero_AnimationPlayback` | Platform-neutral playback |
+| `createState()` | `Aero_AnimationState` | Loader-specific NBT-aware state |
+
+```java
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+        .state(0, "idle")
+        .state(1, "walk")
+        .build();
+
+public final Aero_AnimationState animState = ANIMATION.createState();
+```
+
+---
+
 ### Aero_AnimationDefinition
 
 State ID → clip name mapping. One per machine/entity type.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
+| `builder().state(...).build()` | `Aero_AnimationDefinition` | Immutable-style builder for declarations |
 | `state(stateId, clipName)` | `this` | Associates state with clip (builder pattern) |
 | `getClipName(stateId)` | `String` | Clip name, or `null` |
 | `createPlayback(bundle)` | `Aero_AnimationPlayback` | Creates platform-neutral playback (tests/tools) |
@@ -1166,6 +1209,8 @@ Entity-specific renderer wrapper for `Render` / `EntityRenderer` implementations
 | `renderAtRest(meshModel, entity, x, y, z, yaw, partialTick, transform)` | Static OBJ model plus named groups at rest pose |
 | `renderAnimated(meshModel, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model using `playback.getBundle()` / `playback.getDef()` |
 | `renderAnimated(meshModel, bundle, def, playback, entity, x, y, z, yaw, partialTick[, transform])` | Animated OBJ model with explicit bundle/definition |
+| `render(modelSpec, entity, x, y, z, yaw, partialTick)` | Static JSON/mesh spec render |
+| `render(modelSpec, playback, lod, entity, x, y, z, yaw, partialTick)` | Declarative animated entity render; LOD chooses animated/rest/culled |
 | `render(..., brightness[, transform])` | Brightness-explicit overloads for custom lighting |
 | `..., Aero_RenderOptions options` | Brightness-explicit mesh overloads can pass tint/options without global state |
 
@@ -1186,8 +1231,39 @@ renderer-global state.
 
 ```java
 Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
-Aero_EntityModelRenderer.renderAnimated(MODEL, state,
-    x, y, z, yaw, brightness, partialTick, transform, hot);
+Aero_EntityModelRenderer.render(MODEL, state, lod,
+    x, y, z, yaw, brightness, partialTick, hot);
+```
+
+---
+
+### Aero_ModelSpec
+
+Declarative model contract. Use it when a renderer would otherwise keep
+separate static fields for model, texture, transform, options and LOD tuning.
+
+| Method | Description |
+|--------|-------------|
+| `mesh(path)` / `json(path)` | Creates a spec builder that loads from classpath |
+| `mesh(model)` / `json(model)` | Creates a spec builder around an already-loaded model |
+| `texture(path)` | Stores the texture path for the caller to bind |
+| `animations(spec)` / `animations(path)` | Attaches animation wiring to a mesh spec |
+| `state(id, clip)` | Inline state declaration after `animations(path/bundle)` |
+| `offset/scale/yawOffset/cullingRadius/maxRenderDistance` | Entity transform shortcuts |
+| `animatedDistance(blocks)` | Distance where the model still renders fully animated before rest-pose LOD |
+| `renderOptions(options)` / `tint(r,g,b)` | Default mesh styling for spec render calls |
+| `createPlayback()` / `createState()` | Per-instance animation factories when animations are present |
+| `lodRelative(x, y, z, viewDistance)` | Pure LOD calculation for callers outside loader adapters |
+
+```java
+private static final Aero_ModelSpec ROBOT =
+    Aero_ModelSpec.mesh("/models/Robot.obj")
+        .texture("/models/robot.png")
+        .animations(RobotEntity.ANIMATION)
+        .offset(-0.5f, 0f, -0.5f)
+        .cullingRadius(2f)
+        .animatedDistance(48d)
+        .build();
 ```
 
 ---

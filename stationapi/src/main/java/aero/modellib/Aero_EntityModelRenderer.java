@@ -15,6 +15,113 @@ public final class Aero_EntityModelRenderer {
     private Aero_EntityModelRenderer() {
     }
 
+    public static void render(Aero_ModelSpec spec, Entity entity,
+                              double x, double y, double z,
+                              float yaw, float partialTick) {
+        requireSpec(spec);
+        render(spec, x, y, z, yaw, entity.getBrightnessAtEyes(partialTick), partialTick);
+    }
+
+    public static void render(Aero_ModelSpec spec,
+                              double x, double y, double z,
+                              float yaw, float brightness, float partialTick) {
+        requireSpec(spec);
+        if (spec.isJson()) {
+            render(spec.getJsonModel(), x, y, z, yaw, brightness, spec.getEntityTransform());
+        } else {
+            render(spec.getMeshModel(), x, y, z, yaw, brightness,
+                spec.getEntityTransform(), spec.getRenderOptions());
+        }
+    }
+
+    public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
+                              Aero_RenderLod lod, Entity entity,
+                              double x, double y, double z,
+                              float yaw, float partialTick) {
+        requireSpec(spec);
+        if (lod == null) throw new IllegalArgumentException("lod must not be null");
+        if (!lod.shouldRender()) return;
+        float brightness = entity.getBrightnessAtEyes(partialTick);
+        render(spec, state, lod, x, y, z, yaw, brightness, partialTick);
+    }
+
+    public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
+                              Aero_RenderLod lod,
+                              double x, double y, double z,
+                              float yaw, float brightness, float partialTick) {
+        render(spec, state, lod, x, y, z, yaw, brightness, partialTick,
+            spec != null ? spec.getRenderOptions() : Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
+                              Aero_RenderLod lod,
+                              double x, double y, double z,
+                              float yaw, float brightness, float partialTick,
+                              Aero_RenderOptions options) {
+        requireSpec(spec);
+        requireOptions(options);
+        if (lod == null) throw new IllegalArgumentException("lod must not be null");
+        if (!lod.shouldRender()) return;
+        if (lod.shouldAnimate()) {
+            renderAnimated(spec, state, x, y, z, yaw, brightness, partialTick, options);
+        } else {
+            renderAtRest(spec, x, y, z, yaw, brightness, options);
+        }
+    }
+
+    public static void renderAtRest(Aero_ModelSpec spec,
+                                    double x, double y, double z,
+                                    float yaw, float brightness) {
+        renderAtRest(spec, x, y, z, yaw, brightness,
+            spec != null ? spec.getRenderOptions() : Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAtRest(Aero_ModelSpec spec,
+                                    double x, double y, double z,
+                                    float yaw, float brightness,
+                                    Aero_RenderOptions options) {
+        requireSpec(spec);
+        requireOptions(options);
+        if (spec.isJson()) {
+            render(spec.getJsonModel(), x, y, z, yaw, brightness, spec.getEntityTransform());
+        } else {
+            renderAtRest(spec.getMeshModel(), x, y, z, yaw, brightness,
+                spec.getEntityTransform(), options);
+        }
+    }
+
+    public static void renderAnimated(Aero_ModelSpec spec,
+                                      Aero_AnimationPlayback state,
+                                      Entity entity,
+                                      double x, double y, double z,
+                                      float yaw, float partialTick) {
+        requireSpec(spec);
+        renderAnimated(spec, state, x, y, z, yaw,
+            entity.getBrightnessAtEyes(partialTick), partialTick);
+    }
+
+    public static void renderAnimated(Aero_ModelSpec spec,
+                                      Aero_AnimationPlayback state,
+                                      double x, double y, double z,
+                                      float yaw, float brightness, float partialTick) {
+        renderAnimated(spec, state, x, y, z, yaw, brightness, partialTick,
+            spec != null ? spec.getRenderOptions() : Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_ModelSpec spec,
+                                      Aero_AnimationPlayback state,
+                                      double x, double y, double z,
+                                      float yaw, float brightness, float partialTick,
+                                      Aero_RenderOptions options) {
+        requireSpec(spec);
+        requireOptions(options);
+        if (!spec.isMesh()) {
+            throw new IllegalStateException("animated rendering requires a mesh spec");
+        }
+        renderAnimated(spec.getMeshModel(), state, x, y, z, yaw, brightness, partialTick,
+            spec.getEntityTransform(), options);
+    }
+
     public static void render(Aero_JsonModel model, Entity entity,
                               double x, double y, double z,
                               float yaw, float partialTick) {
@@ -238,6 +345,14 @@ public final class Aero_EntityModelRenderer {
 
     private static void requireTransform(Aero_EntityModelTransform transform) {
         if (transform == null) throw new IllegalArgumentException("transform must not be null");
+    }
+
+    private static void requireSpec(Aero_ModelSpec spec) {
+        if (spec == null) throw new IllegalArgumentException("spec must not be null");
+    }
+
+    private static void requireOptions(Aero_RenderOptions options) {
+        if (options == null) throw new IllegalArgumentException("options must not be null");
     }
 
     private static boolean shouldRender(double x, double y, double z,
