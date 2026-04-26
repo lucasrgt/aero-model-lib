@@ -178,6 +178,7 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_AnimationPredicate` | Single-method `test(playback) → bool` for the state router |
 | `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain that picks the next state |
 | `Aero_AnimationEventRouter` | `on(channel, name, ...)` / `onChannel(...)` / `otherwise(...)` listener that routes keyframe events declaratively |
+| `Aero_AnimationSide` | `isServerSide(world)` / `isClientSide(world)` — gates event side-effects so SMP doesn't double-play sounds |
 | `Aero_Profiler` | Optional named-section timer for manual profiling |
 | `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
 
@@ -475,6 +476,8 @@ router.applyTo(animState);
 ## Best Practices
 
 - Store loaders as `static final` fields — caching is automatic
+- Loader caches are synchronized and bounded to 512 entries by default.
+  Override with `-Daero.modellib.cache.maxEntries=N` for unusual hot-reload/tooling workflows.
 - Call `tick()` **before** `setState()` every tick
 - Persist animation state via `writeToNBT()` / `readFromNBT()`
 - Use `STATE_OFF = 0` as default (NBT returns 0 when key is absent)
