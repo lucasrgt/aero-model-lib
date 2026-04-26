@@ -3,10 +3,17 @@ package aero.modellib;
 /**
  * AeroModel API by lucasrgt - aerocoding.dev
  * Ultra-lightweight 3D model container for Minecraft Beta 1.7.3.
+ *
+ * <p>Instances are effectively immutable. The {@code elements} and
+ * {@code quadsByFace} arrays are exposed for renderer hot paths — treat
+ * them as read-only, the lib doesn't deep-copy on construction (would
+ * tank load-time perf for no win, since the renderers iterate them every
+ * frame and the lib never mutates them after the constructor).
  */
 public class Aero_JsonModel {
 
     public final String name;
+    /** Raw element rows from the loader. Read-only — renderers iterate this every frame. */
     public final float[][] elements;
     public final float textureSize;
     public final float scale;
@@ -24,10 +31,11 @@ public class Aero_JsonModel {
     /**
      * Pre-baked render quads grouped by face direction.
      *
-     * quadsByFace[face][i] = 4 vertices packed as
-     * {x,y,z,u,v, x,y,z,u,v, x,y,z,u,v, x,y,z,u,v}.
+     * {@code quadsByFace[face][i]} = 4 vertices packed as
+     * {@code {x,y,z,u,v, x,y,z,u,v, x,y,z,u,v, x,y,z,u,v}}.
      *
      * Face order: FACE_DOWN, FACE_UP, FACE_NORTH, FACE_SOUTH, FACE_WEST, FACE_EAST.
+     * Read-only — renderers iterate this every frame.
      */
     public final float[][][] quadsByFace;
 

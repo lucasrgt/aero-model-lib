@@ -1,5 +1,6 @@
 package aero.modellib;
 
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
 
@@ -51,14 +52,20 @@ public class Aero_MeshModel {
 
     /**
      * Static triangles per brightness group (excludes named groups).
-     * groups[GROUP_TOP][i] = float[15] for the i-th top-facing triangle.
+     * {@code groups[GROUP_TOP][i] = float[15]} for the i-th top-facing
+     * triangle. Treat as read-only — the renderers iterate this array
+     * every frame and rely on it being stable.
      */
     public final float[][][] groups;
 
     /**
-     * Named group triangles: Map<String, float[][][]>.
-     * Each entry has the same 4-brightness-group structure as groups[].
-     * Empty map if the OBJ has no named objects/groups.
+     * Named group triangles: {@code Map<String, float[][][]>}. Each entry
+     * has the same 4-brightness-group structure as {@link #groups}. Empty
+     * map if the OBJ has no named objects/groups.
+     *
+     * <p>The map is wrapped with {@link Collections#unmodifiableMap(Map)};
+     * iteration is fine, mutation throws. The float arrays inside are raw
+     * — treat them as read-only.
      */
     public final Map namedGroups;
 
@@ -76,7 +83,7 @@ public class Aero_MeshModel {
         this.groups = groups;
         this.scale = scale;
         this.invScale = 1f / scale;
-        this.namedGroups = namedGroups;
+        this.namedGroups = Collections.unmodifiableMap(namedGroups);
     }
 
     /** Convenience constructor: scale=1, empty named groups. */

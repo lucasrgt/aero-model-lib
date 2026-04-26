@@ -1,5 +1,6 @@
 package aero.modellib;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -9,31 +10,39 @@ import java.util.Map;
  *
  * Immutable instance, safe to store as a static field.
  * Created by Aero_AnimationLoader.load().
+ *
+ * <p>The exposed {@code clips}, {@code pivots} and {@code childMap} maps
+ * are wrapped with {@link Collections#unmodifiableMap(Map)}, so iteration
+ * is fine but any {@code put}/{@code remove} attempt throws
+ * {@link UnsupportedOperationException}. The {@code float[]} pivots
+ * inside the map are still raw arrays — callers must not mutate them.
+ * Use {@link #getPivotInto(String, float[])} for safe per-call reads.
  */
 public class Aero_AnimationBundle {
 
     static final float[] ZERO_PIVOT = {0f, 0f, 0f};
 
-    /** Map<String, Aero_AnimationClip> — clips indexed by name. */
+    /** Map<String, Aero_AnimationClip> — clips indexed by name. Unmodifiable. */
     public final Map clips;
 
     /**
      * Map<String, float[]> — pivot of each bone in block units (pixels / 16).
-     * Absent = pivot [0, 0, 0].
+     * Absent = pivot [0, 0, 0]. Unmodifiable map; callers must not mutate the
+     * float[] values either.
      */
     public final Map pivots;
 
     /**
      * Map<String, String> — childName → parentBoneName.
      * Maps child elements to the parent animated group (Blockbench hierarchy).
-     * E.g.: "shred_blade_L_0_0" → "shredder_L"
+     * E.g.: "shred_blade_L_0_0" → "shredder_L". Unmodifiable.
      */
     public final Map childMap;
 
     Aero_AnimationBundle(Map clips, Map pivots, Map childMap) {
-        this.clips    = clips;
-        this.pivots   = pivots;
-        this.childMap = childMap;
+        this.clips    = Collections.unmodifiableMap(clips);
+        this.pivots   = Collections.unmodifiableMap(pivots);
+        this.childMap = Collections.unmodifiableMap(childMap);
     }
 
     /**
