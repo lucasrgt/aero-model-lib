@@ -203,6 +203,22 @@ public class Aero_MeshRenderer {
                                        double x, double y, double z,
                                        float brightness, float partialTick,
                                        Aero_RenderOptions options) {
+        renderAnimated(model, bundle, def, state, x, y, z, brightness, partialTick, options, null);
+    }
+
+    /**
+     * Bundle/def/state overload with a procedural pose hook layered on top
+     * of the keyframe pose — the canonical entry point for vehicles whose
+     * turret/barrel/propeller follow runtime input.
+     */
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options,
+                                       Aero_ProceduralPose proceduralPose) {
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
@@ -228,6 +244,7 @@ public class Aero_MeshRenderer {
 
                 Aero_AnimationPoseResolver.resolveClip(rf, clip, state, time, partialTick,
                     SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
+                if (proceduralPose != null) proceduralPose.apply(ng.name, SCRATCH_POSE);
 
                 GL11.glPushMatrix();
                 applyPose(SCRATCH_POSE);
@@ -254,9 +271,18 @@ public class Aero_MeshRenderer {
                                        double x, double y, double z,
                                        float brightness, float partialTick,
                                        Aero_RenderOptions options) {
+        renderAnimated(model, state, x, y, z, brightness, partialTick, options, null);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options,
+                                       Aero_ProceduralPose proceduralPose) {
         if (state == null) throw new IllegalArgumentException("state must not be null");
         renderAnimated(model, state.getBundle(), state.getDef(), state,
-            x, y, z, brightness, partialTick, options);
+            x, y, z, brightness, partialTick, options, proceduralPose);
     }
 
     /**
@@ -288,6 +314,19 @@ public class Aero_MeshRenderer {
                                        double x, double y, double z,
                                        float brightness, float partialTick,
                                        Aero_RenderOptions options) {
+        renderAnimated(model, stack, x, y, z, brightness, partialTick, options, null);
+    }
+
+    /**
+     * Stack overload with a procedural pose hook layered on top of the
+     * blended pose from every layer.
+     */
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationStack stack,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options,
+                                       Aero_ProceduralPose proceduralPose) {
         if (stack == null) throw new IllegalArgumentException("stack must not be null");
 
         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
@@ -306,6 +345,7 @@ public class Aero_MeshRenderer {
 
             Aero_AnimationPoseResolver.resolveStack(stack, boneName, partialTick,
                 SCRATCH_PIVOT, SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
+            if (proceduralPose != null) proceduralPose.apply(boneName, SCRATCH_POSE);
 
             GL11.glPushMatrix();
             applyPose(SCRATCH_POSE);

@@ -50,18 +50,19 @@ Aero_InventoryRenderer.render(renderer, MODEL);
 ```java
 // === TileEntity ===
 
-// 1. Load animation and define states
-public static final Aero_AnimationBundle   BUNDLE   = Aero_AnimationLoader.load("/models/MyMachine.anim.json");
-public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
-    .state(0, "idle")    // STATE_OFF = 0
-    .state(1, "working"); // STATE_ON = 1
+// 1. Bundle the animation file + state map into an Aero_AnimationSpec.
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/MyMachine.anim.json")
+        .state(0, "idle")     // STATE_OFF
+        .state(1, "working")  // STATE_ON
+        .build();
 
-// 2. Create per-instance state
-public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+// 2. Create per-instance state from the spec.
+public final Aero_AnimationState animState = ANIMATION.createState();
 
 // 3. In updateEntity():
-animState.tick();                                    // ALWAYS first
-animState.setState(isRunning ? 1 : 0);               // AFTER tick
+animState.tick();                                       // ALWAYS first
+ANIMATION.applyState(animState, isRunning ? 1 : 0);     // AFTER tick
 
 // 4. In readFromNBT/writeToNBT:
 animState.readFromNBT(nbt);
@@ -69,40 +70,32 @@ animState.writeToNBT(nbt);
 
 // === TileEntitySpecialRenderer ===
 
-// 5. Load OBJ and render
+// 5. Load OBJ and render — spec-aware overload reads bundle/def from the state.
 public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/MyMachine.obj");
 
 // In renderTileEntityAt():
 bindTextureByName("/block/my_texture_hq.png");
-Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
+Aero_MeshRenderer.renderAnimated(MODEL, tile.animState,
     d, d1, d2, brightness, partialTick);
 ```
+
+The lower-level `(MODEL, BUNDLE, DEF, state)` overload is still public for
+mods that compose bundles/definitions dynamically (procedural mobs, modular
+machines, etc.).
 
 ### Entity model quick start
 
 ```java
-// Entity class
-public static final Aero_AnimationSpec ANIMATION =
-    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
-        .state(0, "idle")
-        .state(1, "walk")
-        .state(2, "attack")
-        .build();
-
-public final Aero_AnimationState animState = ANIMATION.createState();
-
-// Entity tick
-public void onLivingUpdate() {
-    super.onLivingUpdate();
-    animState.tick();
-    animState.setState(isSwinging ? STATE_ATTACK : isMoving() ? STATE_WALK : STATE_IDLE);
-}
-
-// Renderer field: declare once, not per frame
-private static final Aero_ModelSpec MODEL =
+// === Entity class ===
+// MODEL on the entity so the ctor and renderer share the same culling
+// values — single source of truth.
+public static final Aero_ModelSpec MODEL =
     Aero_ModelSpec.mesh("/models/MyMob.obj")
         .texture("/mob/my_mob.png")
-        .animations(MyMob.ANIMATION)
+        .animations(Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+            .state(0, "idle").state(1, "walk").state(2, "attack")
+            .defaultTransitionTicks(4)
+            .build())
         .offset(-0.5f, 0f, -0.5f)
         .scale(1f)
         .cullingRadius(2f)
@@ -110,7 +103,21 @@ private static final Aero_ModelSpec MODEL =
         .maxRenderDistance(96f)
         .build();
 
-// Renderer method
+public final Aero_AnimationState animState = MODEL.createState();
+
+public MyMob(World world) {
+    super(world);
+    Aero_RenderDistance.applyEntityRenderDistance(this, MODEL);   // reads cullingRadius from spec
+}
+
+public void onLivingUpdate() {
+    super.onLivingUpdate();
+    animState.tick();
+    MODEL.applyState(animState,
+        isSwinging ? STATE_ATTACK : isMoving() ? STATE_WALK : STATE_IDLE);
+}
+
+// === Renderer ===
 public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
     MyMob mob = (MyMob) entity;
@@ -253,16 +260,23 @@ sequenceDiagram
         CL-->>MR: rx, ry, rz
         MR->>CL: samplePosInto(boneIdx, time, scratch)
         CL-->>MR: px, py, pz
+        MR->>CL: sampleSclInto(boneIdx, time, scratch)
+        CL-->>MR: sx, sy, sz
         Note over MR: GL translate pivot, rotateZYX, translate back, draw
     end
 ```
+
+The Stack render overload uses `Aero_AnimationStack.samplePose(...)` once per
+bone. That keeps rotation, position and scale composition consistent while
+avoiding repeated layer traversal, clip lookup, interpolated-time reads and
+bone-index lookups for each channel.
 
 ### Separation of concerns
 
 | Layer | Classes | Responsibility |
 |-------|---------|---------------|
 | **Data (immutable)** | `Aero_JsonModel`, `Aero_MeshModel`, `Aero_AnimationBundle`, `Aero_AnimationClip` | Store loaded data. Thread-safe. Store as `static final`. |
-| **Loading (cached)** | `Aero_JsonModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path. |
+| **Loading (cached)** | `Aero_JsonModelLoader`, `Aero_ObjLoader`, `Aero_AnimationLoader` | Read files from classpath, parse, cache by path with synchronized bounded LRU caches. |
 | **Specs (declarative)** | `Aero_AnimationSpec`, `Aero_ModelSpec` | Bundle common integration wiring into reusable static declarations. |
 | **Definition** | `Aero_AnimationDefinition` | Maps state IDs to clip names. One per machine/entity type. |
 | **Playback (mutable)** | `Aero_AnimationPlayback` | Platform-neutral tick, setState, interpolation, clip cache. |
@@ -1149,7 +1163,8 @@ Loads Blockbench JSON models from classpath.
 
 Loader caches are synchronized and bounded to 512 entries by default.
 Override with `-Daero.modellib.cache.maxEntries=N` if a tooling workflow needs
-a different cap.
+a different cap. A value of `0` disables eviction, which is useful only for
+controlled tooling runs.
 
 **Export:** Blockbench > File > Export > Export as JSON
 
@@ -1164,6 +1179,10 @@ Loads OBJ models from classpath.
 | `load(resourcePath)` | `Aero_MeshModel` | Loads and caches |
 | `load(resourcePath, name)` | `Aero_MeshModel` | Loads with explicit name |
 | `clearCache()` | `void` | Drops every cached OBJ model |
+
+Loader caches are synchronized and bounded to 512 entries by default.
+Override with `-Daero.modellib.cache.maxEntries=N` if a tooling workflow needs
+a different cap. A value of `0` disables eviction.
 
 **Export:** Blockbench > File > Export > Export OBJ Model (only .obj, .mtl ignored)
 
@@ -1182,6 +1201,10 @@ Loads `.anim.json` from classpath.
 | `load(resourcePath)` | `Aero_AnimationBundle` | Loads and caches |
 | `clearCache()` | `void` | Drops every cached bundle |
 | `SUPPORTED_FORMAT_VERSION` | `String` | The schema version this loader accepts (`"1.0"`) |
+
+Loader caches are synchronized and bounded to 512 entries by default.
+Override with `-Daero.modellib.cache.maxEntries=N` if a tooling workflow needs
+a different cap. A value of `0` disables eviction.
 
 The loader rejects any `.anim.json` that omits `format_version` or
 declares one other than `SUPPORTED_FORMAT_VERSION`, so unknown schemas
@@ -1371,6 +1394,8 @@ Loader-specific adapter for render-distance-aware culling. ModLoader reads
 | `lodRelative(x, y, z, visualRadiusBlocks, animatedDistanceBlocks, maxRenderDistanceBlocks)` | LOD with an explicit max render cap |
 | `applyEntityRenderDistance(entity, visualRadiusBlocks)` | Raises the entity dispatcher cutoff to the default safe Aero radius; `Aero_EntityModelRenderer` still culls drawing by the current render distance |
 | `applyEntityRenderDistance(entity, visualRadiusBlocks, maxRenderDistanceBlocks)` | Entity dispatcher setup for a custom capped distance |
+| `applyEntityRenderDistance(entity, spec)` | Reads `cullingRadius` + `maxRenderDistance` from the `Aero_ModelSpec` so the entity ctor and renderer share one source of truth |
+| `lodRelative(spec, x, y, z)` | LOD using the spec's `cullingRadius`, `animatedDistanceBlocks` and `maxRenderDistance` |
 
 ### Aero_RenderLod
 
@@ -1484,6 +1509,11 @@ overload is the standard render-side consumer.
 | `sampleRot(boneName, partialTick, out) → bool` | Combined rotation across all layers |
 | `samplePos(boneName, partialTick, out) → bool` | Combined position |
 | `sampleScl(boneName, partialTick, out) → bool` | Combined scale (multiplicative for additive layers) |
+| `samplePose(boneName, partialTick, outRot, outPos, outScl) → bool` | Combined rotation, position and scale in one layer traversal |
+
+`samplePose` initializes outputs to identity (`rot=0`, `pos=0`, `scl=1`) and
+returns true when at least one channel was contributed by any layer. Prefer it
+in render loops when all three channels are needed for the same bone.
 
 ---
 
@@ -1588,11 +1618,67 @@ spec.applyState(playback, router);    // 6-tick blend, predicate-driven
 
 ---
 
+### Aero_ProceduralPose
+
+Render-time hook that adds runtime / input-driven rotations on top of the
+keyframed pose. The bridge between declarative `Aero_AnimationSpec` /
+`Aero_ModelSpec` and per-frame state the lib can't know about (player
+input, physics, RPMs).
+
+| Method | Description |
+|--------|-------------|
+| `apply(boneName, pose)` | Called once per animated bone AFTER keyframes; mutate pose in place |
+
+The lib calls the hook for every named group in the model, after
+resolving the keyframe pose into the mutable {@link Aero_BoneRenderPose}.
+Add deltas, don't overwrite, so animations and runtime input compose:
+
+```java
+Aero_EntityModelRenderer.render(MyTank.MODEL, tank.animState,
+    entity, x, y, z, yaw, partialTick,
+    new Aero_ProceduralPose() {
+        public void apply(String bone, Aero_BoneRenderPose p) {
+            if ("turret".equals(bone))    p.rotY += tank.turretYaw;
+            if ("barrel".equals(bone))    p.rotX += tank.barrelPitch;
+            if ("propeller".equals(bone)) p.rotX += (tank.age + partialTick) * tank.rpm;
+        }
+    });
+```
+
+Pass `null` (or the no-hook overload) to skip — disabled hook is zero
+overhead. Composes with both single-clip and Stack-based animated
+rendering.
+
+---
+
+### Aero_BoneRenderPose
+
+Mutable pose passed to {@link Aero_ProceduralPose}. Public final fields
+for the rotation / offset / scale deltas.
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `pivotX/Y/Z` | `float` | Bone pivot in block units (set by lib — read-only by convention) |
+| `rotX/Y/Z` | `float` | Euler rotation in degrees, applied Z → Y → X |
+| `offsetX/Y/Z` | `float` | Position offset in block units, applied around the pivot |
+| `scaleX/Y/Z` | `float` | Per-axis scale (defaults to 1) |
+
+The lib resets the pose then writes keyframe values BEFORE the procedural
+hook fires, so in-place addition is the standard idiom. Editing pivot
+during the hook produces unspecified results — the renderer expects the
+lib's resolved pivot.
+
+---
+
 ### Aero_Profiler
 
 Always-present, zero-cost-when-off section timer for animation/render hot
 paths. Disabled calls short-circuit on a single volatile read, so the
 auto-instrumentation can ship in production builds.
+
+When enabled, `start(...)` and `end(...)` synchronize on the profiler class
+monitor. That keeps accidental off-thread debug hooks from corrupting the
+section tables while preserving the disabled fast path.
 
 | Method | Description |
 |--------|-------------|
@@ -1880,8 +1966,18 @@ What the **consumer mod** still has to wire to be SMP-correct:
 ### Static final for loaded data
 
 ```java
-// GOOD: loaded once, cached
-public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/X.obj");
+// GOOD: roll model + texture + bundle + state map + LOD into one constant.
+public static final Aero_ModelSpec MODEL =
+    Aero_ModelSpec.mesh("/models/X.obj")
+        .texture("/block/x.png")
+        .animations(Aero_AnimationSpec.builder("/models/X.anim.json")
+            .state(0, "idle").state(1, "working")
+            .build())
+        .cullingRadius(2f).animatedDistance(48d)
+        .build();
+
+// LEGACY (still supported): the lower-level constants compose the same data.
+public static final Aero_MeshModel MODEL_RAW = Aero_ObjLoader.load("/models/X.obj");
 public static final Aero_AnimationBundle BUNDLE = Aero_AnimationLoader.load("/models/X.anim.json");
 public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()...;
 
@@ -1961,19 +2057,34 @@ public class MyMachineTile extends Aero_RenderDistanceTileEntity {
 }
 ```
 
-For entity models, set both sides when the model is larger than its hitbox:
+For entity models, declare the spec once on the entity and let
+`applyEntityRenderDistance(entity, spec)` read its culling values — that way
+the entity dispatcher cutoff and the renderer's LOD threshold share one
+source of truth and never drift apart:
 
 ```java
-// In the entity constructor or init path
-Aero_RenderDistance.applyEntityRenderDistance(this, 3.0d);
+public class MyMob extends EntityLiving {
+    public static final Aero_ModelSpec MODEL =
+        Aero_ModelSpec.mesh("/models/MyMob.obj")
+            .texture("/mob/my_mob.png")
+            .offset(-0.5f, 0f, -0.5f)
+            .cullingRadius(3f)
+            .animatedDistance(48d)
+            .maxRenderDistance(96f)
+            .build();
 
-// In the renderer transform
-private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.builder()
-        .offset(-0.5f, 0f, -0.5f)
-        .cullingRadius(3f)
-        .maxRenderDistance(96f)
-        .build();
+    public MyMob(World world) {
+        super(world);
+        Aero_RenderDistance.applyEntityRenderDistance(this, MODEL);
+    }
+}
+```
+
+If you don't have a spec (e.g. you want only the dispatcher boost without
+the rest of the model contract), pass the literal radius instead:
+
+```java
+Aero_RenderDistance.applyEntityRenderDistance(this, 3.0d);
 ```
 
 ### Animation LOD
@@ -2023,30 +2134,36 @@ The lower-level renderers still work directly, but use this helper for mobs and 
 
 ```java
 // === Custom Entity ===
+// MODEL lives here so the entity ctor and the renderer share the same
+// cullingRadius / maxRenderDistance — single source of truth.
 public class MyMob extends EntityCreature {
 
-    public static final Aero_AnimationBundle BUNDLE =
-        Aero_AnimationLoader.load("/models/MyMob.anim.json");
+    public static final Aero_ModelSpec MODEL =
+        Aero_ModelSpec.mesh("/models/MyMob.obj")
+            .texture("/mob/my_mob.png")
+            .animations(Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+                .state(0, "idle").state(1, "walk").state(2, "attack")
+                .defaultTransitionTicks(4)
+                .build())
+            .offset(-0.5f, 0f, -0.5f)
+            .cullingRadius(2f)
+            .animatedDistance(48d)
+            .maxRenderDistance(96f)
+            .build();
 
-    public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
-        .state(0, "idle")
-        .state(1, "walk")
-        .state(2, "attack");
-
-    public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+    public final Aero_AnimationState animState = MODEL.createState();
 
     public MyMob(World world) {
         super(world);
-        Aero_RenderDistance.applyEntityRenderDistance(this, 2.0d);
+        Aero_RenderDistance.applyEntityRenderDistance(this, MODEL);
     }
 
     public void onLivingUpdate() {
         super.onLivingUpdate();
         animState.tick();
 
-        if (isSwinging)       animState.setState(2);
-        else if (isMoving())  animState.setState(1);
-        else                  animState.setState(0);
+        int target = isSwinging ? 2 : isMoving() ? 1 : 0;
+        MODEL.applyState(animState, target);   // honors defaultTransitionTicks
     }
 
     public void writeEntityToNBT(NBTTagCompound nbt) {
@@ -2063,29 +2180,16 @@ public class MyMob extends EntityCreature {
 // === Custom Renderer ===
 public class RenderMyMob extends Render {
 
-    public static final Aero_MeshModel MODEL =
-        Aero_ObjLoader.load("/models/MyMob.obj");
-
-    // Allocate once. Offset is model-local and rotates with the entity.
-    private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-        Aero_EntityModelTransform.builder()
-            .offset(-0.5f, 0f, -0.5f)
-            .scale(1f)
-            .cullingRadius(2f)
-            .maxRenderDistance(96f)
-            .build();
-
     public void doRender(Entity entity, double x, double y, double z,
                          float yaw, float partialTick) {
         MyMob mob = (MyMob) entity;
 
-        loadTexture("/mob/my_mob.png");
+        loadTexture(MyMob.MODEL.getTexturePath());
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
-        Aero_EntityModelRenderer.renderAnimated(
-            MODEL, mob.animState,
-            entity, x, y, z, yaw, partialTick,
-            MODEL_TRANSFORM);
+        // Reads transform + render options + LOD distances from the spec.
+        Aero_EntityModelRenderer.render(MyMob.MODEL, mob.animState,
+            entity, x, y, z, yaw, partialTick);
     }
 }
 ```
@@ -2411,6 +2515,24 @@ powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
 
 This benchmark is meant for regression checks. Final render performance should still
 be verified in-game because OpenGL 1.1 driver behavior and scene state matter.
+
+### CI and security checks
+
+`.github/workflows/ci.yml` mirrors the local validation path and adds security
+coverage:
+
+- ModLoader unit tests on Windows with Java 8
+- StationAPI library and test-mod builds on Java 17
+- Gradle wrapper validation
+- dependency-review on pull requests
+- Gitleaks secret scan
+- Trivy filesystem scan for vulnerable libraries, secrets and misconfigurations
+- CodeQL Java/Kotlin security lint
+
+GitHub Actions are pinned by commit SHA. Dependabot tracks updates for GitHub
+Actions and both Gradle builds. StationAPI uses a pinned `fabric-loom` release,
+and the downloaded AMI test jars are verified with SHA-256 before Gradle uses
+them.
 
 ### Profiling
 
