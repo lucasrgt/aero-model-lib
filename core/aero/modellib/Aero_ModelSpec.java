@@ -132,6 +132,19 @@ public final class Aero_ModelSpec {
         return getAnimationSpec().createState();
     }
 
+    /**
+     * Sets {@code playback}'s state honoring the configured default transition.
+     * Equivalent to {@link Aero_AnimationSpec#applyState}; provided here so the
+     * model spec can be the single declarative entry point for callers.
+     */
+    public void applyState(Aero_AnimationPlayback playback, int stateId) {
+        getAnimationSpec().applyState(playback, stateId);
+    }
+
+    public int getDefaultTransitionTicks() {
+        return isAnimated() ? animationSpec.getDefaultTransitionTicks() : 0;
+    }
+
     public static final class Builder {
         private final Kind kind;
         private final String modelPath;
@@ -201,6 +214,18 @@ public final class Aero_ModelSpec {
                 throw new IllegalStateException("definition() requires animations(...) first");
             }
             animationBuilder.definition(definition);
+            return this;
+        }
+
+        /**
+         * Default crossfade applied by {@link Aero_ModelSpec#applyState}
+         * when the integer state changes. {@code 0} = snap (default).
+         */
+        public Builder defaultTransitionTicks(int ticks) {
+            if (animationBuilder == null) {
+                throw new IllegalStateException("defaultTransitionTicks() requires animations(...) first");
+            }
+            animationBuilder.defaultTransitionTicks(ticks);
             return this;
         }
 
