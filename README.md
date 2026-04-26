@@ -35,7 +35,7 @@ all.
 
 ## Killer features
 
-### 🎯 Locator-anchored sounds & particles
+### Locator-anchored sounds & particles
 
 Drop a `keyframes` block into your `.anim.json` and tag each event with a
 **bone locator**. The lib resolves the locator's *current animated
@@ -66,7 +66,7 @@ animState.setEventListener(Aero_AnimationEventRouter.builder()
     .build());
 ```
 
-### 🎚️ 33 easing curves
+### 33 easing curves
 
 Per-keyframe `interp` picks one of `linear`, `step`, `catmullrom`, plus
 **every GeckoLib-style ease** — `easeInBack`, `easeOutElastic`,
@@ -78,7 +78,7 @@ matrix. Unknown curve names throw at load time.
 "1.0": { "value": [0, 0, 0],  "interp": "easeInBounce" }
 ```
 
-### 🌊 Smooth state transitions
+### Smooth state transitions
 
 Snap between clips, or **crossfade**:
 
@@ -97,7 +97,7 @@ Aero_AnimationSpec.builder("/models/MyMob.anim.json")
     .build();
 ```
 
-### 🎚️ Multi-layer animation Stack
+### Multi-layer animation Stack
 
 Compose a base walk loop + an additive arm-wave overlay + an additive
 head-look in three lines — like Unity's animator layers, on Beta 1.7.3:
@@ -116,7 +116,7 @@ Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick)
 Scale composes multiplicatively, rotation/position add. Bones missing
 from a layer's clip pass through unchanged.
 
-### 📋 Predicate state router
+### Predicate state router
 
 Instead of an `if/else` ladder in your tick method:
 
@@ -130,7 +130,7 @@ new Aero_AnimationStateRouter()
     .applyTo(animState);
 ```
 
-### 🎨 Per-call render styling
+### Per-call render styling
 
 Tint, alpha, blend mode (alpha / **additive** for energy beams + plasma
 glow), depth-test toggle — all via immutable `Aero_RenderOptions`:
@@ -141,7 +141,7 @@ Aero_RenderOptions plasma   = Aero_RenderOptions.additive(0.8f);
 Aero_RenderOptions ghost    = Aero_RenderOptions.translucent(0.4f);
 ```
 
-### 📏 Render-distance aware LOD
+### Render-distance aware LOD
 
 Big multiblocks shouldn't pop in at 64 blocks like a piece of cobblestone.
 The lib hooks into the player's render distance setting and exposes a
@@ -156,7 +156,7 @@ else if (lod.isStaticOnly())  Aero_MeshRenderer.renderModelAtRest(MODEL, ...);
 
 Or let `Aero_ModelSpec` infer LOD automatically.
 
-### 🌐 Multiplayer-ready
+### Multiplayer-ready
 
 - Tick is local on each side — both server and client step at 20 TPS.
 - NBT serialization is the same one used for description packets.
@@ -166,7 +166,7 @@ Or let `Aero_ModelSpec` infer LOD automatically.
 
 See [DOC.md § Multiplayer](DOC.md#multiplayer) for the full SMP recipe.
 
-### 🔬 Always-on profiler, zero cost when off
+### Always-on profiler, zero cost when off
 
 Disabled calls short-circuit on a single boolean read. Flip it on with a
 JVM flag, run, and `dump()` shows where ticks went:
@@ -185,7 +185,7 @@ java -Daero.profiler=true ...
 The lib auto-instruments the four hot paths; add your own sections for
 application work.
 
-### 🛠️ Integrated tooling
+### Integrated tooling
 
 `tools/convert.sh MyMachine.bbmodel` produces a valid `.anim.json` directly
 from your Blockbench file. The transpile pipeline turns the StationAPI
