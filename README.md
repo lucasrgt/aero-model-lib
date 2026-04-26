@@ -1,130 +1,271 @@
 # AeroModelLib
 
-3D rendering and animation library for Minecraft Beta 1.7.3 — like GeckoLib, but for RetroMCP's OpenGL 1.1 pipeline.
-
-Demo Animated Machine on YouTube:
+> **Modern animated rendering for Minecraft Beta 1.7.3.** Blockbench
+> models, OBJ meshes, GeckoLib-style animation, locator-anchored
+> sounds and particles, multi-layer blending, render-distance LOD —
+> all on the OpenGL 1.1 fixed-function pipeline that Beta 1.7.3 ships with.
 
 [![Demo](https://img.youtube.com/vi/ewJ0XgnOSHE/maxresdefault.jpg)](https://www.youtube.com/watch?v=ewJ0XgnOSHE)
 
-> **Compatibility:** Java 8 core/ModLoader | JDK 17 StationAPI build | Minecraft Beta 1.7.3 | RetroMCP | ModLoader / Forge 1.0.6 | StationAPI | LWJGL (OpenGL 1.1+)
+> **Compatibility:** Java 8 core/ModLoader · JDK 17 StationAPI build · Minecraft Beta 1.7.3 · RetroMCP · ModLoader / Forge 1.0.6 · StationAPI / Babric · LWJGL (OpenGL 1.1+)
 
-## Features
+---
 
-- **Blockbench model rendering** — Use exported JSON models for blocks, items and world renderers
-- **OBJ mesh rendering** — Bring textured mesh assets into Minecraft Beta with named parts for animation
-- **GeckoLib-style animation workflow** — Define reusable clips and states, then drive per-instance playback in game
-- **Declarative integration specs** — Describe animations, model paths, texture, transform, tint and LOD once, then render from small, readable mod code
-- **30+ easing curves** — Per-keyframe `interp`: `easeInBack`, `easeOutElastic`, `easeOutBounce`, etc. on top of `linear` / `step` / `catmullrom`
-- **Smooth state transitions** — `setStateWithTransition(state, ticks)` snapshots the previous pose and blends it into the new clip over N ticks
-- **Loop types** — `loop` / `play_once` / `hold_on_last_frame`, with `state.isFinished()` to chain clips
-- **Keyframe events** — Sound / particle / custom keyframes fired through a listener, with optional bone "locator" so events anchor to a specific part of the moving mesh
-- **Multi-layer playback** — `Aero_AnimationStack` runs several clips at once (base + additive overlays), composing per-bone deltas multiplicatively for scale and additively for rotation/position
-- **Predicate state router** — Declarative `when(...).when(...).otherwise(...)` chain replaces the giant `if/else` in the consumer's tick method
-- **Smooth animation playback** — Interpolate between ticks for fluid motion on classic 20 TPS logic
-- **Entity model support** — Render the same Aero models from mob/entity renderers with reusable transforms
-- **Render-distance aware visibility** — Keep large block and entity models visible at the right player settings
-- **Distance LOD for animated scenes** — Tune when dense animated models render fully, render static, or disappear
-- **Inventory previews** — Reuse world models as item and block thumbnails
-- **ModLoader and StationAPI support** — Share one core model/animation pipeline across both loaders
+## Why AeroModelLib?
+
+Beta 1.7.3 modding has spent fourteen years rendering animated machines as
+hand-rolled `glRotatef`/`glTranslatef` blocks where every gear is a
+forty-line GL push/pop dance and every animation drift bug is a debug
+session. AeroModelLib brings the **2024-era authoring workflow** —
+Blockbench, OBJ, GeckoLib `.anim.json` — to the engine that started it
+all.
+
+- **Author once in Blockbench**, render on both ModLoader and StationAPI.
+- **Strict v2 schema** — typos in easing names, loop types or keyframes
+  fail fast at load time, not silently mid-game.
+- **Cross-platform spec API** — declare model + texture + animations +
+  transform + LOD as `static final` data; the renderer reads everything
+  from one object.
+- **Production-grade performance** — pre-baked quads, four-bucket flat
+  lighting, bilinear smooth-light cache, alloc-free animation samplers,
+  bone-resolution memoization. Designed for dozens of animated multiblocks
+  on screen simultaneously.
+
+---
+
+## Killer features
+
+### 🎯 Locator-anchored sounds & particles
+
+Drop a `keyframes` block into your `.anim.json` and tag each event with a
+**bone locator**. The lib resolves the locator's *current animated
+position* at fire time — so a `random.click` declared on `shredder_L` plays
+from wherever the left shredder *actually is* this tick, not from the tile
+origin. A `smoke` particle on `turbine_l` emits from the spinning blade.
+Sounds and particles **follow the moving mesh**.
+
+```json
+"keyframes": {
+  "sound":    {
+    "0.5": { "name": "random.click",    "locator": "shredder_L" },
+    "1.5": { "name": "tile.piston.out", "locator": "shredder_R" }
+  },
+  "particle": {
+    "0.0": { "name": "smoke", "locator": "turbine_l" },
+    "0.25": { "name": "flame", "locator": "turbine_r" }
+  }
+}
+```
+
+Wire a router on the playback and the lib does the rest:
+
+```java
+animState.setEventListener(Aero_AnimationEventRouter.builder()
+    .onChannel("sound",    (ch, name, locator, t) -> playSoundAt(locator, name))
+    .onChannel("particle", (ch, name, locator, t) -> spawnParticleAt(locator, name))
+    .build());
+```
+
+### 🎚️ 33 easing curves
+
+Per-keyframe `interp` picks one of `linear`, `step`, `catmullrom`, plus
+**every GeckoLib-style ease** — `easeInBack`, `easeOutElastic`,
+`easeOutBounce`, the full `{In,Out,InOut} × {Sine,Quad,Cubic,Quart,Quint,Expo,Circ,Back,Elastic,Bounce}`
+matrix. Unknown curve names throw at load time.
+
+```json
+"0.5": { "value": [0, 8, 0],  "interp": "easeOutBack" },
+"1.0": { "value": [0, 0, 0],  "interp": "easeInBounce" }
+```
+
+### 🌊 Smooth state transitions
+
+Snap between clips, or **crossfade**:
+
+```java
+animState.setStateWithTransition(STATE_WALK, 6);   // 6-tick blend
+```
+
+The blend handles bones present in only one clip cleanly (fade-in / fade-out
+to identity), so swapping between an "idle hands" pose and a full attack
+animation doesn't pop. Or declare the default once on the spec:
+
+```java
+Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+    .state(0, "idle").state(1, "walk").state(2, "attack")
+    .defaultTransitionTicks(6)
+    .build();
+```
+
+### 🎚️ Multi-layer animation Stack
+
+Compose a base walk loop + an additive arm-wave overlay + an additive
+head-look in three lines — like Unity's animator layers, on Beta 1.7.3:
+
+```java
+Aero_AnimationStack stack = Aero_AnimationStack.builder()
+    .replace(walkPlayback)                   // base
+    .additive(armWavePlayback, 0.8f)         // arm-wave overlay at 80% weight
+    .additive(headLookPlayback, 1.0f)        // head-look overlay
+    .build();
+
+stack.tick();
+Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick);
+```
+
+Scale composes multiplicatively, rotation/position add. Bones missing
+from a layer's clip pass through unchanged.
+
+### 📋 Predicate state router
+
+Instead of an `if/else` ladder in your tick method:
+
+```java
+new Aero_AnimationStateRouter()
+    .when(p -> entity.isDead(),       STATE_DEATH)
+    .when(p -> entity.isAttacking(),  STATE_ATTACK)
+    .when(p -> entity.isMoving(),     STATE_WALK)
+    .otherwise(STATE_IDLE)
+    .withTransition(6)
+    .applyTo(animState);
+```
+
+### 🎨 Per-call render styling
+
+Tint, alpha, blend mode (alpha / **additive** for energy beams + plasma
+glow), depth-test toggle — all via immutable `Aero_RenderOptions`:
+
+```java
+Aero_RenderOptions overheat = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
+Aero_RenderOptions plasma   = Aero_RenderOptions.additive(0.8f);
+Aero_RenderOptions ghost    = Aero_RenderOptions.translucent(0.4f);
+```
+
+### 📏 Render-distance aware LOD
+
+Big multiblocks shouldn't pop in at 64 blocks like a piece of cobblestone.
+The lib hooks into the player's render distance setting and exposes a
+three-band LOD result your renderer can read at zero cost:
+
+```java
+Aero_RenderLod lod = Aero_RenderDistance.lodRelative(d, d1, d2, 2d, 48d);
+if (lod.shouldAnimate())      Aero_MeshRenderer.renderAnimated(MODEL, state, ...);
+else if (lod.isStaticOnly())  Aero_MeshRenderer.renderModelAtRest(MODEL, ...);
+// CULLED: skip entirely
+```
+
+Or let `Aero_ModelSpec` infer LOD automatically.
+
+### 🌐 Multiplayer-ready
+
+- Tick is local on each side — both server and client step at 20 TPS.
+- NBT serialization is the same one used for description packets.
+- `Aero_AnimationSide.isServerSide(world)` gates broadcasting actions
+  (sounds) so SMP doesn't double-play. Particles fire on both sides
+  freely (server-side `spawnParticle` is a no-op).
+
+See [DOC.md § Multiplayer](DOC.md#multiplayer) for the full SMP recipe.
+
+### 🔬 Always-on profiler, zero cost when off
+
+Disabled calls short-circuit on a single boolean read. Flip it on with a
+JVM flag, run, and `dump()` shows where ticks went:
+
+```bash
+java -Daero.profiler=true ...
+```
+
+```
+[Aero_Profiler] section                         calls       total ms     avg us
+[Aero_Profiler]   aero.playback.tick            12000          180.5      15.04
+[Aero_Profiler]   aero.mesh.renderAnimated       1800          340.2     189.00
+[Aero_Profiler]   aero.mesh.render               4200           42.1      10.02
+```
+
+The lib auto-instruments the four hot paths; add your own sections for
+application work.
+
+### 🛠️ Integrated tooling
+
+`tools/convert.sh MyMachine.bbmodel` produces a valid `.anim.json` directly
+from your Blockbench file. The transpile pipeline turns the StationAPI
+sources into ModLoader-flat layout for RetroMCP automatically. JFR launch
+script for full method-level profiling. Pure-Java unit test suite (no MC
+runtime needed) so refactors stay safe.
+
+---
 
 ## Quick Start
 
-### Static Model (Blockbench JSON)
+### Static block model (Blockbench JSON)
 
 ```java
-// Load (cached automatically — use a static field)
 public static final Aero_JsonModel MODEL =
     Aero_JsonModelLoader.load("/models/MyBlock.json");
 
-// Render in TileEntitySpecialRenderer
+// in TileEntitySpecialRenderer:
 bindTextureByName("/block/my_texture.png");
 float brightness = tile.worldObj.getLightBrightness(x, y + 1, z);
 Aero_JsonModelRenderer.renderModel(MODEL, d, d1, d2, 0f, brightness);
 
-// Render in inventory
+// in inventory:
 Aero_InventoryRenderer.render(renderer, MODEL);
 ```
 
-### Animated OBJ Model
+### Animated OBJ machine
 
 ```java
 // ── TileEntity ──
-
-// ModLoader: extend Aero_RenderDistanceTileEntity.
-// StationAPI: extend Aero_RenderDistanceBlockEntity.
-// Override getAeroRenderRadius() for models that visually extend past 1 block.
-// Override getAeroMaxRenderDistance() only for light/landmark models.
-
 public static final int STATE_OFF = 0;
 public static final int STATE_ON  = 1;
 
-public static final Aero_MeshModel MODEL =
-    Aero_ObjLoader.load("/models/MyMachine.obj");
-
-public static final Aero_AnimationBundle BUNDLE =
-    Aero_AnimationLoader.load("/models/MyMachine.anim.json");
-
-public static final Aero_AnimationDefinition ANIM_DEF =
-    new Aero_AnimationDefinition()
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/MyMachine.anim.json")
         .state(STATE_OFF, "idle")
-        .state(STATE_ON,  "working");
+        .state(STATE_ON,  "working")
+        .build();
 
-public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+public final Aero_AnimationState animState = ANIMATION.createState();
 
 public void updateEntity() {
-    animState.tick();                              // ALWAYS first
-    animState.setState(isRunning ? STATE_ON : STATE_OFF); // AFTER tick
-}
-
-protected double getAeroRenderRadius() {
-    return 2.0d;
-}
-
-protected double getAeroMaxRenderDistance() {
-    return 96.0d; // default; use 128/256 only after profiling
+    animState.tick();                                         // ALWAYS first
+    ANIMATION.applyState(animState, isRunning ? STATE_ON : STATE_OFF);
 }
 
 // ── TileEntitySpecialRenderer ──
+public static final Aero_MeshModel MODEL =
+    Aero_ObjLoader.load("/models/MyMachine.obj");
 
 bindTextureByName("/block/my_texture_hq.png");
 Aero_RenderLod lod = Aero_RenderDistance.lodRelative(d, d1, d2, 2d, 48d);
 if (lod.shouldAnimate()) {
-    Aero_MeshRenderer.renderAnimated(MODEL, BUNDLE, ANIM_DEF, tile.animState,
+    Aero_MeshRenderer.renderAnimated(MODEL, tile.animState,
         d, d1, d2, brightness, partialTick);
 } else if (lod.isStaticOnly()) {
     Aero_MeshRenderer.renderModelAtRest(MODEL, d, d1, d2, 0f, brightness);
 }
 ```
 
-### Entity Model (Mob Renderer)
+### Animated mob (Entity + Renderer)
 
 ```java
-// In your Entity class
-public static final int STATE_IDLE   = 0;
-public static final int STATE_WALK   = 1;
-public static final int STATE_ATTACK = 2;
-
+// In your Entity class:
 public static final Aero_AnimationSpec ANIMATION =
     Aero_AnimationSpec.builder("/models/MyMob.anim.json")
-        .state(STATE_IDLE,   "idle")
-        .state(STATE_WALK,   "walk")
-        .state(STATE_ATTACK, "attack")
+        .state(0, "idle").state(1, "walk").state(2, "attack")
+        .defaultTransitionTicks(4)
         .build();
 
 public final Aero_AnimationState animState = ANIMATION.createState();
 
-public MyMob(World world) {
-    super(world);
-    Aero_RenderDistance.applyEntityRenderDistance(this, 2.0d);
-}
-
 public void onLivingUpdate() {
     super.onLivingUpdate();
     animState.tick();
-    animState.setState(isSwinging ? STATE_ATTACK : isMoving() ? STATE_WALK : STATE_IDLE);
+    ANIMATION.applyState(animState,
+        isSwinging ? 2 : isMoving() ? 1 : 0);
 }
 
-// In your Render / EntityRenderer class
+// In your Renderer:
 private static final Aero_ModelSpec MODEL =
     Aero_ModelSpec.mesh("/models/MyMob.obj")
         .texture("/mob/my_mob.png")
@@ -132,60 +273,99 @@ private static final Aero_ModelSpec MODEL =
         .offset(-0.5f, 0f, -0.5f)
         .cullingRadius(2f)
         .animatedDistance(48d)
-        .maxRenderDistance(96f)
         .build();
 
 public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
-    MyMob mob = (MyMob) entity;
-
     loadTexture(MODEL.getTexturePath());
-    Aero_EntityModelRenderer.render(MODEL, mob.animState,
+    Aero_EntityModelRenderer.render(MODEL, ((MyMob) entity).animState,
         entity, x, y, z, yaw, partialTick);
 }
 ```
 
-## Classes
+---
+
+## Asset workflow
+
+```
+┌─────────────┐    Blockbench    ┌──────────────┐     OBJ + bbmodel       ┌────────────────┐
+│  Author in  │ ───────────────► │   .obj +     │ ──────────────────────► │  tools/convert │
+│  Blockbench │                  │   .bbmodel   │                         │      .sh       │
+└─────────────┘                  └──────────────┘                         └───────┬────────┘
+                                                                                  │
+                                                                                  ▼
+                                                                          ┌────────────────┐
+                                                                          │  .anim.json    │
+                                                                          │  (strict v2)   │
+                                                                          └───────┬────────┘
+                                                                                  │
+                                          ┌───────────────────────────────────────┘
+                                          ▼
+┌───────────────────────────┐    ┌──────────────────────────┐
+│   ModLoader / Forge       │    │  StationAPI / Babric     │
+│   transpile.sh + RetroMCP │    │  Loom (JDK 17)           │
+└───────────────────────────┘    └──────────────────────────┘
+```
+
+Both runtimes share the same `core/` package — ~67% of the lib is pure
+Java that compiles and runs identical on both.
+
+---
+
+## Class index
 
 | Class | Role |
 |-------|------|
+| **Models** | |
 | `Aero_JsonModel` | Parsed Blockbench JSON model (elements as float[30] arrays) |
-| `Aero_JsonModelLoader` | Loads + caches `.json` models from classpath |
-| `Aero_JsonModelRenderer` | Renders JSON models (world) |
-| `Aero_InventoryRenderer` | Renders any model type as inventory thumbnail (auto-scale + center) |
 | `Aero_MeshModel` | Parsed OBJ model with named groups + brightness classification |
+| `Aero_JsonModelLoader` | Loads + caches `.json` models from classpath |
 | `Aero_ObjLoader` | Loads + caches `.obj` models from classpath |
-| `Aero_MeshRenderer` | Renders OBJ models (static, animated, per-group) |
-| `Aero_EntityModelRenderer` | Renders JSON/OBJ models from entity renderers with entity-origin transform |
-| `Aero_EntityModelTransform` | Immutable entity offset/scale/yaw conversion settings |
-| `Aero_RenderDistance` | Loader adapter for current render distance, entity multipliers and culling checks |
-| `Aero_RenderDistanceCulling` | Pure shared culling math used by ModLoader and StationAPI |
-| `Aero_RenderLod` | Render-distance LOD result: animated, static-at-rest or culled |
-| `Aero_RenderOptions` | Explicit render styling such as per-call mesh tint |
-| `Aero_ModelSpec` | Declarative model contract: model path, texture path, animations, transform, render options and LOD |
-| `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Optional ModLoader/StationAPI bases that make special renderers scale with render distance under a configurable cap |
+| **Renderers** | |
+| `Aero_JsonModelRenderer` | Renders JSON models in the world |
+| `Aero_MeshRenderer` | Renders OBJ models (static / atRest / animated / per-group) |
+| `Aero_EntityModelRenderer` | Renders models from entity renderers with entity-origin transform |
+| `Aero_InventoryRenderer` | Renders any model type as inventory thumbnail |
+| **Render styling** | |
+| `Aero_RenderOptions` | Immutable per-call tint / alpha / blend / depth-test |
+| `Aero_MeshBlendMode` | `OFF` / `ALPHA` / `ADDITIVE` blend func selector |
+| `Aero_EntityModelTransform` | Immutable entity offset / scale / yaw conversion |
+| **Render distance + LOD** | |
+| `Aero_RenderDistance` | Loader adapter for current render distance + culling |
+| `Aero_RenderDistanceCulling` | Pure shared culling math used by both runtimes |
+| `Aero_RenderLod` | Three-band LOD result: animated / static / culled |
+| `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Optional bases for special renderers that scale with view distance |
+| **Animation data** | |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
-| `Aero_AnimationClip` | Single animation clip with keyframes per bone, plus optional non-pose events |
-| `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |
-| `Aero_AnimationSpec` | Declarative animation contract: bundle + state map with playback/state factories |
-| `Aero_AnimationPlayback` | Platform-neutral playback engine with tick / setState / setStateWithTransition / interpolation / animated-pivot resolver |
+| `Aero_AnimationClip` | Single clip with keyframes per bone, plus optional non-pose events |
+| `Aero_AnimationLoop` | Loop type enum: `LOOP` / `PLAY_ONCE` / `HOLD_ON_LAST_FRAME` |
+| `Aero_AnimationLoader` | Loads + caches `.anim.json` files; strict v2 validation |
+| `Aero_Easing` | 33 interpolation curves (linear / step / catmullrom + 30 GeckoLib-style) |
+| **Animation runtime** | |
+| `Aero_AnimationDefinition` | Maps state IDs to clip names |
+| `Aero_AnimationPlayback` | Platform-neutral playback: tick / setState / setStateWithTransition / interpolation / animated-pivot |
 | `Aero_AnimationState` | Loader-specific playback state with NBT persistence |
-| `Aero_AnimationLoader` | Loads + caches `.anim.json` files from classpath |
-| `Aero_Easing` | 33 interpolation curves (linear / step / catmullrom + 30 GeckoLib-style easings) |
+| **Declarative specs** | |
+| `Aero_AnimationSpec` | Bundle + state map + default transition + factory methods |
+| `Aero_ModelSpec` | Model + texture + animations + transform + render options + LOD |
+| **Multi-layer + routing** | |
 | `Aero_AnimationLayer` | One playback head inside a stack (additive flag + weight) |
-| `Aero_AnimationStack` | Ordered collection of layers, exposes per-bone combined sample {Rot,Pos,Scl} |
-| `Aero_AnimationEventListener` | Receives sound / particle / custom keyframes with optional bone locator |
+| `Aero_AnimationStack` | Ordered collection of layers, exposes per-bone combined sample |
 | `Aero_AnimationPredicate` | Single-method `test(playback) → bool` for the state router |
-| `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain that picks the next state |
-| `Aero_AnimationEventRouter` | `on(channel, name, ...)` / `onChannel(...)` / `otherwise(...)` listener that routes keyframe events declaratively |
-| `Aero_AnimationSide` | `isServerSide(world)` / `isClientSide(world)` — gates event side-effects so SMP doesn't double-play sounds |
-| `Aero_MeshBlendMode` | `OFF` / `ALPHA` / `ADDITIVE` — selects the GL blend func used by mesh renderers |
-| `Aero_Profiler` | Optional named-section timer for manual profiling |
-| `Aero_Convert` | CLI tool: converts `.bbmodel` → `.anim.json` (standalone, not bundled in mod) |
+| `Aero_AnimationStateRouter` | `when(...).otherwise(...).withTransition(N)` rule chain |
+| `Aero_AnimationEventListener` | Receives sound / particle / custom keyframes with optional bone locator |
+| `Aero_AnimationEventRouter` | Declarative `(channel, name) → handler` event routing |
+| **Multiplayer + observability** | |
+| `Aero_AnimationSide` | `isServerSide(world)` / `isClientSide(world)` — gate event side-effects per side |
+| `Aero_Profiler` | Always-on, zero-cost-when-off section timer; auto-instruments hot paths |
+| **Tools** | |
+| `Aero_Convert` | CLI: converts `.bbmodel` → `.anim.json` (standalone, JDK 8+) |
 
-## File Formats
+---
 
-### `.anim.json`
+## File formats
+
+### `.anim.json` (strict v2)
 
 ```json
 {
@@ -197,20 +377,8 @@ public void doRender(Entity entity, double x, double y, double z,
     "blade_0": "fan"
   },
   "animations": {
-    "idle": {
-      "loop": "loop",
-      "length": 2.0,
-      "bones": {
-        "fan": {
-          "rotation": {
-            "0.0": { "value": [0, 0, 0], "interp": "linear" },
-            "2.0": { "value": [0, 0, 0], "interp": "linear" }
-          }
-        }
-      }
-    },
     "working": {
-      "loop": "hold_on_last_frame",
+      "loop": "loop",
       "length": 1.0,
       "bones": {
         "fan": {
@@ -218,15 +386,12 @@ public void doRender(Entity entity, double x, double y, double z,
             "0.0": { "value": [0,   0, 0], "interp": "linear" },
             "0.5": { "value": [0, 180, 0], "interp": "easeInOutBack" },
             "1.0": { "value": [0, 360, 0], "interp": "linear" }
-          },
-          "position": {
-            "0.0": { "value": [0, 0, 0], "interp": "linear" }
           }
         }
       },
       "keyframes": {
         "sound":    { "0.5": { "name": "random.click", "locator": "fan" } },
-        "particle": { "1.0": { "name": "smoke",        "locator": "exhaust" } },
+        "particle": { "0.0": { "name": "smoke",        "locator": "exhaust" } },
         "custom":   { "0.0": { "name": "CYCLE_START" } }
       }
     }
@@ -234,267 +399,63 @@ public void doRender(Entity entity, double x, double y, double z,
 }
 ```
 
-The schema is strict v2 — the loader rejects unknown easings, boolean loops
-and shorthand keyframes. Convert existing `.bbmodel` animation exports with
-`tools/convert.sh` or `tools\convert.bat`.
-
 - **Pivots**: Blockbench pixels (auto-divided by 16 in the loader)
 - **Rotation**: Euler degrees [X, Y, Z], applied Z→Y→X (Bedrock compatible)
 - **Position**: Blockbench pixels (divided by 16 in the renderer)
 - **Pose keyframes**: every segment is `{"value": [x, y, z], "interp": "..."}`. The interp picks one of the 33 [easing curves](DOC.md#easing-curves); unknown names throw at load time.
-- **Loop types**: must be `"loop"` / `"play_once"` / `"hold_on_last_frame"`.
-- **Keyframe events**: every entry under `keyframes` is `{"name": "...", "locator": "boneName"}`. Channel is the parent key (`sound`, `particle`, `custom`, or anything else the listener routes); locator is optional.
-- **`format_version`**: required string; the loader currently accepts `"1.0"` only (`Aero_AnimationLoader.SUPPORTED_FORMAT_VERSION`). Future schema bumps reject mismatched versions loudly instead of silently half-parsing.
+- **Loop types**: `"loop"` / `"play_once"` / `"hold_on_last_frame"`.
+- **Keyframe events**: every entry under `keyframes` is `{"name": "...", "locator": "boneName"}`. Channel is the parent key (`sound`, `particle`, `custom`, or any string the listener routes); locator is optional.
+- **`format_version`**: required string; the loader currently accepts `"1.0"` only. Future schema bumps reject mismatched versions loudly instead of silently half-parsing.
 
 ### `.obj`
 
-Standard Wavefront OBJ. Use `o` or `g` directives to create named groups for animated parts.
+Standard Wavefront OBJ. Use `o` or `g` directives to create named groups
+for animated parts — those names become the bone identifiers in the
+`.anim.json` and the locators in keyframe events.
 
-## Asset Workflow
+---
 
-### 1. Create your model in Blockbench
+## Best practices
 
-Design your machine with named bone groups for animated parts (e.g. `fan`, `piston`, `gear`).
-Add animations in the **Animation** tab — rotation and position keyframes are supported.
+- Store loaders + specs as `static final` fields — caching is automatic.
+- Loader caches are synchronized and bounded to 512 entries by default;
+  override with `-Daero.modellib.cache.maxEntries=N` for unusual hot-reload
+  workflows.
+- Call `tick()` **before** `setState()` / `applyState()` every tick.
+- Persist animation state via `writeToNBT()` / `readFromNBT()`.
+- Use `STATE_OFF = 0` as default (NBT returns 0 when the key is absent).
+- Bind your texture **before** calling any render method.
+- For SMP: gate sound events through `Aero_AnimationSide.isServerSide(world)`
+  so `playSoundEffect` broadcasts once; particles fire freely on both sides.
 
-### 2. Export OBJ
-
-In Blockbench: **File → Export → Export OBJ Model**
-
-Use `o` or `g` directives in the OBJ to define named groups that match your bone names.
-
-### 3. Convert animations
-
-```bash
-# Linux / macOS
-bash tools/convert.sh MyMachine.bbmodel
-
-# Windows
-tools\convert.bat MyMachine.bbmodel
-
-# → MyMachine.anim.json
-```
-
-Requires JDK 8+ (same as RetroMCP — no extra dependencies).
-
-The converter extracts from your `.bbmodel`:
-- **Pivots** — bone origins (Blockbench pixels)
-- **ChildMap** — parent→child bone hierarchy
-- **Animations** — all clips with rotation/position keyframes
-
-### 4. Integrate in Java
-
-Place both `.obj` and `.anim.json` in your resources folder (e.g. `/models/`), then use the Quick Start code above.
-
-## State Machine
-
-The animation system includes a built-in state machine for managing clip transitions. It maps integer state IDs to clip names and handles playback automatically.
-
-```java
-// Define states (one per machine type — static final)
-public static final Aero_AnimationDefinition ANIM_DEF = new Aero_AnimationDefinition()
-    .state(0, "idle")       // STATE_OFF
-    .state(1, "working")    // STATE_ON
-    .state(2, "overdrive"); // STATE_FAST
-
-// Create per-instance state
-public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
-
-// In updateEntity():
-animState.tick();                              // 1. Advance time (ALWAYS first)
-animState.setState(isRunning ? 1 : 0);         // 2. Evaluate state (AFTER tick)
-```
-
-**State switch rules:**
-- **Same state** → no-op
-- **Different state, different clip** → playback resets to 0 (new animation starts)
-- **Different state, same clip** → playback continues (animation uninterrupted)
-- **Default switch is instant** — use `setStateWithTransition(...)` or the router's `withTransition(...)` for crossfade
-
-**Edge cases are safe:** unknown state IDs resolve to `null` clip (animation stops gracefully). Looping clips handle wrap-around without stutter.
-
-See [DOC.md § State Machine](DOC.md#6-state-machine) for flowcharts, diagrams, and detailed behavior.
-
-## Advanced Animation
-
-Most consumers can stay on the basic state machine above. The features below
-are opt-in — no existing clip needs them, but they are there when a mod
-wants smoother transitions, layered motion, or sounds and particles fired
-on cue.
-
-### Easing curves
-
-Each keyframe can declare its own `interp` (the curve over the segment that
-ENDS at that keyframe). Any of the 33 curves work — `linear` (default),
-`step`, `catmullrom`, plus the GeckoLib-style families: `sine`, `quad`,
-`cubic`, `quart`, `quint`, `expo`, `circ`, `back`, `elastic`, `bounce`,
-each with `easeIn*`, `easeOut*`, `easeInOut*` variants.
-
-```json
-"position": {
-  "0":   { "value": [0, 0, 0], "interp": "linear" },
-  "0.5": { "value": [0, 8, 0], "interp": "easeOutBack" },
-  "1.0": { "value": [0, 0, 0], "interp": "easeInBounce" }
-}
-```
-
-Unknown curve names throw at load time so typos surface immediately rather
-than degrading silently. See [DOC.md § Easing curves](DOC.md#easing-curves).
-
-### Smooth state transitions
-
-Replace `setState(N)` with `setStateWithTransition(N, ticks)` to snapshot
-the previous pose and blend it into the new clip's first N ticks. The
-machinery handles bones present in only one of the two clips (those fade
-in or out cleanly).
-
-```java
-animState.setStateWithTransition(STATE_WALK, 6);  // 6-tick blend
-```
-
-Or declare the default once on the spec and call `applyState`:
-
-```java
-public static final Aero_AnimationSpec ANIMATION =
-    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
-        .state(0, "idle").state(1, "walk").state(2, "attack")
-        .defaultTransitionTicks(6)
-        .build();
-
-ANIMATION.applyState(animState, isWalking ? 1 : 0);   // 6-tick blend, no manual transition arg
-```
-
-### Keyframe events with locators
-
-Declare non-pose keyframes alongside the pose tracks; register a listener
-on the playback to receive them. The `locator` is a bone name — the
-listener uses `state.getAnimatedPivot(locator, partialTick, out)` to get
-the bone's CURRENT position (rest pivot + the position channel offset),
-so a particle anchored to "fan" emits from wherever the fan is RIGHT NOW.
-
-```java
-animState.setEventListener((channel, data, locator, time) -> {
-    if (!"sound".equals(channel)) return;
-    float[] p = new float[3];
-    if (animState.getAnimatedPivot(locator, 0f, p)) {
-        world.playSound(x + p[0], y + p[1], z + p[2], data, 0.6f, 1.0f);
-    }
-});
-```
-
-For multiple events of different shapes, route declaratively with
-`Aero_AnimationEventRouter` instead of one giant `if/else` lambda:
-
-```java
-Aero_AnimationEventListener listener = Aero_AnimationEventRouter.builder()
-    .on("sound", "random.click", (ch, name, locator, t) -> playClick(locator))
-    .on("particle", "smoke",     (ch, name, locator, t) -> emitSmoke(locator))
-    .onChannel("custom",         (ch, name, locator, t) -> handleCustom(name))
-    .build();
-
-animState.setEventListener(listener);
-```
-
-### Multi-layer playback (Stack)
-
-`Aero_AnimationStack` runs several playbacks at once, combining their
-per-bone outputs by REPLACE (default) or by ADD (additive). Useful for
-a base walk loop plus a head-look or arm-wave overlay that only animates
-its own bones.
-
-```java
-Aero_AnimationStack stack = Aero_AnimationStack.builder()
-    .replace(walkPlayback)                  // base
-    .additive(armWavePlayback, 0.8f)         // overlay
-    .build();
-
-stack.tick();   // ticks every layer
-Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick);
-```
-
-Scale composes multiplicatively (`base × layer`), rotation/position add.
-
-### Declarative specs
-
-Use specs when the same model wiring appears in several places. The entity
-or tile keeps the animation spec; the renderer keeps the client-side model
-spec and passes it to the helper.
-
-```java
-public static final Aero_AnimationSpec ANIMATION =
-    Aero_AnimationSpec.builder("/models/Robot.anim.json")
-        .state(0, "idle")
-        .state(1, "walk")
-        .build();
-
-private static final Aero_ModelSpec ROBOT =
-    Aero_ModelSpec.mesh("/models/Robot.obj")
-        .texture("/models/robot.png")
-        .animations(ANIMATION)
-        .offset(-0.5f, 0f, -0.5f)
-        .cullingRadius(2f)
-        .animatedDistance(48d)
-        .build();
-
-Aero_EntityModelRenderer.render(ROBOT, mob.animState,
-    entity, x, y, z, yaw, partialTick);
-```
-
-The renderer computes LOD from the spec automatically. Call
-`Aero_RenderDistance.lodRelative(spec, x, y, z)` only when you need to
-branch manually before rendering.
-
-### Explicit render options
-
-Use `Aero_RenderOptions` when a draw call needs styling such as a damage
-flash or overheat tint. Options are passed per render call, so there is no
-renderer-global state to reset afterward.
-
-```java
-Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
-Aero_EntityModelRenderer.render(ROBOT, mob.animState,
-    x, y, z, yaw, brightness, partialTick, hot);
-```
-
-### Predicate state router
-
-Replaces the giant `if/else` translating gameplay state into the int
-that `setState(...)` consumes. Rules evaluate in declaration order; first
-match wins. Optional `withTransition(ticks)` makes every state change a
-smooth blend.
-
-```java
-Aero_AnimationStateRouter router = new Aero_AnimationStateRouter()
-    .when(p -> entity.isDead(),       STATE_DEATH)
-    .when(p -> entity.isAttacking(),  STATE_ATTACK)
-    .when(p -> entity.isMoving(),     STATE_WALK)
-    .otherwise(STATE_IDLE)
-    .withTransition(6);
-
-router.applyTo(animState);
-```
-
-## Best Practices
-
-- Store loaders as `static final` fields — caching is automatic
-- Loader caches are synchronized and bounded to 512 entries by default.
-  Override with `-Daero.modellib.cache.maxEntries=N` for unusual hot-reload/tooling workflows.
-- Call `tick()` **before** `setState()` every tick
-- Persist animation state via `writeToNBT()` / `readFromNBT()`
-- Use `STATE_OFF = 0` as default (NBT returns 0 when key is absent)
-- Bind your texture **before** calling any render method
+---
 
 ## Documentation
 
-See [DOC.md](DOC.md) for the full API reference, architecture diagrams, and end-to-end examples.
+[DOC.md](DOC.md) covers the full API reference, architecture diagrams,
+end-to-end examples (full mod + tile + renderer + JSON), troubleshooting,
+and the multiplayer recipe.
+
+| Section | What |
+|---------|------|
+| [§ 1 Quick Start](DOC.md#1-quick-start) | 3-step + 5-step recipes for static and animated models |
+| [§ 2 Architecture](DOC.md#2-architecture) | Mindmap + class dependency graph |
+| [§ 5 Animations](DOC.md#5-animations) | Schema, sampling, per-channel keyframes |
+| [§ 7 Advanced Animation](DOC.md#7-advanced-animation) | Easings, transitions, keyframe events, Stack, router |
+| [§ 8 API Reference](DOC.md#8-api-reference) | Every public class with method tables |
+| [§ 11 Patterns](DOC.md#11-patterns--best-practices) | Multiplayer, NBT, LOD, render-distance idioms |
+| [§ 14 End-to-end example](DOC.md#14-full-end-to-end-example) | A complete simple-crusher mod, copy-paste ready |
+| [§ 15 Profiling](DOC.md#15-development-tests--benchmarks) | Aero_Profiler + JFR launch + JMC analysis |
+
+---
 
 ## Development
 
 ```powershell
-# Core unit tests (pure Java, no Minecraft runtime)
+# Pure-Java unit tests (no Minecraft runtime required)
 powershell -ExecutionPolicy Bypass -File modloader/tests/run.ps1
 
-# Core microbenchmark for geometry caches and animation sampling
+# Microbenchmark for geometry caches and animation sampling
 powershell -ExecutionPolicy Bypass -File modloader/tests/bench.ps1
 
 # StationAPI library build (requires JDK 17+)
@@ -505,9 +466,11 @@ cd stationapi
 cd test
 .\gradlew.bat build
 
-# In-game StationAPI smoke test, includes an animated entity probe
+# In-game StationAPI smoke test (animated entity probe in spawn chunks)
 .\gradlew.bat runClient
 ```
+
+---
 
 ## Author
 
