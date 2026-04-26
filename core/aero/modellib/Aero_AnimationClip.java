@@ -35,7 +35,8 @@ public final class Aero_AnimationClip {
             throw new IllegalArgumentException("clip name must not be empty");
         }
         if (builder.length < 0f || Float.isNaN(builder.length) || Float.isInfinite(builder.length)) {
-            throw new IllegalArgumentException("length must be finite and >= 0");
+            throw new IllegalArgumentException("clip '" + builder.name
+                + "': length must be finite and >= 0, got " + builder.length);
         }
 
         this.name = builder.name;
@@ -144,12 +145,20 @@ public final class Aero_AnimationClip {
         final float[][] values;
         final Aero_Easing[] easings;
 
-        ChannelTrack(float[] times, float[][] values, Aero_Easing[] easings) {
+        ChannelTrack(String clipName, String boneName, String channelKind,
+                     float[] times, float[][] values, Aero_Easing[] easings) {
+            String ctx = "clip '" + clipName + "' bone '" + boneName + "' " + channelKind;
             if (times == null || values == null || easings == null) {
-                throw new IllegalArgumentException("channel arrays must not be null");
+                throw new IllegalArgumentException(ctx + ": channel arrays must not be null"
+                    + " (times=" + (times == null ? "null" : "ok")
+                    + ", values=" + (values == null ? "null" : "ok")
+                    + ", easings=" + (easings == null ? "null" : "ok") + ")");
             }
             if (times.length != values.length || times.length != easings.length) {
-                throw new IllegalArgumentException("channel array lengths must match");
+                throw new IllegalArgumentException(ctx + ": channel array lengths must match"
+                    + " (times=" + times.length
+                    + ", values=" + values.length
+                    + ", easings=" + easings.length + ")");
             }
             this.times = new float[times.length];
             this.values = new float[values.length][];
@@ -157,18 +166,24 @@ public final class Aero_AnimationClip {
             for (int i = 0; i < times.length; i++) {
                 float time = times[i];
                 if (Float.isNaN(time) || Float.isInfinite(time)) {
-                    throw new IllegalArgumentException("keyframe time must be finite");
+                    throw new IllegalArgumentException(ctx + ": keyframe[" + i
+                        + "] time must be finite, got " + time);
                 }
                 if (i > 0 && time < times[i - 1]) {
-                    throw new IllegalArgumentException("keyframe times must be sorted ascending");
+                    throw new IllegalArgumentException(ctx + ": keyframe times must be sorted ascending"
+                        + " (t[" + (i - 1) + "]=" + times[i - 1]
+                        + " > t[" + i + "]=" + time + ")");
                 }
                 float[] value = values[i];
                 if (value == null || value.length < 3) {
-                    throw new IllegalArgumentException("keyframe value must have 3 components");
+                    throw new IllegalArgumentException(ctx + ": keyframe[" + i
+                        + "] value must have 3 components, got "
+                        + (value == null ? "null" : ("length=" + value.length)));
                 }
                 Aero_Easing easing = easings[i];
                 if (easing == null) {
-                    throw new IllegalArgumentException("keyframe easing must not be null");
+                    throw new IllegalArgumentException(ctx + ": keyframe[" + i
+                        + "] easing must not be null");
                 }
                 this.times[i] = time;
                 this.values[i] = new float[]{value[0], value[1], value[2]};
@@ -260,7 +275,8 @@ public final class Aero_AnimationClip {
 
         public BoneBuilder bone(String name) {
             if (name == null || name.length() == 0) {
-                throw new IllegalArgumentException("bone name must not be empty");
+                throw new IllegalArgumentException("clip '" + this.name
+                    + "': bone name must not be empty");
             }
             BoneBuilder bone = (BoneBuilder) bonesByName.get(name);
             if (bone == null) {
@@ -273,13 +289,16 @@ public final class Aero_AnimationClip {
 
         public Builder event(float time, String channel, String data, String locator) {
             if (Float.isNaN(time) || Float.isInfinite(time)) {
-                throw new IllegalArgumentException("event time must be finite");
+                throw new IllegalArgumentException("clip '" + name
+                    + "': event time must be finite, got " + time);
             }
             if (channel == null || channel.length() == 0) {
-                throw new IllegalArgumentException("event channel must not be empty");
+                throw new IllegalArgumentException("clip '" + name
+                    + "': event channel must not be empty");
             }
             if (data == null || data.length() == 0) {
-                throw new IllegalArgumentException("event name must not be empty");
+                throw new IllegalArgumentException("clip '" + name + "' channel '" + channel
+                    + "' @t=" + time + ": event name must not be empty");
             }
             events.add(new KeyframeEvent(time, channel, data, locator));
             return this;
@@ -303,17 +322,17 @@ public final class Aero_AnimationClip {
         }
 
         public BoneBuilder rotation(float[] times, float[][] values, Aero_Easing[] easings) {
-            rotation = new ChannelTrack(times, values, easings);
+            rotation = new ChannelTrack(owner.name, name, "rotation", times, values, easings);
             return this;
         }
 
         public BoneBuilder position(float[] times, float[][] values, Aero_Easing[] easings) {
-            position = new ChannelTrack(times, values, easings);
+            position = new ChannelTrack(owner.name, name, "position", times, values, easings);
             return this;
         }
 
         public BoneBuilder scale(float[] times, float[][] values, Aero_Easing[] easings) {
-            scale = new ChannelTrack(times, values, easings);
+            scale = new ChannelTrack(owner.name, name, "scale", times, values, easings);
             return this;
         }
 

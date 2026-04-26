@@ -155,9 +155,15 @@ public class Aero_AnimationLoader {
         if (clipData.containsKey("loop")) {
             Object loopVal = clipData.get("loop");
             if (!(loopVal instanceof String)) {
-                throw new RuntimeException("loop must be a string in clip " + clipName);
+                throw new RuntimeException("clip '" + clipName
+                    + "': loop must be a string, got "
+                    + (loopVal == null ? "null" : loopVal.getClass().getSimpleName()));
             }
-            loop = Aero_AnimationLoop.fromName((String) loopVal);
+            try {
+                loop = Aero_AnimationLoop.fromName((String) loopVal);
+            } catch (IllegalArgumentException ex) {
+                throw new RuntimeException("clip '" + clipName + "': " + ex.getMessage(), ex);
+            }
         }
         float   length = clipData.containsKey("length") ? toFloat(clipData.get("length")) : 1f;
 
@@ -174,27 +180,30 @@ public class Aero_AnimationLoader {
             Map channels  = (Map) entry.getValue();
 
             if (channels.containsKey("rotation")) {
-                ParsedChannel ch = parseChannel((Map) channels.get("rotation"));
+                ParsedChannel ch = parseChannel(clipName, boneName, "rotation",
+                    (Map) channels.get("rotation"));
                 bone.rotation(ch.times, ch.values, ch.easings);
             }
             if (channels.containsKey("position")) {
-                ParsedChannel ch = parseChannel((Map) channels.get("position"));
+                ParsedChannel ch = parseChannel(clipName, boneName, "position",
+                    (Map) channels.get("position"));
                 bone.position(ch.times, ch.values, ch.easings);
             }
             if (channels.containsKey("scale")) {
-                ParsedChannel ch = parseChannel((Map) channels.get("scale"));
+                ParsedChannel ch = parseChannel(clipName, boneName, "scale",
+                    (Map) channels.get("scale"));
                 bone.scale(ch.times, ch.values, ch.easings);
             }
         }
 
         if (clipData.containsKey("keyframes")) {
-            parseEvents((Map) clipData.get("keyframes"), builder);
+            parseEvents(clipName, (Map) clipData.get("keyframes"), builder);
         }
 
         return builder.build();
     }
 
-    private static void parseEvents(Map kfRoot, Aero_AnimationClip.Builder builder) {
+    private static void parseEvents(String clipName, Map kfRoot, Aero_AnimationClip.Builder builder) {
         // Flatten {channel: {time: payload}} into a list, then sort by time.
         List rows = new ArrayList(); // Object[]{time, channel, data, locator}
         Iterator it = kfRoot.entrySet().iterator();
@@ -210,12 +219,16 @@ public class Aero_AnimationLoader {
                 float t = Float.parseFloat((String) e.getKey());
                 Object payload = e.getValue();
                 if (!(payload instanceof Map)) {
-                    throw new RuntimeException("event keyframe must be an object at " + channel + "@" + t);
+                    throw new RuntimeException("clip '" + clipName + "' channel '" + channel
+                        + "' @t=" + t + ": event keyframe must be an object, got "
+                        + (payload == null ? "null" : payload.getClass().getSimpleName()));
                 }
                 Map kf = (Map) payload;
                 Object n = kf.get("name");
                 if (!(n instanceof String)) {
-                    throw new RuntimeException("event name must be a string at " + channel + "@" + t);
+                    throw new RuntimeException("clip '" + clipName + "' channel '" + channel
+                        + "' @t=" + t + ": event name must be a string, got "
+                        + (n == null ? "null" : n.getClass().getSimpleName()));
                 }
                 Object loc = kf.get("locator");
                 String locator = loc != null ? String.valueOf(loc) : null;
@@ -248,7 +261,9 @@ public class Aero_AnimationLoader {
      * Parses a strict channel map:
      *   "0.0": { "value": [x, y, z], "interp": "catmullrom" }
      */
-    private static ParsedChannel parseChannel(Map kfMap) {
+    private static ParsedChannel parseChannel(String clipName, String boneName,
+                                              String channelKind, Map kfMap) {
+        String ctx = "clip '" + clipName + "' bone '" + boneName + "' " + channelKind;
         List entries = new ArrayList(); // Object[]{Float time, float[] value, Aero_Easing easing}
         Iterator it = kfMap.entrySet().iterator();
         while (it.hasNext()) {
@@ -257,20 +272,31 @@ public class Aero_AnimationLoader {
             Object val = entry.getValue();
 
             if (!(val instanceof Map)) {
-                throw new RuntimeException("pose keyframe must be an object at t=" + t);
+                throw new RuntimeException(ctx + " @t=" + t
+                    + ": pose keyframe must be an object, got "
+                    + (val == null ? "null" : val.getClass().getSimpleName()));
             }
             Map kfObj = (Map) val;
             Object valueObj = kfObj.get("value");
             if (!(valueObj instanceof List)) {
-                throw new RuntimeException("pose keyframe value must be an array at t=" + t);
+                throw new RuntimeException(ctx + " @t=" + t
+                    + ": pose keyframe value must be an array, got "
+                    + (valueObj == null ? "null" : valueObj.getClass().getSimpleName()));
             }
             Object interpObj = kfObj.get("interp");
             if (!(interpObj instanceof String)) {
-                throw new RuntimeException("pose keyframe interp must be a string at t=" + t);
+                throw new RuntimeException(ctx + " @t=" + t
+                    + ": pose keyframe interp must be a string, got "
+                    + (interpObj == null ? "null" : interpObj.getClass().getSimpleName()));
             }
             List v = (List) valueObj;
             float[] xyz = new float[]{toFloat(v.get(0)), toFloat(v.get(1)), toFloat(v.get(2))};
-            Aero_Easing easing = Aero_Easing.fromName((String) interpObj);
+            Aero_Easing easing;
+            try {
+                easing = Aero_Easing.fromName((String) interpObj);
+            } catch (IllegalArgumentException ex) {
+                throw new RuntimeException(ctx + " @t=" + t + ": " + ex.getMessage(), ex);
+            }
 
             entries.add(new Object[]{Float.valueOf(t), xyz, easing});
         }
