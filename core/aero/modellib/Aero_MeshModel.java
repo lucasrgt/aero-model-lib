@@ -77,6 +77,14 @@ public class Aero_MeshModel {
     private float[] cachedBounds;
     private SmoothLightData cachedStaticSmoothLightData;
 
+    /**
+     * Optional morph targets keyed by name. Mutable holder — load-time
+     * code can attach targets after construction via
+     * {@link #attachMorphTarget(Aero_MorphTarget)}. Renderer fast-paths
+     * skip blending when this is empty or all weights are zero.
+     */
+    private Map morphTargets;
+
     public Aero_MeshModel(String name, float[][][] groups, float scale, Map namedGroups) {
         if (scale == 0f) throw new IllegalArgumentException("scale must be non-zero");
         this.name = name;
@@ -84,6 +92,27 @@ public class Aero_MeshModel {
         this.scale = scale;
         this.invScale = 1f / scale;
         this.namedGroups = Collections.unmodifiableMap(namedGroups);
+    }
+
+    /**
+     * Attaches a morph variant. Targets are validated topology-side at
+     * construction of {@link Aero_MorphTarget#fromTargetMesh}, so this
+     * method only registers the named entry.
+     */
+    public void attachMorphTarget(Aero_MorphTarget target) {
+        if (target == null) throw new IllegalArgumentException("morph target must not be null");
+        if (morphTargets == null) morphTargets = new java.util.HashMap();
+        morphTargets.put(target.name, target);
+    }
+
+    /** Returns a morph target by name, or null if absent. */
+    public Aero_MorphTarget getMorphTarget(String name) {
+        return morphTargets == null ? null : (Aero_MorphTarget) morphTargets.get(name);
+    }
+
+    /** True if at least one morph target is registered. Render fast-path probe. */
+    public boolean hasMorphTargets() {
+        return morphTargets != null && !morphTargets.isEmpty();
     }
 
     /** Convenience constructor: scale=1, empty named groups. */
@@ -300,7 +329,57 @@ public class Aero_MeshModel {
                     }
                 }
             }
-            refs[i] = new BoneRef(boneIdx, resolvedBoneName, pivot);
+
+            // Build animated ancestor chain (root → ... → resolvedBoneName).
+            // Walks childMap upward, including only ancestors that have a
+            // bone in the clip. Required for hierarchical rendering: a child
+            // bone with its own animation must compose with every animated
+            // ancestor's transform so parent rotations propagate correctly.
+            int[] ancestorBoneIdx;
+            String[] ancestorBoneNames;
+            float[][] ancestorPivots;
+            if (boneIdx < 0 || clip == null) {
+                ancestorBoneIdx = EMPTY_INT;
+                ancestorBoneNames = EMPTY_STRING;
+                ancestorPivots = EMPTY_PIVOTS;
+            } else {
+                // Walk parents starting from resolvedBoneName, collecting
+                // animated ancestors. Cap at MAX_DEPTH to guard cycles.
+                String[] tmpNames = new String[MAX_HIERARCHY_DEPTH];
+                int[] tmpIdx = new int[MAX_HIERARCHY_DEPTH];
+                float[][] tmpPivots = new float[MAX_HIERARCHY_DEPTH][];
+                int depth = 0;
+
+                tmpNames[depth] = resolvedBoneName;
+                tmpIdx[depth] = boneIdx;
+                tmpPivots[depth] = pivot;
+                depth++;
+
+                String parent = bundle.getParentBoneName(resolvedBoneName);
+                while (parent != null && depth < MAX_HIERARCHY_DEPTH) {
+                    int parentIdx = clip.indexOfBone(parent);
+                    if (parentIdx >= 0) {
+                        tmpNames[depth] = parent;
+                        tmpIdx[depth] = parentIdx;
+                        tmpPivots[depth] = bundle.pivotOrZero(parent);
+                        depth++;
+                    }
+                    parent = bundle.getParentBoneName(parent);
+                }
+
+                // Reverse so chain is root → ... → leaf.
+                ancestorBoneIdx = new int[depth];
+                ancestorBoneNames = new String[depth];
+                ancestorPivots = new float[depth][];
+                for (int d = 0; d < depth; d++) {
+                    ancestorBoneIdx[d] = tmpIdx[depth - 1 - d];
+                    ancestorBoneNames[d] = tmpNames[depth - 1 - d];
+                    ancestorPivots[d] = tmpPivots[depth - 1 - d];
+                }
+            }
+
+            refs[i] = new BoneRef(boneIdx, resolvedBoneName, pivot,
+                ancestorBoneIdx, ancestorBoneNames, ancestorPivots);
         }
 
         cachedClip     = clip;
@@ -308,6 +387,11 @@ public class Aero_MeshModel {
         cachedBoneRefs = refs;
         return refs;
     }
+
+    private static final int[] EMPTY_INT = new int[0];
+    private static final String[] EMPTY_STRING = new String[0];
+    private static final float[][] EMPTY_PIVOTS = new float[0][];
+    private static final int MAX_HIERARCHY_DEPTH = 32;
 
     /**
      * Finds a bone whose name is a prefix of groupName followed by '_'.
@@ -341,15 +425,49 @@ public class Aero_MeshModel {
         }
     }
 
-    /** Resolved bone index + effective pivot for a named group against a clip. */
+    /**
+     * Resolved bone hierarchy for a named group against a clip.
+     *
+     * <p>{@link #boneIdx} / {@link #boneName} / {@link #pivot} describe the
+     * <em>deepest</em> animated ancestor — the bone whose pose is applied
+     * last when rendering. The {@link #ancestorBoneIdx} /
+     * {@link #ancestorBoneNames} / {@link #ancestorPivots} arrays hold the
+     * full chain of animated ancestors from root to deepest, inclusive,
+     * so the renderer can compose parent transforms hierarchically (parent
+     * rotation moves child along, exactly like Blockbench's animator).
+     *
+     * <p>For groups without animation in the clip, the chain length is 0
+     * and {@link #boneIdx} is -1 — the renderer skips them entirely (the
+     * group's vertices stay at rest in absolute coordinates).
+     */
     public static final class BoneRef {
-        public final int boneIdx;     // -1 if no bone resolved
-        public final String boneName; // resolved animation bone name, or null
-        public final float[] pivot;   // never null (falls back to bundle's zero-pivot)
-        BoneRef(int boneIdx, String boneName, float[] pivot) {
+        public final int boneIdx;             // -1 if no bone resolved
+        public final String boneName;         // resolved animation bone name, or null
+        public final float[] pivot;           // never null (falls back to bundle's zero-pivot)
+        public final int[] ancestorBoneIdx;   // chain root → ... → boneIdx (inclusive). length 0 if boneIdx == -1
+        public final String[] ancestorBoneNames; // matching names for procedural pose dispatch
+        public final float[][] ancestorPivots;   // each ancestor's pivot (for applyPose); never null entries
+
+        BoneRef(int boneIdx, String boneName, float[] pivot,
+                int[] ancestorBoneIdx, String[] ancestorBoneNames, float[][] ancestorPivots) {
             this.boneIdx = boneIdx;
             this.boneName = boneName;
             this.pivot   = pivot;
+            this.ancestorBoneIdx = ancestorBoneIdx;
+            this.ancestorBoneNames = ancestorBoneNames;
+            this.ancestorPivots = ancestorPivots;
+        }
+
+        /**
+         * Convenience constructor for tests + manual procedural-pose flows
+         * where the bone has no animated parent — builds a single-element
+         * ancestor chain containing just this bone.
+         */
+        public BoneRef(int boneIdx, String boneName, float[] pivot) {
+            this(boneIdx, boneName, pivot,
+                boneIdx >= 0 ? new int[]{boneIdx} : EMPTY_INT,
+                boneIdx >= 0 ? new String[]{boneName} : EMPTY_STRING,
+                boneIdx >= 0 ? new float[][]{pivot} : EMPTY_PIVOTS);
         }
     }
 

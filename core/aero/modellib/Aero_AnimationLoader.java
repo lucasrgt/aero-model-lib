@@ -22,8 +22,11 @@ import java.util.Map;
  */
 public class Aero_AnimationLoader {
 
-    /** Schema version this loader understands. */
-    public static final String SUPPORTED_FORMAT_VERSION = "1.0";
+    /** Schema version this loader understands (highest accepted). */
+    public static final String SUPPORTED_FORMAT_VERSION = "1.1";
+
+    /** Earlier versions still accepted for backward compatibility. */
+    public static final String[] BACKWARD_COMPAT_VERSIONS = {"1.0"};
 
     private static final int MAX_CACHE_ENTRIES =
         Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
@@ -90,9 +93,10 @@ public class Aero_AnimationLoader {
 
     private static Aero_AnimationBundle buildBundle(Map root) {
         // --- format_version ---
-        // The strict schema declares format_version "1.0". Reject anything else loudly so
-        // future schema bumps surface as a clear loader error rather than
-        // a silent half-parsed bundle.
+        // Highest accepted version is SUPPORTED_FORMAT_VERSION (currently "1.1").
+        // Earlier versions in BACKWARD_COMPAT_VERSIONS still load — additive
+        // schema fields that v1.0 doesn't know are silently skipped on read.
+        // Anything else surfaces as a clear loader error.
         if (!root.containsKey("format_version")) {
             throw new RuntimeException("missing required \"format_version\" — "
                 + "expected \"" + SUPPORTED_FORMAT_VERSION + "\"");
@@ -101,9 +105,22 @@ public class Aero_AnimationLoader {
         if (!(versionObj instanceof String)) {
             throw new RuntimeException("format_version must be a string");
         }
-        if (!SUPPORTED_FORMAT_VERSION.equals(versionObj)) {
+        boolean accepted = SUPPORTED_FORMAT_VERSION.equals(versionObj);
+        if (!accepted) {
+            for (int i = 0; i < BACKWARD_COMPAT_VERSIONS.length; i++) {
+                if (BACKWARD_COMPAT_VERSIONS[i].equals(versionObj)) {
+                    accepted = true;
+                    break;
+                }
+            }
+        }
+        if (!accepted) {
+            StringBuilder supported = new StringBuilder("\"" + SUPPORTED_FORMAT_VERSION + "\"");
+            for (int i = 0; i < BACKWARD_COMPAT_VERSIONS.length; i++) {
+                supported.append(", \"").append(BACKWARD_COMPAT_VERSIONS[i]).append("\"");
+            }
             throw new RuntimeException("unsupported format_version \"" + versionObj
-                + "\" — this loader supports \"" + SUPPORTED_FORMAT_VERSION + "\"");
+                + "\" — this loader supports " + supported);
         }
 
         // --- Pivots ---
@@ -147,7 +164,24 @@ public class Aero_AnimationLoader {
             }
         }
 
-        return new Aero_AnimationBundle(clipsOut, pivotsOut, childMapOut);
+        // --- Morph targets (v1.1 additive) ---
+        Map morphTargetsOut = new HashMap();
+        if (root.containsKey("morph_targets")) {
+            Map mtIn = (Map) root.get("morph_targets");
+            Iterator mtIt = mtIn.entrySet().iterator();
+            while (mtIt.hasNext()) {
+                Map.Entry mtEntry = (Map.Entry) mtIt.next();
+                Object pathVal = mtEntry.getValue();
+                if (!(pathVal instanceof String)) {
+                    throw new RuntimeException("morph_targets[\"" + mtEntry.getKey()
+                        + "\"]: must be a string resource path, got "
+                        + (pathVal == null ? "null" : pathVal.getClass().getSimpleName()));
+                }
+                morphTargetsOut.put((String) mtEntry.getKey(), (String) pathVal);
+            }
+        }
+
+        return new Aero_AnimationBundle(clipsOut, pivotsOut, childMapOut, morphTargetsOut);
     }
 
     private static Aero_AnimationClip buildClip(String clipName, Map clipData) {
@@ -193,6 +227,16 @@ public class Aero_AnimationLoader {
                 ParsedChannel ch = parseChannel(clipName, boneName, "scale",
                     (Map) channels.get("scale"));
                 bone.scale(ch.times, ch.values, ch.easings);
+            }
+            if (channels.containsKey("uv_offset")) {
+                ParsedChannel ch = parseChannel(clipName, boneName, "uv_offset",
+                    (Map) channels.get("uv_offset"));
+                bone.uvOffset(ch.times, ch.values, ch.easings);
+            }
+            if (channels.containsKey("uv_scale")) {
+                ParsedChannel ch = parseChannel(clipName, boneName, "uv_scale",
+                    (Map) channels.get("uv_scale"));
+                bone.uvScale(ch.times, ch.values, ch.easings);
             }
         }
 

@@ -39,10 +39,26 @@ public class Aero_AnimationBundle {
      */
     public final Map childMap;
 
+    /**
+     * Map<String, String> — morph target name → resource path of the
+     * variant OBJ. Loader exposes the parsed v1.1 schema; callers wire the
+     * actual variant geometry via {@link Aero_MorphTarget#attachAllFromBundle}
+     * or load each path manually with {@link Aero_MorphTarget#loadVariant}.
+     * Empty for v1.0 bundles. Unmodifiable.
+     */
+    public final Map morphTargetPaths;
+
     Aero_AnimationBundle(Map clips, Map pivots, Map childMap) {
+        this(clips, pivots, childMap, java.util.Collections.EMPTY_MAP);
+    }
+
+    Aero_AnimationBundle(Map clips, Map pivots, Map childMap, Map morphTargetPaths) {
         this.clips    = Collections.unmodifiableMap(clips);
         this.pivots   = Collections.unmodifiableMap(pivots);
         this.childMap = Collections.unmodifiableMap(childMap);
+        this.morphTargetPaths = morphTargetPaths == null
+            ? java.util.Collections.EMPTY_MAP
+            : Collections.unmodifiableMap(morphTargetPaths);
     }
 
     /**

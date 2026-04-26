@@ -63,6 +63,17 @@ public final class Aero_AnimationStack {
      */
     public boolean samplePose(String boneName, float partialTick,
                               float[] outRot, float[] outPos, float[] outScl) {
+        return samplePose(boneName, partialTick, outRot, outPos, outScl, null, null);
+    }
+
+    /**
+     * Samples rotation, position, scale plus UV offset/scale in one layer
+     * walk. Pass {@code null} for outUvOffset/outUvScale to skip UV
+     * sampling — same fast-path as the 5-arg overload.
+     */
+    public boolean samplePose(String boneName, float partialTick,
+                              float[] outRot, float[] outPos, float[] outScl,
+                              float[] outUvOffset, float[] outUvScale) {
         if (outRot == null || outPos == null || outScl == null) {
             throw new IllegalArgumentException("pose outputs must not be null");
         }
@@ -70,6 +81,8 @@ public final class Aero_AnimationStack {
         outRot[0] = 0f; outRot[1] = 0f; outRot[2] = 0f;
         outPos[0] = 0f; outPos[1] = 0f; outPos[2] = 0f;
         outScl[0] = 1f; outScl[1] = 1f; outScl[2] = 1f;
+        if (outUvOffset != null) { outUvOffset[0] = 0f; outUvOffset[1] = 0f; outUvOffset[2] = 0f; }
+        if (outUvScale  != null) { outUvScale[0]  = 1f; outUvScale[1]  = 1f; outUvScale[2]  = 1f; }
 
         boolean any = false;
         for (int i = 0; i < layers.length; i++) {
@@ -94,6 +107,18 @@ public final class Aero_AnimationStack {
             }
             if (pb.sampleSclBlended(clip, bi, boneName, time, partialTick, tmp)) {
                 compose(outScl, tmp, weight, additive, CHANNEL_SCL);
+                any = true;
+            }
+            if (outUvOffset != null
+                && pb.sampleUvOffsetBlended(clip, bi, boneName, time, partialTick, tmp)) {
+                // UV offset composes like position (additive sums, REPLACE lerps).
+                compose(outUvOffset, tmp, weight, additive, CHANNEL_POS);
+                any = true;
+            }
+            if (outUvScale != null
+                && pb.sampleUvScaleBlended(clip, bi, boneName, time, partialTick, tmp)) {
+                // UV scale composes like scale (additive multiplies, REPLACE lerps).
+                compose(outUvScale, tmp, weight, additive, CHANNEL_SCL);
                 any = true;
             }
         }
