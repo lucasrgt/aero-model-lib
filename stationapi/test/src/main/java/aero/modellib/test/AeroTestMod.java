@@ -31,6 +31,7 @@ public class AeroTestMod {
     public static EasingShowcaseBlock easingShowcaseBlock;
     public static EasingShowcase2Block easingShowcase2Block;
     public static EasingShowcase3Block easingShowcase3Block;
+    public static PlasmaCrystalBlock plasmaCrystalBlock;
     public static AeroRobotEggItem robotEgg;
 
     private static final int DEMO_BLOCK_SPACING_CHUNKS = 2;
@@ -52,6 +53,7 @@ public class AeroTestMod {
         easingShowcaseBlock  = new EasingShowcaseBlock(Identifier.of(NAMESPACE, "easing_showcase"));
         easingShowcase2Block = new EasingShowcase2Block(Identifier.of(NAMESPACE, "easing_showcase_2"));
         easingShowcase3Block = new EasingShowcase3Block(Identifier.of(NAMESPACE, "easing_showcase_3"));
+        plasmaCrystalBlock   = new PlasmaCrystalBlock(Identifier.of(NAMESPACE, "plasma_crystal"));
     }
 
     @EventListener
@@ -68,6 +70,7 @@ public class AeroTestMod {
         event.register.accept(EasingShowcaseBlockEntity.class,  NAMESPACE + ":easing_showcase");
         event.register.accept(EasingShowcase2BlockEntity.class, NAMESPACE + ":easing_showcase_2");
         event.register.accept(EasingShowcase3BlockEntity.class, NAMESPACE + ":easing_showcase_3");
+        event.register.accept(PlasmaCrystalBlockEntity.class,   NAMESPACE + ":plasma_crystal");
     }
 
     @EventListener
@@ -114,6 +117,10 @@ public class AeroTestMod {
         placeBEAbove(event, 0, 12, easingShowcaseBlock.id,  new EasingShowcaseBlockEntity());
         placeBEAbove(event, 0, 8,  easingShowcase2Block.id, new EasingShowcase2BlockEntity());
         placeBEAbove(event, 0, 4,  easingShowcase3Block.id, new EasingShowcase3BlockEntity());
+
+        // ProceduralPose + ADDITIVE blend showcase: cyan-tinted glowing
+        // crystal that spins via runtime time, reusing Crystal.obj.
+        placeBEAbove(event, 12, 0, plasmaCrystalBlock.id, new PlasmaCrystalBlockEntity());
 
         // Entity renderer smoke test: one animated model entity every 4x4
         // chunks. Drop it 2 blocks above the column top so it lands on the

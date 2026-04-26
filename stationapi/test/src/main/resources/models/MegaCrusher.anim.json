@@ -626,9 +626,45 @@
           }
         },
         "particle": {
-          "1.0": {
+          "0": {
             "name": "smoke",
+            "locator": "turbine_l"
+          },
+          "0.5": {
+            "name": "smoke",
+            "locator": "turbine_l"
+          },
+          "1": {
+            "name": "smoke",
+            "locator": "turbine_l"
+          },
+          "1.5": {
+            "name": "smoke",
+            "locator": "turbine_l"
+          },
+          "0.25": {
+            "name": "flame",
             "locator": "turbine_r"
+          },
+          "0.75": {
+            "name": "flame",
+            "locator": "turbine_r"
+          },
+          "1.25": {
+            "name": "flame",
+            "locator": "turbine_r"
+          },
+          "1.75": {
+            "name": "flame",
+            "locator": "turbine_r"
+          },
+          "0.4": {
+            "name": "splash",
+            "locator": "hopper_lid"
+          },
+          "1.4": {
+            "name": "splash",
+            "locator": "hopper_lid"
           }
         },
         "custom": {
