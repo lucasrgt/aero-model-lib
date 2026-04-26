@@ -3,6 +3,7 @@ stationapi/build/
 stationapi/.gradle/
 stationapi/.idea/
 stationapi/*.iml
+stationapi/run/
 
 # Test runner output
 tests/out/
