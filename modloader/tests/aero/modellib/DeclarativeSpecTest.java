@@ -103,6 +103,74 @@ public class DeclarativeSpecTest {
         Aero_ModelSpec.mesh(mesh()).build().createPlayback();
     }
 
+    @Test
+    public void applyStateSnapsByDefault() {
+        Aero_AnimationBundle b = bundleWith("a", "b");
+        Aero_AnimationSpec spec = Aero_AnimationSpec.builder(b)
+            .state(0, "a").state(1, "b")
+            .build();
+        Aero_AnimationPlayback playback = spec.createPlayback();
+
+        spec.applyState(playback, 1);
+
+        assertEquals(0, spec.getDefaultTransitionTicks());
+        assertEquals(1, playback.getCurrentState());
+        assertFalse(playback.inTransition());
+    }
+
+    @Test
+    public void applyStateBlendsWhenDefaultTransitionTicksSet() {
+        Aero_AnimationBundle b = bundleWith("a", "b");
+        Aero_AnimationSpec spec = Aero_AnimationSpec.builder(b)
+            .state(0, "a").state(1, "b")
+            .defaultTransitionTicks(4)
+            .build();
+        Aero_AnimationPlayback playback = spec.createPlayback();
+
+        spec.applyState(playback, 1);
+
+        assertEquals(4, spec.getDefaultTransitionTicks());
+        assertEquals(1, playback.getCurrentState());
+        assertTrue(playback.inTransition());
+    }
+
+    @Test
+    public void modelSpecForwardsDefaultTransitionTicks() {
+        Aero_ModelSpec spec = Aero_ModelSpec.mesh(mesh())
+            .animations(bundleWith("a", "b"))
+            .state(0, "a").state(1, "b")
+            .defaultTransitionTicks(6)
+            .build();
+
+        Aero_AnimationPlayback playback = spec.createPlayback();
+        spec.applyState(playback, 1);
+
+        assertEquals(6, spec.getDefaultTransitionTicks());
+        assertTrue(playback.inTransition());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNegativeDefaultTransitionTicks() {
+        Aero_AnimationSpec.builder(bundleWithClip("idle"))
+            .state(0, "idle")
+            .defaultTransitionTicks(-1)
+            .build();
+    }
+
+    @Test
+    public void modelSpecDefaultTransitionTicksZeroWhenNotAnimated() {
+        Aero_ModelSpec spec = Aero_ModelSpec.json(json()).build();
+        assertEquals(0, spec.getDefaultTransitionTicks());
+    }
+
+    private static Aero_AnimationBundle bundleWith(String... clipNames) {
+        Map clips = new HashMap();
+        for (int i = 0; i < clipNames.length; i++) {
+            clips.put(clipNames[i], TestClips.loopClip(clipNames[i], 1f));
+        }
+        return new Aero_AnimationBundle(clips, new HashMap(), new HashMap());
+    }
+
     private static Aero_AnimationBundle bundleWithClip(String clipName) {
         Aero_AnimationClip clip = TestClips.clip(
             clipName, Aero_AnimationLoop.LOOP, 1f,
