@@ -140,8 +140,7 @@ public void doRender(Entity entity, double x, double y, double z,
     MyMob mob = (MyMob) entity;
 
     loadTexture(MODEL.getTexturePath());
-    Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
-    Aero_EntityModelRenderer.render(MODEL, mob.animState, lod,
+    Aero_EntityModelRenderer.render(MODEL, mob.animState,
         entity, x, y, z, yaw, partialTick);
 }
 ```
@@ -408,10 +407,13 @@ private static final Aero_ModelSpec ROBOT =
         .animatedDistance(48d)
         .build();
 
-Aero_RenderLod lod = Aero_RenderDistance.lodRelative(ROBOT, x, y, z);
-Aero_EntityModelRenderer.render(ROBOT, mob.animState, lod,
+Aero_EntityModelRenderer.render(ROBOT, mob.animState,
     entity, x, y, z, yaw, partialTick);
 ```
+
+The renderer computes LOD from the spec automatically. Call
+`Aero_RenderDistance.lodRelative(spec, x, y, z)` only when you need to
+branch manually before rendering.
 
 ### Explicit render options
 
@@ -421,7 +423,7 @@ renderer-global state to reset afterward.
 
 ```java
 Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
-Aero_EntityModelRenderer.render(ROBOT, mob.animState, lod,
+Aero_EntityModelRenderer.render(ROBOT, mob.animState,
     x, y, z, yaw, brightness, partialTick, hot);
 ```
 

@@ -2,8 +2,6 @@ package aero.modellib.test;
 
 import aero.modellib.Aero_EntityModelRenderer;
 import aero.modellib.Aero_ModelSpec;
-import aero.modellib.Aero_RenderDistance;
-import aero.modellib.Aero_RenderLod;
 import aero.modellib.Aero_RenderOptions;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.entity.Entity;
@@ -35,9 +33,6 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
     public void render(Entity entity, double x, double y, double z,
                        float yaw, float partialTick) {
         AeroRobotEntity bot = (AeroRobotEntity) entity;
-        Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
-        if (!lod.shouldRender()) return;
-
         bindTexture(MODEL.getTexturePath());
 
         // Lerp the tint white → red as the robot heats up. Drop the green
@@ -71,7 +66,7 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
         float brightness = AeroLight.brightnessAbove(entity.world, ex, ey, ez);
 
         Aero_RenderOptions renderOptions = Aero_RenderOptions.tint(1f, g, b);
-        Aero_EntityModelRenderer.render(MODEL, bot.animState, lod,
+        Aero_EntityModelRenderer.render(MODEL, bot.animState,
             x, y, z, yaw, brightness, partialTick, renderOptions);
 
         // Reset the GL color register too — defensive against any caller
