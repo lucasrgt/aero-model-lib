@@ -13,6 +13,7 @@ Demo Animated Machine on YouTube:
 - **Blockbench model rendering** — Use exported JSON models for blocks, items and world renderers
 - **OBJ mesh rendering** — Bring textured mesh assets into Minecraft Beta with named parts for animation
 - **GeckoLib-style animation workflow** — Define reusable clips and states, then drive per-instance playback in game
+- **Declarative integration specs** — Describe animations, model paths, texture, transform, tint and LOD once, then render from small, readable mod code
 - **30+ easing curves** — Per-keyframe `interp`: `easeInBack`, `easeOutElastic`, `easeOutBounce`, etc. on top of `linear` / `step` / `catmullrom`
 - **Smooth state transitions** — `setStateWithTransition(state, ticks)` snapshots the previous pose and blends it into the new clip over N ticks
 - **Loop types** — `loop` / `play_once` / `hold_on_last_frame`, with `state.isFinished()` to chain clips
@@ -99,7 +100,18 @@ if (lod.shouldAnimate()) {
 
 ```java
 // In your Entity class
-public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+public static final int STATE_IDLE   = 0;
+public static final int STATE_WALK   = 1;
+public static final int STATE_ATTACK = 2;
+
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+        .state(STATE_IDLE,   "idle")
+        .state(STATE_WALK,   "walk")
+        .state(STATE_ATTACK, "attack")
+        .build();
+
+public final Aero_AnimationState animState = ANIMATION.createState();
 
 public MyMob(World world) {
     super(world);
@@ -113,10 +125,13 @@ public void onLivingUpdate() {
 }
 
 // In your Render / EntityRenderer class
-private static final Aero_EntityModelTransform MODEL_TRANSFORM =
-    Aero_EntityModelTransform.builder()
+private static final Aero_ModelSpec MODEL =
+    Aero_ModelSpec.mesh("/models/MyMob.obj")
+        .texture("/mob/my_mob.png")
+        .animations(MyMob.ANIMATION)
         .offset(-0.5f, 0f, -0.5f)
         .cullingRadius(2f)
+        .animatedDistance(48d)
         .maxRenderDistance(96f)
         .build();
 
@@ -124,9 +139,10 @@ public void doRender(Entity entity, double x, double y, double z,
                      float yaw, float partialTick) {
     MyMob mob = (MyMob) entity;
 
-    loadTexture("/mob/my_mob.png");
-    Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
-        entity, x, y, z, yaw, partialTick, MODEL_TRANSFORM);
+    loadTexture(MODEL.getTexturePath());
+    Aero_RenderLod lod = Aero_RenderDistance.lodRelative(MODEL, x, y, z);
+    Aero_EntityModelRenderer.render(MODEL, mob.animState, lod,
+        entity, x, y, z, yaw, partialTick);
 }
 ```
 
@@ -147,10 +163,12 @@ public void doRender(Entity entity, double x, double y, double z,
 | `Aero_RenderDistanceCulling` | Pure shared culling math used by ModLoader and StationAPI |
 | `Aero_RenderLod` | Render-distance LOD result: animated, static-at-rest or culled |
 | `Aero_RenderOptions` | Explicit render styling such as per-call mesh tint |
+| `Aero_ModelSpec` | Declarative model contract: model path, texture path, animations, transform, render options and LOD |
 | `Aero_RenderDistanceTileEntity` / `Aero_RenderDistanceBlockEntity` | Optional ModLoader/StationAPI bases that make special renderers scale with render distance under a configurable cap |
 | `Aero_AnimationBundle` | All clips + pivots + childMap from a `.anim.json` |
 | `Aero_AnimationClip` | Single animation clip with keyframes per bone, plus optional non-pose events |
 | `Aero_AnimationDefinition` | Maps state IDs to clip names (one per machine type) |
+| `Aero_AnimationSpec` | Declarative animation contract: bundle + state map with playback/state factories |
 | `Aero_AnimationPlayback` | Platform-neutral playback engine with tick / setState / setStateWithTransition / interpolation / animated-pivot resolver |
 | `Aero_AnimationState` | Loader-specific playback state with NBT persistence |
 | `Aero_AnimationLoader` | Loads + caches `.anim.json` files from classpath |
@@ -368,6 +386,33 @@ Aero_MeshRenderer.renderAnimated(MODEL, stack, x, y, z, brightness, partialTick)
 
 Scale composes multiplicatively (`base × layer`), rotation/position add.
 
+### Declarative specs
+
+Use specs when the same model wiring appears in several places. The entity
+or tile keeps the animation spec; the renderer keeps the client-side model
+spec and passes it to the helper.
+
+```java
+public static final Aero_AnimationSpec ANIMATION =
+    Aero_AnimationSpec.builder("/models/Robot.anim.json")
+        .state(0, "idle")
+        .state(1, "walk")
+        .build();
+
+private static final Aero_ModelSpec ROBOT =
+    Aero_ModelSpec.mesh("/models/Robot.obj")
+        .texture("/models/robot.png")
+        .animations(ANIMATION)
+        .offset(-0.5f, 0f, -0.5f)
+        .cullingRadius(2f)
+        .animatedDistance(48d)
+        .build();
+
+Aero_RenderLod lod = Aero_RenderDistance.lodRelative(ROBOT, x, y, z);
+Aero_EntityModelRenderer.render(ROBOT, mob.animState, lod,
+    entity, x, y, z, yaw, partialTick);
+```
+
 ### Explicit render options
 
 Use `Aero_RenderOptions` when a draw call needs styling such as a damage
@@ -376,8 +421,8 @@ renderer-global state to reset afterward.
 
 ```java
 Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
-Aero_EntityModelRenderer.renderAnimated(MODEL, mob.animState,
-    x, y, z, yaw, brightness, partialTick, MODEL_TRANSFORM, hot);
+Aero_EntityModelRenderer.render(ROBOT, mob.animState, lod,
+    x, y, z, yaw, brightness, partialTick, hot);
 ```
 
 ### Predicate state router

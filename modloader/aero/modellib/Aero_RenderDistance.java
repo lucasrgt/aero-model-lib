@@ -55,6 +55,16 @@ public final class Aero_RenderDistance {
             animatedDistanceBlocks, maxRenderDistanceBlocks);
     }
 
+    public static Aero_RenderLod lodRelative(Aero_ModelSpec spec,
+                                             double x, double y, double z) {
+        if (spec == null) throw new IllegalArgumentException("spec must not be null");
+        Aero_EntityModelTransform transform = spec.getEntityTransform();
+        return lodRelative(x, y, z,
+            transform.cullingRadius,
+            spec.getAnimatedDistanceBlocks(),
+            transform.maxRenderDistance);
+    }
+
     public static double tileEntityDistanceFrom(TileEntity tile,
                                                 double cameraX, double cameraY, double cameraZ,
                                                 double visualRadiusBlocks) {
@@ -86,6 +96,12 @@ public final class Aero_RenderDistance {
             radius, averageSideLength(entity));
         setDoubleField(entity, "renderDistanceWeight", multiplier);
         setDoubleField(entity, "renderDistanceMultiplier", multiplier);
+    }
+
+    public static void applyEntityRenderDistance(Entity entity, Aero_ModelSpec spec) {
+        if (spec == null) throw new IllegalArgumentException("spec must not be null");
+        Aero_EntityModelTransform transform = spec.getEntityTransform();
+        applyEntityRenderDistance(entity, transform.cullingRadius, transform.maxRenderDistance);
     }
 
     private static double averageSideLength(Entity entity) {

@@ -35,6 +35,14 @@ public class Aero_AnimationDefinition {
         stateClips = new String[INITIAL_CAPACITY];
     }
 
+    private Aero_AnimationDefinition(String[] stateClips) {
+        this.stateClips = stateClips;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
     /**
      * Associates a state with the clip that should be played.
      *
@@ -75,5 +83,34 @@ public class Aero_AnimationDefinition {
      */
     public Aero_AnimationState createState(Aero_AnimationBundle bundle) {
         return new Aero_AnimationState(this, bundle);
+    }
+
+    private static String[] copyOf(String[] source) {
+        String[] copy = new String[source.length];
+        System.arraycopy(source, 0, copy, 0, source.length);
+        return copy;
+    }
+
+    public static final class Builder {
+        private String[] stateClips = new String[INITIAL_CAPACITY];
+
+        private Builder() {
+        }
+
+        public Builder state(int stateId, String clipName) {
+            if (stateId < 0) throw new IllegalArgumentException("stateId must be >= 0");
+            if (stateId >= stateClips.length) {
+                int newLen = Math.max(stateId + 1, stateClips.length * 2);
+                String[] newArr = new String[newLen];
+                System.arraycopy(stateClips, 0, newArr, 0, stateClips.length);
+                stateClips = newArr;
+            }
+            stateClips[stateId] = clipName;
+            return this;
+        }
+
+        public Aero_AnimationDefinition build() {
+            return new Aero_AnimationDefinition(copyOf(stateClips));
+        }
     }
 }
