@@ -20,7 +20,7 @@
 8. [API Reference](#8-api-reference)
 9. [File Formats](#9-file-formats)
 10. [Asset Workflow & Converter](#10-asset-workflow--converter)
-11. [Patterns & Best Practices](#11-patterns--best-practices)
+11. [Patterns & Best Practices](#11-patterns--best-practices) — incl. [Multiplayer](#multiplayer)
 12. [Using with Entities (Mobs)](#12-using-with-entities-mobs)
 13. [Troubleshooting](#13-troubleshooting)
 14. [Full End-to-End Example](#14-full-end-to-end-example)
@@ -1145,6 +1145,11 @@ Loads Blockbench JSON models from classpath.
 |--------|---------|-------------|
 | `load(resourcePath)` | `Aero_JsonModel` | Loads and caches |
 | `load(resourcePath, name)` | `Aero_JsonModel` | Loads with explicit name |
+| `clearCache()` | `void` | Drops every cached JSON model |
+
+Loader caches are synchronized and bounded to 512 entries by default.
+Override with `-Daero.modellib.cache.maxEntries=N` if a tooling workflow needs
+a different cap.
 
 **Export:** Blockbench > File > Export > Export as JSON
 
@@ -1158,6 +1163,7 @@ Loads OBJ models from classpath.
 |--------|---------|-------------|
 | `load(resourcePath)` | `Aero_MeshModel` | Loads and caches |
 | `load(resourcePath, name)` | `Aero_MeshModel` | Loads with explicit name |
+| `clearCache()` | `void` | Drops every cached OBJ model |
 
 **Export:** Blockbench > File > Export > Export OBJ Model (only .obj, .mtl ignored)
 
@@ -1174,7 +1180,7 @@ Loads `.anim.json` from classpath.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `load(resourcePath)` | `Aero_AnimationBundle` | Loads and caches |
-| `clearCache()` | `void` | Drops every cached bundle (intended for tests / hot-swap workflows) |
+| `clearCache()` | `void` | Drops every cached bundle |
 | `SUPPORTED_FORMAT_VERSION` | `String` | The schema version this loader accepts (`"1.0"`) |
 
 The loader rejects any `.anim.json` that omits `format_version` or
@@ -1454,6 +1460,22 @@ for resolving the locator to a current world position.
 
 ---
 
+### Aero_AnimationSide
+
+Platform-specific helper for gating animation event side-effects per
+server/client side. ModLoader checks `world.multiplayerWorld`; StationAPI
+checks `world.isRemote`.
+
+| Method | Description |
+|--------|-------------|
+| `isServerSide(world)` | `true` on SP integrated server AND SMP dedicated server |
+| `isClientSide(world)` | `true` on the world owned by an SMP remote client |
+
+Use this in event listeners — see [§ 11 Multiplayer](#multiplayer) for
+the full canonical pattern.
+
+---
+
 ### Aero_AnimationEventRouter
 
 Routing listener that dispatches by `(channel, name)` to small focused
@@ -1728,6 +1750,63 @@ The converter preserves names exactly as they appear in Blockbench. If you renam
 ---
 
 ## 11. Patterns & Best Practices
+
+### Multiplayer
+
+The lib is **multiplayer-friendly**, not multiplayer-driving. The pieces
+that work the same on both sides:
+
+- `Aero_AnimationPlayback.tick()` advances time locally — both server and
+  client tick independently and stay in sync as long as their `currentState`
+  matches.
+- `Aero_AnimationState.writeToNBT/readFromNBT` is the right serializer for
+  both saved-world data AND tile-entity description packets.
+- All sample / pose / blend math is deterministic given `(state, time)`.
+
+What the **consumer mod** still has to wire to be SMP-correct:
+
+1. **Sync `currentState` from server to client.** Vanilla Beta 1.7.3
+   `TileEntity` has no `getDescriptionPacket()` — use ModLoaderMP's
+   `Packet230ModLoader` (or any custom packet system the project already
+   has) and serialize via `animState.writeToNBT(nbt)` / `readFromNBT(nbt)`
+   so client-side `tick()` plays the right clip.
+
+   Without this step, the client's `setState` decision (which depends on
+   server-only fields like `storedEnergy` / `cookTime`) always defaults
+   to `STATE_OFF` and the model never animates on remote clients.
+
+2. **Gate keyframe-event side-effects per side** so sounds don't
+   double-play and server-side particle calls aren't wasted work:
+
+   ```java
+   animState.setEventListener(Aero_AnimationEventRouter.builder()
+       .onChannel("sound", new Aero_AnimationEventListener() {
+           public void onEvent(String ch, String name, String locator, float t) {
+               // Server-side only — playSoundEffect packet broadcasts to clients.
+               if (!Aero_AnimationSide.isServerSide(worldObj)) return;
+               double[] p = locatorWorldPos(locator);
+               worldObj.playSoundEffect(p[0], p[1], p[2], name, 0.4f, 1f);
+           }
+       })
+       .onChannel("particle", new Aero_AnimationEventListener() {
+           public void onEvent(String ch, String name, String locator, float t) {
+               // Fire unconditionally — World#spawnParticle is a no-op on the
+               // dedicated SMP server and renders locally on SP/SMP-client.
+               double[] p = locatorWorldPos(locator);
+               worldObj.spawnParticle(name, p[0], p[1], p[2], 0d, 0.05d, 0d);
+           }
+       })
+       .build());
+   ```
+
+   The same pattern works on StationAPI — swap `Aero_AnimationSide` to
+   the StationAPI variant (it checks `world.isRemote` instead of
+   `world.multiplayerWorld`).
+
+3. **Tick on both sides** by calling `animState.tick()` in the tile's /
+   block entity's update method without an `isClientSide` guard. Each
+   side maintains its own playback time and they stay frame-aligned
+   because both run at 20 TPS.
 
 ### Static final for loaded data
 
