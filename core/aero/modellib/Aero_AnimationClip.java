@@ -83,6 +83,25 @@ public final class Aero_AnimationClip {
         return sampleChannel(boneIdx, time, out, Channel.SCALE);
     }
 
+    /**
+     * Samples the per-bone UV offset (added to the vertex's u/v before
+     * tess.addVertexWithUV). Vec3 with the third component reserved (the
+     * lib only consumes out[0]=u and out[1]=v). Defaults to (0, 0) when
+     * the bone has no uv_offset channel — see {@link Aero_BoneRenderPose}.
+     */
+    public boolean sampleUvOffsetInto(int boneIdx, float time, float[] out) {
+        return sampleChannel(boneIdx, time, out, Channel.UV_OFFSET);
+    }
+
+    /**
+     * Samples the per-bone UV scale (multiplies the vertex's u/v before the
+     * offset is added). Defaults to (1, 1) when the bone has no uv_scale
+     * channel — see {@link Aero_BoneRenderPose}.
+     */
+    public boolean sampleUvScaleInto(int boneIdx, float time, float[] out) {
+        return sampleChannel(boneIdx, time, out, Channel.UV_SCALE);
+    }
+
     private boolean sampleChannel(int boneIdx, float time, float[] out, Channel channel) {
         if (boneIdx < 0 || boneIdx >= bones.length) return false;
         ChannelTrack track = bones[boneIdx].track(channel);
@@ -114,7 +133,9 @@ public final class Aero_AnimationClip {
     private enum Channel {
         ROTATION,
         POSITION,
-        SCALE
+        SCALE,
+        UV_OFFSET,
+        UV_SCALE
     }
 
     static final class BoneTrack {
@@ -122,20 +143,27 @@ public final class Aero_AnimationClip {
         final ChannelTrack rotation;
         final ChannelTrack position;
         final ChannelTrack scale;
+        final ChannelTrack uvOffset;
+        final ChannelTrack uvScale;
 
         BoneTrack(String name, ChannelTrack rotation,
-                  ChannelTrack position, ChannelTrack scale) {
+                  ChannelTrack position, ChannelTrack scale,
+                  ChannelTrack uvOffset, ChannelTrack uvScale) {
             this.name = name;
             this.rotation = rotation;
             this.position = position;
             this.scale = scale;
+            this.uvOffset = uvOffset;
+            this.uvScale = uvScale;
         }
 
         ChannelTrack track(Channel channel) {
             switch (channel) {
-                case ROTATION: return rotation;
-                case POSITION: return position;
-                default:       return scale;
+                case ROTATION:  return rotation;
+                case POSITION:  return position;
+                case SCALE:     return scale;
+                case UV_OFFSET: return uvOffset;
+                default:        return uvScale;
             }
         }
     }
@@ -144,6 +172,27 @@ public final class Aero_AnimationClip {
         final float[] times;
         final float[][] values;
         final Aero_Easing[] easings;
+
+        // Non-null iff this is a rotation channel — pre-baked unit quats
+        // (w, x, y, z) per keyframe so sampleInto can slerp the short arc
+        // instead of euler-lerping (which can take the long way around the
+        // rotation sphere when keyframes cross the 180° wrap).
+        final float[][] quatValues;
+
+        // Per-segment opt-in: slerp is only applied when every axis delta
+        // between adjacent keyframes is ≤ 180°. Beyond that the user's
+        // intent is ambiguous (a 0→360 spin reads as "stay at 0" in quat
+        // space because both endpoints are the same orientation; a 350→10
+        // pair could mean "20° short" OR "340° long"). Falling back to
+        // euler-lerp on long-arc segments preserves v0.1 behavior for
+        // sloppy 2-keyframe full-revolutions and keeps slerp's benefit
+        // confined to the unambiguous short-arc case.
+        final boolean[] useSlerpSegment;
+
+        // Scratch buffers for slerp output and for unpacking the
+        // resampled quat back to euler. Per-track instead of per-call so
+        // sampleInto stays alloc-free in the hot path.
+        private final float[] slerpScratch;
 
         ChannelTrack(String clipName, String boneName, String channelKind,
                      float[] times, float[][] values, Aero_Easing[] easings) {
@@ -189,6 +238,35 @@ public final class Aero_AnimationClip {
                 this.values[i] = new float[]{value[0], value[1], value[2]};
                 this.easings[i] = easing;
             }
+
+            if ("rotation".equals(channelKind) && times.length > 0) {
+                this.quatValues = new float[times.length][4];
+                for (int i = 0; i < times.length; i++) {
+                    float[] v = this.values[i];
+                    Aero_Quaternion.fromEulerDegrees(v[0], v[1], v[2], this.quatValues[i]);
+                }
+                this.slerpScratch = new float[4];
+                if (times.length > 1) {
+                    this.useSlerpSegment = new boolean[times.length - 1];
+                    for (int i = 0; i < times.length - 1; i++) {
+                        float[] a = this.values[i], b = this.values[i + 1];
+                        float dx = Math.abs(b[0] - a[0]);
+                        float dy = Math.abs(b[1] - a[1]);
+                        float dz = Math.abs(b[2] - a[2]);
+                        // Strict less-than: at exactly 180° the two quats are
+                        // antipodal and slerp's direction flips on FP rounding.
+                        // Falling back to euler at the boundary avoids that
+                        // instability and preserves the v0.1 visual.
+                        this.useSlerpSegment[i] = dx < 180f && dy < 180f && dz < 180f;
+                    }
+                } else {
+                    this.useSlerpSegment = null;
+                }
+            } else {
+                this.quatValues = null;
+                this.slerpScratch = null;
+                this.useSlerpSegment = null;
+            }
         }
 
         boolean sampleInto(float time, float[] out) {
@@ -216,6 +294,23 @@ public final class Aero_AnimationClip {
             float alpha = (t1 > t0) ? (time - t0) / (t1 - t0) : 0f;
             float[] a = values[lo];
             float[] b = values[hi];
+
+            // Rotation channels slerp the short arc when adjacent keyframes
+            // are ≤ 180° apart per axis. Long-arc segments (e.g. a 0→360 fan
+            // spin) fall through to euler-lerp because slerp would collapse
+            // them to "no rotation" — the two euler keyframes encode the
+            // same quat-space orientation. CATMULLROM on a slerp segment is
+            // demoted to LINEAR-eased slerp (no spherical Catmull-Rom —
+            // squad adds complexity for marginal benefit on rotation curves
+            // where slerp is already smooth). Documented in DOC.md.
+            if (quatValues != null && useSlerpSegment != null && useSlerpSegment[lo]) {
+                float eased = easing == Aero_Easing.LINEAR || easing == Aero_Easing.CATMULLROM
+                    ? alpha
+                    : easing.apply(alpha);
+                Aero_Quaternion.slerp(quatValues[lo], quatValues[hi], eased, slerpScratch);
+                Aero_Quaternion.toEulerDegrees(slerpScratch, out);
+                return true;
+            }
 
             if (easing == Aero_Easing.CATMULLROM) {
                 float[] p0 = lo > 0 ? values[lo - 1] : a;
@@ -315,6 +410,8 @@ public final class Aero_AnimationClip {
         private ChannelTrack rotation;
         private ChannelTrack position;
         private ChannelTrack scale;
+        private ChannelTrack uvOffset;
+        private ChannelTrack uvScale;
 
         private BoneBuilder(Builder owner, String name) {
             this.owner = owner;
@@ -336,12 +433,24 @@ public final class Aero_AnimationClip {
             return this;
         }
 
+        /** Animates the per-bone UV offset (vec3, only x=u and y=v consumed). */
+        public BoneBuilder uvOffset(float[] times, float[][] values, Aero_Easing[] easings) {
+            uvOffset = new ChannelTrack(owner.name, name, "uv_offset", times, values, easings);
+            return this;
+        }
+
+        /** Animates the per-bone UV scale (vec3, only x=u and y=v consumed). */
+        public BoneBuilder uvScale(float[] times, float[][] values, Aero_Easing[] easings) {
+            uvScale = new ChannelTrack(owner.name, name, "uv_scale", times, values, easings);
+            return this;
+        }
+
         public Builder endBone() {
             return owner;
         }
 
         private BoneTrack build() {
-            return new BoneTrack(name, rotation, position, scale);
+            return new BoneTrack(name, rotation, position, scale, uvOffset, uvScale);
         }
     }
 }

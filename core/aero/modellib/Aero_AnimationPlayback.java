@@ -32,6 +32,8 @@ public class Aero_AnimationPlayback {
     private Map snapshotRot;   // Map<String, float[3]>
     private Map snapshotPos;
     private Map snapshotScl;
+    private Map snapshotUvOffset;
+    private Map snapshotUvScale;
     // Reusable buffer to avoid allocating during the snapshot pass.
     private final float[] snapshotScratch = new float[3];
     private final float[] pivotScratch = new float[3];
@@ -251,6 +253,28 @@ public class Aero_AnimationPlayback {
     }
 
     /**
+     * Samples the per-bone UV offset (rest = 0) — matches scroll/atlas-frame
+     * style animations. Output components: x=u, y=v (z reserved).
+     */
+    public boolean sampleUvOffsetBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
+                                         float time, float partialTick, float[] out) {
+        boolean got = clip != null && boneIdx >= 0 && clip.sampleUvOffsetInto(boneIdx, time, out);
+        // UV offset rests at 0 (identity, no scroll).
+        return blendWithSnapshot(snapshotUvOffset, boneName, partialTick, got, out, 0f);
+    }
+
+    /**
+     * Samples the per-bone UV scale (rest = 1). Use to pulse texture zoom
+     * or pick atlas frames in combination with sampleUvOffset.
+     */
+    public boolean sampleUvScaleBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
+                                        float time, float partialTick, float[] out) {
+        boolean got = clip != null && boneIdx >= 0 && clip.sampleUvScaleInto(boneIdx, time, out);
+        // UV scale rests at 1 (identity).
+        return blendWithSnapshot(snapshotUvScale, boneName, partialTick, got, out, 1f);
+    }
+
+    /**
      * Shared blend kernel for the three sample channels. Picks one of three
      * outcomes based on whether the new clip + the snapshot have data for
      * the given bone:
@@ -312,6 +336,10 @@ public class Aero_AnimationPlayback {
         else                     snapshotPos.clear();
         if (snapshotScl == null) snapshotScl = new HashMap();
         else                     snapshotScl.clear();
+        if (snapshotUvOffset == null) snapshotUvOffset = new HashMap();
+        else                          snapshotUvOffset.clear();
+        if (snapshotUvScale == null) snapshotUvScale = new HashMap();
+        else                         snapshotUvScale.clear();
 
         float time = playbackTime;
         for (int bi = 0; bi < clip.boneNames.length; bi++) {
@@ -324,6 +352,12 @@ public class Aero_AnimationPlayback {
             }
             if (clip.sampleSclInto(bi, time, snapshotScratch)) {
                 snapshotScl.put(name, new float[]{snapshotScratch[0], snapshotScratch[1], snapshotScratch[2]});
+            }
+            if (clip.sampleUvOffsetInto(bi, time, snapshotScratch)) {
+                snapshotUvOffset.put(name, new float[]{snapshotScratch[0], snapshotScratch[1], snapshotScratch[2]});
+            }
+            if (clip.sampleUvScaleInto(bi, time, snapshotScratch)) {
+                snapshotUvScale.put(name, new float[]{snapshotScratch[0], snapshotScratch[1], snapshotScratch[2]});
             }
         }
     }

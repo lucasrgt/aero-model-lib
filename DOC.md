@@ -28,6 +28,39 @@
 
 ---
 
+## What's new in v0.2.0
+
+- **Quaternion slerp on rotation channels** with hybrid heuristic (slerp on
+  segments where every axis delta is < 180°, euler-lerp fallback above —
+  preserves v0.1 long-arc behavior for sloppy 2-keyframe full revolutions).
+  Multi-axis poses now interpolate along the geodesic rotation path.
+- **UV animation** — bones accept `uv_offset` / `uv_scale` channels. Renderer
+  applies `u' = u * uScale + uOffset; v' = v * vScale + vOffset` per vertex.
+  Identity transform fast-paths to the raw emit, so v0.1 bones pay zero cost.
+- **Hierarchical rendering + skeletal IK (CCD)** — animated child bones now
+  inherit every animated ancestor's transform via the `childMap` chain.
+  `Aero_IkChain` interface + `Aero_CCDSolver` mutate intermediate bones to
+  bring an end-effector close to a world target (foot planting, look-at).
+  Hook is opt-in: callers without IK chains pay zero.
+- **Morph targets** — schema bumped to `format_version "1.1"` (additively;
+  v1.0 still loads). New `morph_targets` block declares OBJ variants with
+  matching topology. `Aero_MorphState` carries weights with NBT save/restore.
+  Renderer blends static-geometry vertices via per-vertex
+  `final = base + Σ(weight × delta)`.
+- **Animation graph** — DAG-style composition for animator-grade workflows.
+  `Aero_AnimationGraph` + `Aero_GraphParams` + `Aero_GraphClipNode` /
+  `Aero_GraphBlend1DNode` / `Aero_GraphAdditiveNode`. Coexists with the
+  existing flat `Aero_AnimationStack` — Stack stays the lightweight option.
+
+Schema/runtime backward compat: every existing `.anim.json`, OBJ, and
+Blockbench `.bbmodel` from v0.1 loads and renders unchanged. The 9
+v0.1 showcase blocks (Motor, Pump, Crystal, CrystalChaos, EasingShowcase
+1/2/3, PlasmaCrystal, Robot) are visually identical because none of
+their animated bones have animated ancestors — the hybrid hierarchy
+collapses to flat rendering for them.
+
+---
+
 ## 1. Quick Start
 
 ### Static model in 3 steps
@@ -791,6 +824,31 @@ at load time so typos are caught early. Constants like
 Every easing satisfies `f(0) = 0` and `f(1) = 1` exactly so keyframe
 boundaries stay continuous. `back` overshoots above 1 mid-curve, `elastic`
 oscillates above and below, `bounce` clamps at 1 between sub-bounces.
+
+### Rotation slerp (since v0.2.0)
+
+Rotation channels interpolate via spherical linear interpolation
+(quaternion slerp) on segments where every euler axis delta between
+adjacent keyframes is **strictly less than 180°**. Beyond that the
+heuristic falls back to euler-lerp (the v0.1 behavior) — see below.
+
+This gives the visually smoother geodesic path on the rotation sphere
+for normal animation segments and avoids gimbal-style stutter when
+multiple axes rotate simultaneously. Position and scale channels are
+unaffected — they still linear-lerp.
+
+**Long-arc fallback.** Slerp interprets a `0→360` Y rotation as "stay at
+0" because both endpoints are the same orientation in quaternion space.
+The lib detects this and falls through to euler-lerp on any segment
+where any axis delta `|b - a| ≥ 180°`, so a 2-keyframe full revolution
+behaves the same as it did in v0.1. If you need slerp to handle a long
+rotation, split it across multiple keyframes (`0→120→240→360`) — each
+segment under 180° will slerp.
+
+**`catmullrom` on rotation.** Demoted to LINEAR-eased slerp on
+short-arc segments (no spherical Catmull-Rom — squad's complexity isn't
+worth the marginal benefit on rotation curves where slerp is already
+smooth). Long-arc segments retain euler Catmull-Rom.
 
 ### Loop types
 

@@ -51,6 +51,12 @@ public class Aero_MeshRenderer {
     private static final float[] SCRATCH_PIVOT = new float[3];
     private static final Aero_BoneRenderPose SCRATCH_POSE = new Aero_BoneRenderPose();
 
+    // Pose pool indexed by clip.boneNames[i]. Pre-resolved once per frame
+    // so the hierarchical render walk + IK pre-pass can read poses by
+    // ancestor index without re-resolving per child. Grows monotonically;
+    // never shrinks (keeps the largest clip's working set hot).
+    private static Aero_BoneRenderPose[] POSE_POOL = newPosePool(16);
+
     // -----------------------------------------------------------------------
     // Full model render
     // -----------------------------------------------------------------------
@@ -290,6 +296,45 @@ public class Aero_MeshRenderer {
     }
 
     /**
+     * Bundle/def/state overload with procedural pose + IK chain hooks.
+     * IK chains run between keyframe-pose resolution and the GL render
+     * walk: the solver mutates intermediate-bone rotations to bring each
+     * chain's end-effector close to its target, then the rendered pose
+     * reflects the IK-corrected angles.
+     */
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options,
+                                       Aero_ProceduralPose proceduralPose,
+                                       Aero_IkChain[] ikChains) {
+        renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
+            partialTick, options, proceduralPose, ikChains, null);
+    }
+
+    /**
+     * Maximal overload with morph state on top of procedural + IK. The
+     * morph state blends static-geometry vertex positions before emit;
+     * named-group (per-bone animated) parts are not morphed in v0.2.0.
+     */
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationBundle bundle,
+                                       Aero_AnimationDefinition def,
+                                       Aero_AnimationPlayback state,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options,
+                                       Aero_ProceduralPose proceduralPose,
+                                       Aero_IkChain[] ikChains,
+                                       Aero_MorphState morphState) {
+        renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
+            partialTick, options, proceduralPose, ikChains, morphState);
+    }
+
+    /**
      * Bundle/def/state overload with a procedural pose hook layered on top
      * of the keyframe pose — the canonical entry point for vehicles whose
      * turret/barrel/propeller follow runtime input.
@@ -302,16 +347,59 @@ public class Aero_MeshRenderer {
                                        float brightness, float partialTick,
                                        Aero_RenderOptions options,
                                        Aero_ProceduralPose proceduralPose) {
+        renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
+            partialTick, options, proceduralPose, null, null);
+    }
+
+    private static void renderAnimatedInternal(Aero_MeshModel model,
+                                                Aero_AnimationBundle bundle,
+                                                Aero_AnimationDefinition def,
+                                                Aero_AnimationPlayback state,
+                                                double x, double y, double z,
+                                                float brightness, float partialTick,
+                                                Aero_RenderOptions options,
+                                                Aero_ProceduralPose proceduralPose,
+                                                Aero_IkChain[] ikChains,
+                                                Aero_MorphState morphState) {
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
             Aero_AnimationClip clip = null;
             float time = 0f;
             Aero_MeshModel.BoneRef[] refs = null;
+            Aero_BoneRenderPose[] pool = null;
             if (entries.length != 0) {
                 clip = state.getCurrentClip();
                 time = state.getInterpolatedTime(partialTick);
                 refs = model.boneRefsFor(clip, bundle);
+
+                if (clip != null) {
+                    pool = ensurePoolSize(clip.boneNames.length);
+                    // Pass 1: resolve every animated bone's pose into the
+                    // pool so the hierarchical render walk + any IK pre-pass
+                    // can read parent poses while drawing children.
+                    for (int b = 0; b < clip.boneNames.length; b++) {
+                        String boneName = clip.boneNames[b];
+                        float[] pivot = bundle.pivotOrZero(boneName);
+                        Aero_MeshModel.BoneRef boneRef =
+                            new Aero_MeshModel.BoneRef(b, boneName, pivot);
+                        Aero_AnimationPoseResolver.resolveClip(boneRef, clip, state, time, partialTick,
+                            SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, pool[b]);
+                        if (proceduralPose != null) proceduralPose.apply(boneName, pool[b]);
+                    }
+
+                    // Pass 1.5: run IK chains. Only present when the
+                    // caller provided ikChains; v0.1 callers pay zero cost
+                    // since the array is null.
+                    if (ikChains != null && ikChains.length > 0) {
+                        Aero_Profiler.start("aero.mesh.ikSolve");
+                        try {
+                            runIkChains(ikChains, clip, bundle, pool);
+                        } finally {
+                            Aero_Profiler.end("aero.mesh.ikSolve");
+                        }
+                    }
+                }
             }
 
             Tessellator tess = Tessellator.instance;
@@ -320,20 +408,33 @@ public class Aero_MeshRenderer {
                 GL11.glTranslated(x, y, z);
                 beginMeshState(options);
                 try {
-                    drawGroups(tess, model.groups, model.invScale, brightness, options);
+                    // Static geometry: morph-blended path when the caller
+                    // provided a non-empty MorphState and the model carries
+                    // morph targets; else the raw fast path.
+                    if (morphState != null && model.hasMorphTargets() && !morphState.isEmpty()) {
+                        drawGroupsMorph(tess, model, brightness, options, morphState);
+                    } else {
+                        drawGroups(tess, model.groups, model.invScale, brightness, options);
+                    }
 
                     for (int e = 0; e < entries.length; e++) {
                         Aero_MeshModel.NamedGroup ng = entries[e];
                         Aero_MeshModel.BoneRef    rf = refs[e];
 
-                        Aero_AnimationPoseResolver.resolveClip(rf, clip, state, time, partialTick,
-                            SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
-                        if (proceduralPose != null) proceduralPose.apply(ng.name, SCRATCH_POSE);
-
                         GL11.glPushMatrix();
                         try {
-                            applyPose(SCRATCH_POSE);
-                            drawGroups(tess, ng.tris, model.invScale, brightness, options);
+                            // Pass 2: walk root → leaf, applying each
+                            // animated ancestor's pose. Parent rotations
+                            // propagate to children automatically.
+                            Aero_BoneRenderPose deepest = pool != null
+                                ? applyPoseChain(rf, pool)
+                                : null;
+                            float uOff   = deepest != null ? deepest.uOffset : 0f;
+                            float vOff   = deepest != null ? deepest.vOffset : 0f;
+                            float uScale = deepest != null ? deepest.uScale  : 1f;
+                            float vScale = deepest != null ? deepest.vScale  : 1f;
+                            drawGroups(tess, ng.tris, model.invScale, brightness, options,
+                                uOff, vOff, uScale, vScale);
                         } finally {
                             GL11.glPopMatrix();
                         }
@@ -424,7 +525,9 @@ public class Aero_MeshRenderer {
                         GL11.glPushMatrix();
                         try {
                             applyPose(SCRATCH_POSE);
-                            drawGroups(tess, ng.tris, model.invScale, brightness, options);
+                            drawGroups(tess, ng.tris, model.invScale, brightness, options,
+                                SCRATCH_POSE.uOffset, SCRATCH_POSE.vOffset,
+                                SCRATCH_POSE.uScale,  SCRATCH_POSE.vScale);
                         } finally {
                             GL11.glPopMatrix();
                         }
@@ -457,25 +560,184 @@ public class Aero_MeshRenderer {
         GL11.glTranslatef(-pose.pivotX, -pose.pivotY, -pose.pivotZ);
     }
 
+    /**
+     * Walks the resolved ancestor chain (root → leaf) of the given BoneRef
+     * and applies each ancestor's pose to the current GL matrix, so a child
+     * bone's geometry inherits every animated parent's transform. This is
+     * what makes parent rotations propagate to children — Blockbench's
+     * default animator behavior.
+     *
+     * <p>Returns the deepest ancestor's pose (the leaf) so the caller can
+     * read its UV transform fields for the per-vertex emit.
+     */
+    private static Aero_BoneRenderPose applyPoseChain(Aero_MeshModel.BoneRef rf,
+                                                       Aero_BoneRenderPose[] pool) {
+        int len = rf.ancestorBoneIdx.length;
+        if (len == 0) return null;
+        Aero_BoneRenderPose deepest = null;
+        for (int c = 0; c < len; c++) {
+            Aero_BoneRenderPose pose = pool[rf.ancestorBoneIdx[c]];
+            applyPose(pose);
+            deepest = pose;
+        }
+        return deepest;
+    }
+
+    private static Aero_BoneRenderPose[] newPosePool(int size) {
+        Aero_BoneRenderPose[] pool = new Aero_BoneRenderPose[size];
+        for (int i = 0; i < size; i++) pool[i] = new Aero_BoneRenderPose();
+        return pool;
+    }
+
+    private static Aero_BoneRenderPose[] ensurePoolSize(int size) {
+        if (POSE_POOL.length >= size) return POSE_POOL;
+        Aero_BoneRenderPose[] grown = new Aero_BoneRenderPose[size];
+        System.arraycopy(POSE_POOL, 0, grown, 0, POSE_POOL.length);
+        for (int i = POSE_POOL.length; i < size; i++) grown[i] = new Aero_BoneRenderPose();
+        POSE_POOL = grown;
+        return grown;
+    }
+
+    /**
+     * Resolves each {@link Aero_IkChain}'s named bones to indices + pivots
+     * via the active clip, then dispatches to {@link Aero_CCDSolver}. Chain
+     * names that are missing from the clip are silently skipped (caller
+     * receives no exception so a transient missing bone in a partial state
+     * doesn't crash the render).
+     */
+    private static void runIkChains(Aero_IkChain[] chains,
+                                     Aero_AnimationClip clip,
+                                     Aero_AnimationBundle bundle,
+                                     Aero_BoneRenderPose[] pool) {
+        float[] target = new float[3];
+        for (int c = 0; c < chains.length; c++) {
+            Aero_IkChain chain = chains[c];
+            if (chain == null) continue;
+            String[] names = chain.getBoneChain();
+            if (names == null || names.length < 2) continue;
+
+            int[] boneIdx = new int[names.length];
+            float[][] pivots = new float[names.length][];
+            boolean valid = true;
+            for (int i = 0; i < names.length; i++) {
+                int idx = clip.indexOfBone(names[i]);
+                if (idx < 0) { valid = false; break; }
+                boneIdx[i] = idx;
+                pivots[i] = bundle.pivotOrZero(names[i]);
+            }
+            if (!valid) continue;
+
+            if (!chain.resolveTargetInto(target)) continue;
+            Aero_CCDSolver.solve(boneIdx, pivots, pool, target,
+                Aero_CCDSolver.DEFAULT_TOLERANCE);
+        }
+    }
+
     /** Draws triangle groups at full brightness — used by Aero_InventoryRenderer. */
     static void drawGroupsForInventory(Tessellator tess, float[][][] groups, float invSc) {
         drawGroups(tess, groups, invSc, 1.0f, Aero_RenderOptions.DEFAULT);
     }
 
+    /**
+     * Static-geometry draw with morph-target blending. Per-vertex applies
+     * {@code finalPos = base + Σ(weight × delta)} across every active
+     * target. Skips back to the raw fast path when no targets have a
+     * non-zero weight, so the caller doesn't need to gate this externally.
+     */
+    private static void drawGroupsMorph(Tessellator tess, Aero_MeshModel model,
+                                         float brightness, Aero_RenderOptions options,
+                                         Aero_MorphState morphState) {
+        // Snapshot active (target, weight) pairs so the inner loop is a flat
+        // index walk instead of a HashMap iteration per triangle.
+        java.util.Map weights = morphState.getWeightsView();
+        Aero_MorphTarget[] activeTargets = new Aero_MorphTarget[weights.size()];
+        float[] activeWeights = new float[weights.size()];
+        int activeCount = 0;
+        java.util.Iterator it = weights.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Map.Entry e = (java.util.Map.Entry) it.next();
+            float w = ((Float) e.getValue()).floatValue();
+            if (w == 0f) continue;
+            Aero_MorphTarget target = model.getMorphTarget((String) e.getKey());
+            if (target == null) continue;
+            activeTargets[activeCount] = target;
+            activeWeights[activeCount] = w;
+            activeCount++;
+        }
+        if (activeCount == 0) {
+            drawGroups(tess, model.groups, model.invScale, brightness, options);
+            return;
+        }
+
+        float invSc = model.invScale;
+        tess.startDrawing(GL11.GL_TRIANGLES);
+        for (int g = 0; g < 4; g++) {
+            float[][] tris = model.groups[g];
+            if (tris.length == 0) continue;
+            float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
+            tess.setColorRGBA_F(bright * options.tintR, bright * options.tintG,
+                bright * options.tintB, options.alpha);
+            for (int i = 0; i < tris.length; i++) {
+                float[] t = tris[i];
+                float v0dx = 0f, v0dy = 0f, v0dz = 0f;
+                float v1dx = 0f, v1dy = 0f, v1dz = 0f;
+                float v2dx = 0f, v2dy = 0f, v2dz = 0f;
+                for (int a = 0; a < activeCount; a++) {
+                    float[] td = activeTargets[a].deltas[g][i];
+                    float w = activeWeights[a];
+                    v0dx += td[0] * w; v0dy += td[1] * w; v0dz += td[2] * w;
+                    v1dx += td[3] * w; v1dy += td[4] * w; v1dz += td[5] * w;
+                    v2dx += td[6] * w; v2dy += td[7] * w; v2dz += td[8] * w;
+                }
+                tess.addVertexWithUV((t[0]  + v0dx) * invSc, (t[1]  + v0dy) * invSc, (t[2]  + v0dz) * invSc, t[3],  t[4]);
+                tess.addVertexWithUV((t[5]  + v1dx) * invSc, (t[6]  + v1dy) * invSc, (t[7]  + v1dz) * invSc, t[8],  t[9]);
+                tess.addVertexWithUV((t[10] + v2dx) * invSc, (t[11] + v2dy) * invSc, (t[12] + v2dz) * invSc, t[13], t[14]);
+            }
+        }
+        tess.draw();
+    }
+
     /** Draws triangle groups with flat lighting (uniform brightness per group). */
     private static void drawGroups(Tessellator tess, float[][][] groups, float invSc,
                                    float brightness, Aero_RenderOptions options) {
+        // Identity UV transform — fast path that emits raw u/v with no per-vertex math.
+        drawGroups(tess, groups, invSc, brightness, options, 0f, 0f, 1f, 1f);
+    }
+
+    /**
+     * UV-aware variant. Animated bones pass their pose's UV offset/scale so
+     * the emit loop transforms each vertex's u/v before tessellation. When
+     * the transform is identity (the default for any bone with no
+     * uv_offset / uv_scale channels), the inner emit loop branches to the
+     * raw path that allocates zero work per vertex.
+     */
+    private static void drawGroups(Tessellator tess, float[][][] groups, float invSc,
+                                   float brightness, Aero_RenderOptions options,
+                                   float uOff, float vOff, float uScale, float vScale) {
+        boolean uvIdentity = uOff == 0f && vOff == 0f && uScale == 1f && vScale == 1f;
         tess.startDrawing(GL11.GL_TRIANGLES);
         for (int g = 0; g < 4; g++) {
             float[][] tris = groups[g];
             if (tris.length == 0) continue;
             float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
             tess.setColorRGBA_F(bright * options.tintR, bright * options.tintG, bright * options.tintB, options.alpha);
-            for (int i = 0; i < tris.length; i++) {
-                float[] t = tris[i];
-                tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
-                tess.addVertexWithUV(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
-                tess.addVertexWithUV(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);
+            if (uvIdentity) {
+                for (int i = 0; i < tris.length; i++) {
+                    float[] t = tris[i];
+                    tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,  t[3],  t[4]);
+                    tess.addVertexWithUV(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,  t[8],  t[9]);
+                    tess.addVertexWithUV(t[10]*invSc, t[11]*invSc, t[12]*invSc, t[13], t[14]);
+                }
+            } else {
+                for (int i = 0; i < tris.length; i++) {
+                    float[] t = tris[i];
+                    tess.addVertexWithUV(t[0]*invSc,  t[1]*invSc,  t[2]*invSc,
+                        t[3] *uScale + uOff,  t[4] *vScale + vOff);
+                    tess.addVertexWithUV(t[5]*invSc,  t[6]*invSc,  t[7]*invSc,
+                        t[8] *uScale + uOff,  t[9] *vScale + vOff);
+                    tess.addVertexWithUV(t[10]*invSc, t[11]*invSc, t[12]*invSc,
+                        t[13]*uScale + uOff, t[14]*vScale + vOff);
+                }
             }
         }
         tess.draw();
