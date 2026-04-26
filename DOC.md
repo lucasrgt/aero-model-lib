@@ -1289,6 +1289,24 @@ Aero_EntityModelRenderer.render(MODEL, state,
 
 ---
 
+### Aero_MeshBlendMode
+
+Selects the GL blend pair the mesh renderers apply when
+`Aero_RenderOptions.blend != OFF`. Three values cover the common cases —
+extend the renderer if you need something more exotic.
+
+| Value | GL func | Use for |
+|-------|---------|---------|
+| `OFF` | blend disabled | Opaque meshes (default) |
+| `ALPHA` | `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` | Translucency: ghosts, ghost-block previews, stained windows |
+| `ADDITIVE` | `SRC_ALPHA, ONE` | Energy beams, glow halos, plasma, magic auras — the mesh brightens whatever is behind it |
+
+Pair `ADDITIVE` with `depthTest(false)` (and a glow texture, white-on-dark)
+when you want the effect to read clearly through nearby geometry; keep
+depth-test on when you want the beam to occlude correctly.
+
+---
+
 ### Aero_ModelSpec
 
 Declarative model contract. Use it when a renderer would otherwise keep
@@ -1397,6 +1415,24 @@ Centralized inventory thumbnail rendering for all Aero model types. Auto-scales 
 | `render(rb, Aero_MeshModel)` | Renders an OBJ model as inventory thumbnail (static + named groups at rest) |
 
 Constants: `SLOT_SCALE = 1.3`, `Y_NUDGE = 0.12`
+
+---
+
+### Aero_AnimationLoop
+
+Enum naming the per-clip wrap behavior. Persisted in the `.anim.json`
+schema as a lowercase string.
+
+| Constant | JSON | Behavior |
+|----------|------|----------|
+| `LOOP` | `"loop"` | Wrap to 0 and keep playing forever |
+| `PLAY_ONCE` | `"play_once"` | Clamp at length; `state.isFinished()` flips to `true` |
+| `HOLD_ON_LAST_FRAME` | `"hold_on_last_frame"` | Clamp at length; `state.isFinished()` stays `false` |
+
+| Method | Description |
+|--------|-------------|
+| `fromName(String)` | Resolve a JSON loop name; throws on unknown |
+| `jsonName` | Lowercase token written back to JSON exports |
 
 ---
 
@@ -1551,6 +1587,32 @@ spec.applyState(playback, router);    // 6-tick blend, predicate-driven
 ```
 
 ---
+
+### Aero_Profiler
+
+Always-present, zero-cost-when-off section timer for animation/render hot
+paths. Disabled calls short-circuit on a single volatile read, so the
+auto-instrumentation can ship in production builds.
+
+| Method | Description |
+|--------|-------------|
+| `isEnabled()` | Current on/off state |
+| `setEnabled(boolean)` | Programmatic toggle |
+| `start(section)` / `end(section)` | Manual instrumentation around custom hot paths |
+| `dump()` | Prints + clears the section table |
+| `reset()` | Clears without printing |
+
+Enable at launch with `-Daero.profiler=true`. The lib auto-instruments:
+
+| Section | Source |
+|---------|--------|
+| `aero.playback.tick` | `Aero_AnimationPlayback.tick` |
+| `aero.mesh.render` | static / atRest / smooth-light mesh renders |
+| `aero.mesh.renderAnimated` | single-clip + Stack-based animated renders |
+| `aero.json.render` | Blockbench JSON `renderModel` |
+
+Add your own sections for application-level work — e.g. `retronism.crusher.cookTick`.
+See [§ 15 Profiling](#profiling) for the full launch + dump + JFR recipe.
 
 ---
 
