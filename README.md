@@ -35,6 +35,107 @@ all.
 
 ## Killer features
 
+### Quaternion slerp on rotation channels (v0.2.0)
+
+Multi-axis pose interpolation now follows the geodesic path on the
+rotation sphere — no more gimbal-style stutter when two rotation axes
+animate at once. The lib pre-bakes unit quaternions per keyframe and
+slerps short-arc segments automatically. Single-axis rotations and
+2-keyframe full revolutions (`0 → 360`) keep their v0.1 visual via a
+hybrid heuristic that falls back to euler-lerp when the chosen path
+would be ambiguous. Zero opt-in: every existing `.anim.json` looks the
+same or smoother.
+
+### UV animation channels (v0.2.0)
+
+Two new optional channels — `uv_offset` and `uv_scale` — animate the
+texture coordinates per bone. Use them for conveyor belts, magic-rune
+scrolls, glowing energy flows, atlas-sheet sprite cycling, or breathing
+texture pulses. Identity transform fast-paths to the raw emit, so a
+bone without UV channels pays zero cost.
+
+```json
+"uv_offset": {
+  "0":   { "value": [0, 0, 0], "interp": "linear" },
+  "2.0": { "value": [1, 0, 0], "interp": "linear" }
+},
+"uv_scale": {
+  "0":   { "value": [1.0, 1.0, 0], "interp": "easeInOutSine" },
+  "1.0": { "value": [1.2, 1.2, 0], "interp": "easeInOutSine" },
+  "2.0": { "value": [1.0, 1.0, 0], "interp": "easeInOutSine" }
+}
+```
+
+### Skeletal IK with CCD solver + hierarchical rendering (v0.2.0)
+
+Bones now compose hierarchically through `childMap` — rotating a parent
+bone moves every animated descendant with it, like Blockbench's animator.
+On top of that, `Aero_IkChain` + `Aero_CCDSolver` mutate intermediate
+rotations so an end-effector tracks any world target each frame. Hook
+your own resolver — nearest player's eye for a turret, ground raycast
+for foot planting, anything you can compute per render call:
+
+```java
+Aero_IkChain trackPlayer = new Aero_IkChain() {
+    public String[] getBoneChain() { return new String[]{"base", "arm", "tip"}; }
+    public boolean resolveTargetInto(float[] worldPos) {
+        EntityPlayer p = world.getClosestPlayer(x, y, z, 16.0);
+        if (p == null) return false;
+        worldPos[0] = (float) ((p.posX - x) * 16.0);
+        worldPos[1] = (float) ((p.posY + p.getEyeHeight() - y) * 16.0);
+        worldPos[2] = (float) ((p.posZ - z) * 16.0);
+        return true;
+    }
+};
+Aero_MeshRenderer.renderAnimated(MODEL, bundle, def, state, x, y, z,
+    brightness, partialTick, options, proceduralPose, new Aero_IkChain[]{trackPlayer});
+```
+
+### Morph targets / blend shapes (v0.2.0)
+
+Pulse a crystal between forms, deform a slime body, animate a mob's
+facial expression — anything that needs **vertex-level deformation**
+beyond bone rotation. Variants live as separate OBJs with matching
+topology, declared in the bundle's `morph_targets` block (schema
+`format_version "1.1"`, fully backward-compatible with v1.0). Per-frame
+weights drive a per-vertex blend `final = base + Σ(weight × delta)`,
+fast-path skipped when all weights are zero.
+
+```json
+"format_version": "1.1",
+"morph_targets": {
+  "smile":    "/models/Robot_smile.obj",
+  "expanded": "/models/Crystal_expanded.obj"
+}
+```
+
+```java
+// Tile-side: oscillate the morph weight.
+morphState.set("expanded", 0.5f + 0.5f * (float) Math.sin(phase));
+```
+
+### Animation graph (Blend1D + Additive nodes) (v0.2.0)
+
+`Aero_AnimationGraph` composes clips into a tree — Blend1D nodes lerp
+N children by a float param, Additive nodes layer overlays on a base.
+Coexists with the flat `Aero_AnimationStack`; pick whichever fits.
+Drive params from gameplay (movement speed, redstone, spell intensity)
+and the graph blends smoothly without the consumer wiring per-bone math:
+
+```java
+Aero_GraphNode root = new Aero_GraphBlend1DNode("speed",
+    new float[]{0f, 1f},
+    new Aero_GraphNode[]{
+        new Aero_GraphClipNode(slowPlayback),
+        new Aero_GraphClipNode(fastPlayback)
+    });
+Aero_AnimationGraph graph = new Aero_AnimationGraph(root, params);
+
+// Each tick:
+params.setFloat("speed", normalizedRedstoneOrInputDelta);
+Aero_MeshRenderer.renderAnimated(MODEL, graph, bundle, x, y, z, brightness, partialTick);
+```
+
 ### Locator-anchored sounds & particles
 
 Drop a `keyframes` block into your `.anim.json` and tag each event with a

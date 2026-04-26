@@ -424,6 +424,77 @@ public class Aero_MeshRenderer {
     }
 
     /**
+     * Renders the model with an {@link Aero_AnimationGraph} driving every
+     * bone's pose. Bones are looked up by name (graph rendering is flat
+     * in v0.2.0 — no hierarchy walk). The bundle provides pivot lookup.
+     */
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationGraph graph,
+                                       Aero_AnimationBundle bundle,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick) {
+        renderAnimated(model, graph, bundle, x, y, z, brightness, partialTick,
+            Aero_RenderOptions.DEFAULT);
+    }
+
+    public static void renderAnimated(Aero_MeshModel model,
+                                       Aero_AnimationGraph graph,
+                                       Aero_AnimationBundle bundle,
+                                       double x, double y, double z,
+                                       float brightness, float partialTick,
+                                       Aero_RenderOptions options) {
+        if (graph == null) throw new IllegalArgumentException("graph must not be null");
+        if (bundle == null) throw new IllegalArgumentException("bundle must not be null");
+        Aero_Profiler.start("aero.mesh.renderAnimated");
+        try {
+            Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            try {
+                GL11.glTranslated(x, y, z);
+                beginMeshState(options);
+                try {
+                    drawGroups(tess, model.groups, model.invScale, brightness, options);
+
+                    for (int e = 0; e < entries.length; e++) {
+                        Aero_MeshModel.NamedGroup ng = entries[e];
+                        String boneName = ng.name;
+
+                        SCRATCH_POSE.reset();
+                        bundle.getPivotInto(boneName, SCRATCH_PIVOT);
+                        SCRATCH_POSE.setPivot(SCRATCH_PIVOT);
+                        graph.samplePose(boneName, partialTick,
+                            SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL);
+                        SCRATCH_POSE.rotX = SCRATCH_ROT[0];
+                        SCRATCH_POSE.rotY = SCRATCH_ROT[1];
+                        SCRATCH_POSE.rotZ = SCRATCH_ROT[2];
+                        SCRATCH_POSE.offsetX = SCRATCH_POS[0] / 16f;
+                        SCRATCH_POSE.offsetY = SCRATCH_POS[1] / 16f;
+                        SCRATCH_POSE.offsetZ = SCRATCH_POS[2] / 16f;
+                        SCRATCH_POSE.scaleX = SCRATCH_SCL[0];
+                        SCRATCH_POSE.scaleY = SCRATCH_SCL[1];
+                        SCRATCH_POSE.scaleZ = SCRATCH_SCL[2];
+
+                        GL11.glPushMatrix();
+                        try {
+                            applyPose(SCRATCH_POSE);
+                            drawGroups(tess, ng.tris, model.invScale, brightness, options);
+                        } finally {
+                            GL11.glPopMatrix();
+                        }
+                    }
+                } finally {
+                    endMeshState();
+                }
+            } finally {
+                GL11.glPopMatrix();
+            }
+        } finally {
+            Aero_Profiler.end("aero.mesh.renderAnimated");
+        }
+    }
+
+    /**
      * Stack overload with a procedural pose hook layered on top of the
      * blended pose from every layer.
      */

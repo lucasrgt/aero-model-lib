@@ -1,0 +1,35 @@
+{
+  "format_version": "1.0",
+  "pivots": {
+    "turret_base": [8, 4, 8],
+    "turret_arm":  [8, 8, 11],
+    "turret_tip":  [8, 12, 14]
+  },
+  "childMap": {
+    "turret_arm": "turret_base",
+    "turret_tip": "turret_arm"
+  },
+  "animations": {
+    "rest": {
+      "loop": "loop",
+      "length": 1.0,
+      "bones": {
+        "turret_base": {
+          "rotation": {
+            "0": { "value": [0, 0, 0], "interp": "linear" }
+          }
+        },
+        "turret_arm": {
+          "rotation": {
+            "0": { "value": [0, 0, 0], "interp": "linear" }
+          }
+        },
+        "turret_tip": {
+          "rotation": {
+            "0": { "value": [0, 0, 0], "interp": "linear" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+# UV animation showcase — flat 1x1 plate at floor level. The "belt" bone
+# has its UV scrolled by an animation clip so the texture appears to move
+# across the surface even though the geometry never updates.
+
+o belt
+v 0.0 0.0625 0.0
+v 1.0 0.0625 0.0
+v 1.0 0.0625 1.0
+v 0.0 0.0625 1.0
+
+vt 0 0
+vt 1 0
+vt 1 1
+vt 0 1
+
+f 1/1 2/2 3/3 4/4
