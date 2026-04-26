@@ -1064,7 +1064,9 @@ from the spec.
 | `defaultTransitionTicks(n)` | `Builder` | Default crossfade applied by `applyState`; `0` = snap |
 | `createPlayback()` | `Aero_AnimationPlayback` | Platform-neutral playback |
 | `createState()` | `Aero_AnimationState` | Loader-specific NBT-aware state |
+| `createState(prefix)` | `Aero_AnimationState` | Same, with a custom NBT key prefix |
 | `applyState(playback, stateId)` | `void` | Updates the playback honoring `defaultTransitionTicks` |
+| `applyState(playback, router)` | `void` | Runs an `Aero_AnimationStateRouter`; uses `defaultTransitionTicks` when the router itself didn't declare one |
 
 ```java
 public static final Aero_AnimationSpec ANIMATION =
@@ -1125,8 +1127,13 @@ Mutable per-instance animation state. Extends `Aero_AnimationPlayback` and adds 
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `writeToNBT(nbt)` | `void` | Saves "Anim_state" and "Anim_time" |
+| `writeToNBT(nbt)` | `void` | Saves `<prefix>state` and `<prefix>time` (default prefix `Anim_`) |
 | `readFromNBT(nbt)` | `void` | Restores (prev=current to avoid first-frame jump) |
+| `DEFAULT_NBT_KEY_PREFIX` | `String` | `"Anim_"` — public constant for callers that compose keys |
+
+Use `def.createState(bundle, "Arm_")` (or `spec.createState("Arm_")`) to
+override the prefix when one tile entity carries multiple
+`Aero_AnimationState`s that would otherwise collide on `"Anim_state"`.
 
 ---
 
@@ -1167,8 +1174,13 @@ Loads `.anim.json` from classpath.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `load(resourcePath)` | `Aero_AnimationBundle` | Loads and caches |
+| `clearCache()` | `void` | Drops every cached bundle (intended for tests / hot-swap workflows) |
+| `SUPPORTED_FORMAT_VERSION` | `String` | The schema version this loader accepts (`"1.0"`) |
 
-Built-in JSON parser (recursive descent). No external dependencies.
+The loader rejects any `.anim.json` that omits `format_version` or
+declares one other than `SUPPORTED_FORMAT_VERSION`, so unknown schemas
+fail fast instead of partially parsing. Built-in JSON parser (recursive
+descent). No external dependencies.
 
 ---
 
@@ -1226,19 +1238,40 @@ The ModLoader adapter uses `entity.getEntityBrightness(partialTick)`. The Statio
 
 ### Aero_RenderOptions
 
-Immutable per-call render styling. Use this for mesh tinting instead of
-renderer-global state.
+Immutable per-call render styling. Use this for mesh tint, alpha, blending
+and depth-test toggles instead of renderer-global state.
 
 | Method / Field | Description |
 |----------------|-------------|
-| `DEFAULT` | White tint `(1, 1, 1)` |
+| `DEFAULT` | White tint, full alpha, no blend, depth test on |
 | `tint(r, g, b)` | Convenience factory for a 0..1 RGB multiplier |
-| `builder().tint(r, g, b).build()` | Builder form for render options |
+| `translucent(alpha)` | Convenience factory: white tint, blend on, alpha set |
+| `builder().tint(...).alpha(...).blend(...).depthTest(...).build()` | Full builder |
+| `toBuilder()` | Round-trips an existing options instance into a fresh builder |
+| Field `tintR/G/B`, `alpha`, `blend`, `depthTest` | Public final fields for renderers |
+
+The mesh renderer applies the knobs as follows:
+- `tint` and `alpha` go through `setColorRGBA_F` once per group;
+- `blend` toggles `GL_BLEND` with the standard `SRC_ALPHA / ONE_MINUS_SRC_ALPHA` pair;
+- `depthTest` toggles `GL_DEPTH_TEST` (defaults on; turn off for X-ray/overlay renders).
 
 ```java
+// Hot/red tint:
 Aero_RenderOptions hot = Aero_RenderOptions.tint(1f, 0.45f, 0.35f);
+
+// Translucent overlay (e.g. a ghost preview):
+Aero_RenderOptions ghost = Aero_RenderOptions.translucent(0.4f);
+
+// Custom mix:
+Aero_RenderOptions xray = Aero_RenderOptions.builder()
+    .tint(1f, 1f, 1f)
+    .alpha(0.6f)
+    .blend(true)
+    .depthTest(false)
+    .build();
+
 Aero_EntityModelRenderer.render(MODEL, state,
-    x, y, z, yaw, brightness, partialTick, hot);
+    x, y, z, yaw, brightness, partialTick, ghost);
 ```
 
 ---
@@ -1469,6 +1502,24 @@ state for a playback each tick.
 | `otherwise(stateId) → this` | Fallback when no rule matches; without it the playback's current state is preserved |
 | `withTransition(ticks) → this` | Route through `setStateWithTransition` so every change is a smooth blend |
 | `applyTo(playback)` | Evaluate rules, apply the first match |
+| `applyTo(playback, defaultTransitionTicks)` | Same, but uses the passed value when the router itself didn't declare a transition — used by `Aero_AnimationSpec.applyState(pb, router)` |
+
+To unify the entry point with the spec, route through the spec instead
+of calling the router directly:
+
+```java
+Aero_AnimationSpec spec = Aero_AnimationSpec.builder("/models/MyMob.anim.json")
+    .state(0, "idle").state(1, "walk").state(2, "attack")
+    .defaultTransitionTicks(6)        // applied to every state change unless the router overrides
+    .build();
+
+Aero_AnimationStateRouter router = new Aero_AnimationStateRouter()
+    .when(p -> entity.isAttacking(), 2)
+    .when(p -> entity.isMoving(),    1)
+    .otherwise(0);
+
+spec.applyState(playback, router);    // 6-tick blend, predicate-driven
+```
 
 ---
 

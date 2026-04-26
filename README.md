@@ -242,6 +242,7 @@ and shorthand keyframes. Convert existing `.bbmodel` animation exports with
 - **Pose keyframes**: every segment is `{"value": [x, y, z], "interp": "..."}`. The interp picks one of the 33 [easing curves](DOC.md#easing-curves); unknown names throw at load time.
 - **Loop types**: must be `"loop"` / `"play_once"` / `"hold_on_last_frame"`.
 - **Keyframe events**: every entry under `keyframes` is `{"name": "...", "locator": "boneName"}`. Channel is the parent key (`sound`, `particle`, `custom`, or anything else the listener routes); locator is optional.
+- **`format_version`**: required string; the loader currently accepts `"1.0"` only (`Aero_AnimationLoader.SUPPORTED_FORMAT_VERSION`). Future schema bumps reject mismatched versions loudly instead of silently half-parsing.
 
 ### `.obj`
 
