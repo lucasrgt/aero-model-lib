@@ -1,11 +1,11 @@
-# AeroModelLib
+<div align="center">
+  <img src="banner.png" alt="AeroModelLib" width="80%">
+</div>
 
 > **Modern animated rendering for Minecraft Beta 1.7.3.** Blockbench
 > models, OBJ meshes, GeckoLib-style animation, locator-anchored
 > sounds and particles, multi-layer blending, render-distance LOD —
 > all on the OpenGL 1.1 fixed-function pipeline that Beta 1.7.3 ships with.
-
-[![Demo](https://img.youtube.com/vi/ewJ0XgnOSHE/maxresdefault.jpg)](https://www.youtube.com/watch?v=ewJ0XgnOSHE)
 
 > **Compatibility:** Java 8 core/ModLoader · JDK 17 StationAPI build · Minecraft Beta 1.7.3 · RetroMCP · ModLoader / Forge 1.0.6 · StationAPI / Babric · LWJGL (OpenGL 1.1+)
 
@@ -30,6 +30,10 @@ all.
   lighting, bilinear smooth-light cache, alloc-free animation samplers,
   bone-resolution memoization. Designed for dozens of animated multiblocks
   on screen simultaneously.
+
+### See it in action
+
+[![Demo](https://img.youtube.com/vi/ewJ0XgnOSHE/maxresdefault.jpg)](https://www.youtube.com/watch?v=ewJ0XgnOSHE)
 
 ---
 
