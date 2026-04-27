@@ -1,6 +1,4 @@
-<div align="center">
-  <img src="banner.png" alt="AeroModelLib" width="80%">
-</div>
+<img src="banner.png" alt="AeroModelLib" width="100%">
 
 > **Modern animated rendering for Minecraft Beta 1.7.3.** Blockbench
 > models, OBJ meshes, GeckoLib-style animation, locator-anchored
