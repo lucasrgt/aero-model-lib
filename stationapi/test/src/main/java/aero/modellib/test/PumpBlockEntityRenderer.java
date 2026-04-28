@@ -16,7 +16,7 @@ public class PumpBlockEntityRenderer extends BlockEntityRenderer {
     public void render(BlockEntity blockEntity, double x, double y, double z, float partialTick) {
         PumpBlockEntity be = (PumpBlockEntity) blockEntity;
         Aero_RenderLod lod = Aero_RenderDistance.lodRelative(
-            x, y, z, 2d, AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS);
+            x, y, z, 2d, AeroTestMod.demoAnimatedLodDistance());
         if (!lod.shouldRender()) return;
 
         bindTexture("/models/aerotest_pump.png");

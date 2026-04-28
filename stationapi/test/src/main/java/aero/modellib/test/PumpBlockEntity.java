@@ -26,6 +26,7 @@ public class PumpBlockEntity extends Aero_RenderDistanceBlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         animState.setState(STATE_STROKE);
         animState.tick();
     }

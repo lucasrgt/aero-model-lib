@@ -37,6 +37,28 @@ public class Aero_MeshRenderer {
     private static Aero_BoneRenderPose[] POSE_POOL = newPosePool(16);
 
     // -----------------------------------------------------------------------
+    // Frustum cull glue
+    // -----------------------------------------------------------------------
+    //
+    // BlockEntity / EntityRenderDispatcher iterate every loaded entity in
+    // distance range and never check the view frustum. When animated LOD is
+    // bumped past vanilla's 64 block cap, half of those renders happen for
+    // entities behind the player — full Tessellator + GL dispatch cost,
+    // zero pixels on screen. updateCameraForward() refreshes the cached
+    // forward vector from the local player; the actual cull is a single
+    // dot product per render call (Aero_FrustumCull.isLikelyVisible).
+
+    /**
+     * Refreshes Aero_FrustumCull's cached forward vector from the local
+     * player. Cheap (4 trig + 3 muls); no allocation. Called at the entry
+     * of every public render method so a renderer that wraps us doesn't
+     * have to know about frustum state.
+     */
+    private static void updateCameraForwardFromPlayer() {
+        Aero_RenderDistance.updateCameraForwardFromPlayer();
+    }
+
+    // -----------------------------------------------------------------------
     // Full model render
     // -----------------------------------------------------------------------
 
@@ -48,6 +70,8 @@ public class Aero_MeshRenderer {
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, float brightness,
                                     Aero_RenderOptions options) {
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
         Aero_Profiler.start("aero.mesh.render");
         try {
             Tessellator tess = Tessellator.INSTANCE;
@@ -77,19 +101,23 @@ public class Aero_MeshRenderer {
     public static void renderModelAtRest(Aero_MeshModel model, double x, double y, double z,
                                          float rotation, float brightness,
                                          Aero_RenderOptions options) {
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
         Aero_Profiler.start("aero.mesh.render");
         try {
-            Tessellator tess = Tessellator.INSTANCE;
             GL11.glPushMatrix();
             try {
                 GL11.glTranslated(x, y, z);
                 applyRotation(rotation);
                 beginMeshState(options);
                 try {
-                    drawGroups(tess, model.groups, model.invScale, brightness, options);
-                    Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
-                    for (int e = 0; e < entries.length; e++) {
-                        drawGroups(tess, entries[e].tris, model.invScale, brightness, options);
+                    if (!renderAtRestViaLists(model, brightness, options)) {
+                        Tessellator tess = Tessellator.INSTANCE;
+                        drawGroups(tess, model.groups, model.invScale, brightness, options);
+                        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+                        for (int e = 0; e < entries.length; e++) {
+                            drawGroups(tess, entries[e].tris, model.invScale, brightness, options);
+                        }
                     }
                 } finally {
                     endMeshState();
@@ -102,6 +130,90 @@ public class Aero_MeshRenderer {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Display-list fast-path for the at-rest composition
+    // -----------------------------------------------------------------------
+    //
+    // Replaces N Tessellator.draw cycles (FloatBuffer fill + 4× pointer setup
+    // + getBufferAddress JNI hit + glDrawArrays JNI hit) with 4 glCallList
+    // calls — one per brightness bucket. Geometry+UV is baked into the list
+    // once at first render; brightness × tint × alpha is applied via glColor4f
+    // before each glCallList so the same list serves every render of the
+    // model regardless of world light or render-options state.
+    //
+    // Tradeoff: 4 glCallList vs 1 Tessellator.draw, but each glCallList is
+    // a single JNI driver call replaying a pre-baked command stream. The
+    // Tessellator path's per-call overhead (buffer.put N vertices, JNI for
+    // getAddress, JNI for each pointer setter, JNI for glDrawArrays) is gone.
+    //
+    // Skips empty buckets (id 0) so models with concentrated geometry pay
+    // for at most as many glCallList invocations as they have non-empty
+    // buckets. Falls back to the Tessellator path if glGenLists returns 0
+    // (out of list ids — extremely rare on Beta 1.7.3 / OpenGL 1.1).
+
+    private static boolean renderAtRestViaLists(Aero_MeshModel model, float brightness,
+                                                Aero_RenderOptions options) {
+        int[] ids = model.getAtRestListIds();
+        if (ids == null) {
+            if (model.atRestListsCompileFailed()) return false;
+            ids = compileAtRestLists(model);
+            if (ids == null) {
+                model.markAtRestListsCompileFailed();
+                return false;
+            }
+            model.setAtRestListIds(ids);
+        }
+        for (int g = 0; g < 4; g++) {
+            int id = ids[g];
+            if (id == 0) continue;
+            float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
+            GL11.glColor4f(bright * options.tintR, bright * options.tintG,
+                           bright * options.tintB, options.alpha);
+            GL11.glCallList(id);
+        }
+        return true;
+    }
+
+    private static int[] compileAtRestLists(Aero_MeshModel model) {
+        int[] ids = new int[4];
+        final float invSc = model.invScale;
+        Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+        for (int g = 0; g < 4; g++) {
+            boolean hasContent = model.groups[g].length > 0;
+            for (int e = 0; e < entries.length && !hasContent; e++) {
+                if (entries[e].tris[g].length > 0) hasContent = true;
+            }
+            if (!hasContent) { ids[g] = 0; continue; }
+
+            int id = GL11.glGenLists(1);
+            if (id == 0) {
+                for (int j = 0; j < g; j++) {
+                    if (ids[j] != 0) GL11.glDeleteLists(ids[j], 1);
+                }
+                return null;
+            }
+            GL11.glNewList(id, GL11.GL_COMPILE);
+            GL11.glBegin(GL11.GL_TRIANGLES);
+            emitTrisIntoList(model.groups[g], invSc);
+            for (int e = 0; e < entries.length; e++) {
+                emitTrisIntoList(entries[e].tris[g], invSc);
+            }
+            GL11.glEnd();
+            GL11.glEndList();
+            ids[g] = id;
+        }
+        return ids;
+    }
+
+    private static void emitTrisIntoList(float[][] tris, float invSc) {
+        for (int i = 0; i < tris.length; i++) {
+            float[] t = tris[i];
+            GL11.glTexCoord2f(t[3],  t[4]);  GL11.glVertex3f(t[0]*invSc,  t[1]*invSc,  t[2]*invSc);
+            GL11.glTexCoord2f(t[8],  t[9]);  GL11.glVertex3f(t[5]*invSc,  t[6]*invSc,  t[7]*invSc);
+            GL11.glTexCoord2f(t[13], t[14]); GL11.glVertex3f(t[10]*invSc, t[11]*invSc, t[12]*invSc);
+        }
+    }
+
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, World world, int ox, int topY, int oz) {
         renderModel(model, x, y, z, rotation, world, ox, topY, oz, Aero_RenderOptions.DEFAULT);
@@ -110,6 +222,8 @@ public class Aero_MeshRenderer {
     public static void renderModel(Aero_MeshModel model, double x, double y, double z,
                                     float rotation, World world, int ox, int topY, int oz,
                                     Aero_RenderOptions options) {
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
         Aero_Profiler.start("aero.mesh.render");
         try {
             Tessellator tess = Tessellator.INSTANCE;
@@ -161,6 +275,8 @@ public class Aero_MeshRenderer {
                                            float pivotX, float pivotY, float pivotZ,
                                            float angle, float axisX, float axisY, float axisZ,
                                            Aero_RenderOptions options) {
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
         float[][][] ng = model.getNamedGroup(groupName);
         if (ng == null) return;
 
@@ -285,6 +401,23 @@ public class Aero_MeshRenderer {
                                                 Aero_ProceduralPose proceduralPose,
                                                 Aero_IkChain[] ikChains,
                                                 Aero_MorphState morphState) {
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
+
+        // Distance LOD: beyond the recommended animated radius (scales with
+        // player render-distance setting), fall through to the display-list
+        // at-rest path. Eliminates per-frame Tessellator cost for far entities
+        // without requiring every renderer to plumb its own lodRelative call.
+        // The threshold uses Aero_AnimationTickLOD's policy so tick + render
+        // LOD line up at the same distance.
+        double distSq = x * x + y * y + z * z;
+        double animatedRadius = Aero_AnimationTickLOD.recommendedAnimatedDistance(
+            Aero_RenderDistance.currentViewDistance());
+        if (distSq > animatedRadius * animatedRadius) {
+            renderModelAtRest(model, x, y, z, 0f, brightness, options);
+            return;
+        }
+
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
@@ -303,9 +436,8 @@ public class Aero_MeshRenderer {
                     for (int b = 0; b < clip.boneNames.length; b++) {
                         String boneName = clip.boneNames[b];
                         float[] pivot = bundle.pivotOrZero(boneName);
-                        Aero_MeshModel.BoneRef boneRef =
-                            new Aero_MeshModel.BoneRef(b, boneName, pivot);
-                        Aero_AnimationPoseResolver.resolveClip(boneRef, clip, state, time, partialTick,
+                        Aero_AnimationPoseResolver.resolveClip(b, boneName, pivot,
+                            clip, state, time, partialTick,
                             SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, pool[b]);
                         if (proceduralPose != null) proceduralPose.apply(boneName, pool[b]);
                     }
@@ -801,7 +933,12 @@ public class Aero_MeshRenderer {
 
     private static void beginMeshState(Aero_RenderOptions options) {
         GL11.glPushAttrib(MESH_ATTRIB_BITS);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        if (options.cullFaces) {
+            GL11.glEnable(GL11.GL_CULL_FACE);
+            GL11.glCullFace(GL11.GL_BACK);
+        } else {
+            GL11.glDisable(GL11.GL_CULL_FACE);
+        }
         GL11.glDisable(GL11.GL_LIGHTING);
         applyBlendMode(options.blend);
         GL11.glDisable(GL11.GL_ALPHA_TEST);

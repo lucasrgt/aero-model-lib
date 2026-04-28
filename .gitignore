@@ -25,6 +25,11 @@ stationapi/test/.gradle/
 stationapi/test/.idea/
 stationapi/test/run/
 stationapi/test/*.iml
+# JFR profiles + repos that the benchmark/stress tasks land at the
+# test project root when Loom doesn't resolve workingDir to run/.
+stationapi/test/*.jfr
+stationapi/test/jfr-*-repo/
+stationapi/test/jfr-repo/
 
 # Moved unit-test runner output
 modloader/tests/out/

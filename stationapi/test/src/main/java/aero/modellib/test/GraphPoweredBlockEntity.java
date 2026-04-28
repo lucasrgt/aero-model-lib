@@ -48,6 +48,7 @@ public class GraphPoweredBlockEntity extends Aero_RenderDistanceBlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         slowPlayback.tick();
         fastPlayback.tick();
         // Smooth sine over ~3 seconds (60 ticks at 20 tps): speed cycles

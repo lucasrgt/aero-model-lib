@@ -1,8 +1,11 @@
 package aero.modellib;
 
 import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.fabricmc.loader.api.FabricLoader;
 
 /**
  * StationAPI render-distance helpers for Aero models.
@@ -33,8 +36,12 @@ public final class Aero_RenderDistance {
     public static boolean shouldRenderRelative(double x, double y, double z,
                                                double visualRadiusBlocks,
                                                double maxRenderDistanceBlocks) {
-        return Aero_RenderDistanceCulling.shouldRenderRelative(
-            x, y, z, currentViewDistance(), visualRadiusBlocks, maxRenderDistanceBlocks);
+        if (!Aero_RenderDistanceCulling.shouldRenderRelative(
+            x, y, z, currentViewDistance(), visualRadiusBlocks, maxRenderDistanceBlocks)) {
+            return false;
+        }
+        updateCameraForwardFromPlayer();
+        return Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks);
     }
 
     public static Aero_RenderLod lodRelative(double x, double y, double z,
@@ -61,6 +68,28 @@ public final class Aero_RenderDistance {
             transform.cullingRadius,
             spec.getAnimatedDistanceBlocks(),
             transform.maxRenderDistance);
+    }
+
+    public static void updateCameraForwardFromPlayer() {
+        if (!Aero_FrustumCull.ENABLED) return;
+        Object game = FabricLoader.getInstance().getGameInstance();
+        if (!(game instanceof Minecraft)) {
+            Aero_FrustumCull.clearCamera();
+            return;
+        }
+        Minecraft mc = (Minecraft) game;
+        PlayerEntity player = mc.player;
+        if (player == null) {
+            Aero_FrustumCull.clearCamera();
+            return;
+        }
+        Aero_FrustumCull.updateCameraForward(player.yaw, player.pitch);
+    }
+
+    public static boolean shouldRenderFrustumRelative(double x, double y, double z,
+                                                      double visualRadiusBlocks) {
+        updateCameraForwardFromPlayer();
+        return Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks);
     }
 
     public static double blockEntityDistanceFrom(BlockEntity blockEntity,

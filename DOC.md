@@ -2909,6 +2909,15 @@ with `jfr print --events jdk.ExecutionSample tests/data/aero.jfr`. The
 `-Daero.profiler=true` flag makes any `Aero_Profiler` sections show up in
 the console while JFR captures method-level samples.
 
+For interactive sampling — and the path most external reviewers will reach
+for first — attach **VisualVM** to the running client. Launch the test mod
+via `./gradlew runClient` (StationAPI) or your usual ModLoader/MCP launcher,
+then open VisualVM, pick the JVM from the Local list, switch to the
+**Sampler** tab and hit **CPU**. Sit on a stable scene (the test world that
+ships with `stationapi/test/run/saves/` works) for 30–60 s and read the
+hot-method list. Pair it with `-Daero.profiler=true` so the lib's own
+section dumps print alongside VisualVM's frame-by-frame sampling.
+
 ### StationAPI builds
 
 ```powershell

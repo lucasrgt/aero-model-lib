@@ -25,7 +25,11 @@ repositories {
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
     mappings "net.glasslauncher:biny:${yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    // Babric fork (Beta 1.7.3 ecosystem). The upstream
+    // `net.fabricmc:fabric-loader` collides with StationAPI's transitive
+    // `babric:fabric-loader` at runtime when this lib is consumed via a
+    // composite build (see stationapi/test/).
+    modImplementation "babric:fabric-loader:0.15.6-babric.1"
 }
 
 // Pull in the shared pure-Java core sources from sibling dir libraries/modellib/core/.

@@ -30,6 +30,7 @@ public class MotorBlockEntity extends Aero_RenderDistanceBlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         animState.setState(STATE_PULSE);
         animState.tick();
     }

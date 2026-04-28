@@ -16,7 +16,7 @@ public class MotorBlockEntityRenderer extends BlockEntityRenderer {
     public void render(BlockEntity blockEntity, double x, double y, double z, float partialTick) {
         MotorBlockEntity be = (MotorBlockEntity) blockEntity;
         Aero_RenderLod lod = Aero_RenderDistance.lodRelative(
-            x, y, z, 2d, AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS);
+            x, y, z, 2d, AeroTestMod.demoAnimatedLodDistance());
         if (!lod.shouldRender()) return;
 
         bindTexture("/models/aerotest_motor.png");

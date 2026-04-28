@@ -23,6 +23,7 @@ public class ConveyorBlockEntity extends Aero_RenderDistanceBlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         animState.setState(STATE_SCROLL);
         animState.tick();
     }

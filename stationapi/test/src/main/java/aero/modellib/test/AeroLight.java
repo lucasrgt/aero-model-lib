@@ -24,4 +24,14 @@ public final class AeroLight {
         if (bright <= 0f) bright = world.method_1782(x, y + 1, z);
         return bright;
     }
+
+    /**
+     * Entity-position brightness sample — does NOT walk to the column top.
+     * Use this for mobs that move through water, ice, glass or other
+     * partially-transparent media: sampling at the column top would give
+     * full sky brightness and make submerged entities glow.
+     */
+    public static float brightnessAt(World world, int x, int y, int z) {
+        return world.method_1782(x, y, z);
+    }
 }
