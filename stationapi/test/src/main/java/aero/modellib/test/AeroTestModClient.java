@@ -15,6 +15,7 @@ public class AeroTestModClient {
 
     static {
         EntrypointManager.registerLookup(MethodHandles.lookup());
+        AeroTestProfilerHook.install();
     }
 
     @EventListener

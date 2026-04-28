@@ -4,9 +4,9 @@ import aero.modellib.Aero_AnimationBundle;
 import aero.modellib.Aero_AnimationDefinition;
 import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
-import net.minecraft.block.entity.BlockEntity;
+import aero.modellib.Aero_RenderDistanceBlockEntity;
 
-public class EasingShowcaseBlockEntity extends BlockEntity {
+public class EasingShowcaseBlockEntity extends Aero_RenderDistanceBlockEntity {
 
     public static final int STATE_WAVE = 1;
 
@@ -21,6 +21,7 @@ public class EasingShowcaseBlockEntity extends BlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         animState.setState(STATE_WAVE);
         animState.tick();
     }

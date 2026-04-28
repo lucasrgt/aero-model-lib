@@ -23,6 +23,7 @@ public class SpellCircleBlockEntity extends Aero_RenderDistanceBlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         animState.setState(STATE_CHANNEL);
         animState.tick();
     }

@@ -1,3 +1,5 @@
+> **AI DISCLAIMER:**  AeroModelLib is developed with heavy AI assistance for execution speed. Architecture, design decisions, testing, and review are hand-authored. The integrated 210+ unit test suite plus visual smoke validation on both runtimes gate every change. Code is fully open and critique is welcome. The goal is delivery quality, not opacity around the process.
+
 <img src="banner.png" alt="AeroModelLib" width="100%">
 
 > **Modern animated rendering for Minecraft Beta 1.7.3.** Blockbench
@@ -598,7 +600,7 @@ and the multiplayer recipe.
 | [§ 8 API Reference](DOC.md#8-api-reference) | Every public class with method tables |
 | [§ 11 Patterns](DOC.md#11-patterns--best-practices) | Multiplayer, NBT, LOD, render-distance idioms |
 | [§ 14 End-to-end example](DOC.md#14-full-end-to-end-example) | A complete simple-crusher mod, copy-paste ready |
-| [§ 15 Profiling](DOC.md#15-development-tests--benchmarks) | Aero_Profiler + JFR launch + JMC analysis |
+| [§ 15 Profiling](DOC.md#15-development-tests--benchmarks) | Aero_Profiler + VisualVM + JFR launch + JMC analysis |
 
 ---
 

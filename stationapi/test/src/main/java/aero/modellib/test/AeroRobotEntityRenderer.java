@@ -22,7 +22,7 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
             .texture("/models/aerotest_robot.png")
             .animations(AeroRobotEntity.ANIMATION)
             .offset(-0.5f, 0f, -0.5f)
-            .animatedDistance(AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS)
+            .animatedDistance(AeroTestMod.demoAnimatedLodDistance())
             .build();
 
     public AeroRobotEntityRenderer() {
@@ -54,16 +54,16 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
             g = baseGB + (1.0f - baseGB) * pulse;
         }
 
-        // Sample brightness at the entity's feet column instead of relying
-        // on entity.getBrightnessAtEyes — that vanilla formula computes
-        // y_eye = floor(y + boxHeight*0.66 - standingEyeHeight) which goes
-        // BELOW the feet (and into the opaque ground block) whenever the
-        // mob's eye height is taller than ~66% of its box height. AeroLight
-        // already does the column-top fallback for water/lava chunks too.
+        // Sample brightness at the entity's actual position — using
+        // brightnessAt (not brightnessAbove). brightnessAbove walks to the
+        // column top which gives full sky brightness for entities under
+        // water / ice / glass and makes them visibly glow. brightnessAt
+        // reads light directly at (x, y_head, z) so submerged mobs darken
+        // correctly.
         int ex = (int) Math.floor(entity.x);
         int ey = (int) Math.floor(entity.y);
         int ez = (int) Math.floor(entity.z);
-        float brightness = AeroLight.brightnessAbove(entity.world, ex, ey, ez);
+        float brightness = AeroLight.brightnessAt(entity.world, ex, ey, ez);
 
         Aero_RenderOptions renderOptions = Aero_RenderOptions.tint(1f, g, b);
         Aero_EntityModelRenderer.render(MODEL, bot.animState,

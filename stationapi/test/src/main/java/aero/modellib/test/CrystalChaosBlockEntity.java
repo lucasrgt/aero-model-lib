@@ -26,6 +26,7 @@ public class CrystalChaosBlockEntity extends Aero_RenderDistanceBlockEntity {
     @Override
     public void tick() {
         super.tick();
+        if (!shouldTickAnimation()) return;
         animState.setState(STATE_CHAOS);
         animState.tick();
     }

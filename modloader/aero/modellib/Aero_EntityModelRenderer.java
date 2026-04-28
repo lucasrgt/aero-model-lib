@@ -56,6 +56,7 @@ public final class Aero_EntityModelRenderer {
         requireSpec(spec);
         Aero_RenderLod lod = Aero_RenderDistance.lodRelative(spec, x, y, z);
         if (!lod.shouldRender()) return;
+        if (!shouldRender(x, y, z, spec.getEntityTransform())) return;
         float brightness = entity.getEntityBrightness(partialTick);
         if (lod.shouldAnimate()) {
             renderAnimated(spec, state, x, y, z, yaw, brightness, partialTick,
@@ -89,6 +90,7 @@ public final class Aero_EntityModelRenderer {
         requireSpec(spec);
         if (lod == null) throw new IllegalArgumentException("lod must not be null");
         if (!lod.shouldRender()) return;
+        if (!shouldRender(x, y, z, spec.getEntityTransform())) return;
         float brightness = entity.getEntityBrightness(partialTick);
         render(spec, state, lod, x, y, z, yaw, brightness, partialTick);
     }
@@ -110,6 +112,7 @@ public final class Aero_EntityModelRenderer {
         requireOptions(options);
         if (lod == null) throw new IllegalArgumentException("lod must not be null");
         if (!lod.shouldRender()) return;
+        if (!shouldRender(x, y, z, spec.getEntityTransform())) return;
         if (lod.shouldAnimate()) {
             renderAnimated(spec, state, x, y, z, yaw, brightness, partialTick, options);
         } else {

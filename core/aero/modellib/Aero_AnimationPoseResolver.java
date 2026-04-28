@@ -23,6 +23,21 @@ final class Aero_AnimationPoseResolver {
             scratchRot, scratchPos, scratchScl, scratchRot, scratchPos, out);
     }
 
+    static void resolveClip(int boneIdx,
+                            String boneName,
+                            float[] pivot,
+                            Aero_AnimationClip clip,
+                            Aero_AnimationPlayback playback,
+                            float time,
+                            float partialTick,
+                            float[] scratchRot,
+                            float[] scratchPos,
+                            float[] scratchScl,
+                            Aero_BoneRenderPose out) {
+        resolveClip(boneIdx, boneName, pivot, clip, playback, time, partialTick,
+            scratchRot, scratchPos, scratchScl, scratchRot, scratchPos, out);
+    }
+
     static void resolveClip(Aero_MeshModel.BoneRef ref,
                             Aero_AnimationClip clip,
                             Aero_AnimationPlayback playback,
@@ -34,13 +49,27 @@ final class Aero_AnimationPoseResolver {
                             float[] scratchUvOff,
                             float[] scratchUvScl,
                             Aero_BoneRenderPose out) {
+        resolveClip(ref.boneIdx, ref.boneName, ref.pivot, clip, playback, time, partialTick,
+            scratchRot, scratchPos, scratchScl, scratchUvOff, scratchUvScl, out);
+    }
+
+    static void resolveClip(int boneIdx,
+                            String boneName,
+                            float[] pivot,
+                            Aero_AnimationClip clip,
+                            Aero_AnimationPlayback playback,
+                            float time,
+                            float partialTick,
+                            float[] scratchRot,
+                            float[] scratchPos,
+                            float[] scratchScl,
+                            float[] scratchUvOff,
+                            float[] scratchUvScl,
+                            Aero_BoneRenderPose out) {
         out.reset();
-        out.setPivot(ref.pivot);
+        out.setPivot(pivot);
 
-        int boneIdx = ref.boneIdx;
         if (clip == null || boneIdx < 0) return;
-
-        String boneName = ref.boneName;
         if (sampleRot(clip, playback, boneIdx, boneName, time, partialTick, scratchRot)) {
             out.rotX = scratchRot[0];
             out.rotY = scratchRot[1];

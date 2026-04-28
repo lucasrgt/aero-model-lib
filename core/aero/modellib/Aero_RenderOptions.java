@@ -18,6 +18,15 @@ public final class Aero_RenderOptions {
     public final float alpha;
     public final Aero_MeshBlendMode blend;
     public final boolean depthTest;
+    /**
+     * Whether GL_CULL_FACE is enabled during the render. Default {@code false}
+     * — OBJ exporters often produce inconsistent triangle winding, so
+     * enabling cull globally would silently invisibilify some models. Opt-in
+     * via {@link Builder#cullFaces(boolean)} for ~40% GPU triangle savings
+     * once you've verified the model's winding is consistent. Decals,
+     * banners, and transparent foliage should keep this {@code false}.
+     */
+    public final boolean cullFaces;
 
     public static Builder builder() {
         return new Builder();
@@ -49,6 +58,7 @@ public final class Aero_RenderOptions {
         this.alpha = builder.alpha;
         this.blend = builder.blend;
         this.depthTest = builder.depthTest;
+        this.cullFaces = builder.cullFaces;
     }
 
     public Builder toBuilder() {
@@ -59,6 +69,7 @@ public final class Aero_RenderOptions {
         b.alpha = alpha;
         b.blend = blend;
         b.depthTest = depthTest;
+        b.cullFaces = cullFaces;
         return b;
     }
 
@@ -69,6 +80,11 @@ public final class Aero_RenderOptions {
         private float alpha = 1f;
         private Aero_MeshBlendMode blend = Aero_MeshBlendMode.OFF;
         private boolean depthTest = true;
+        // Default false (matches pre-v0.2.2 behavior). OBJ exporters often
+        // produce inconsistent triangle winding — enabling cull globally
+        // would silently invisibilify some models. Opt-in via cullFaces(true)
+        // when you've verified the model's winding is consistent.
+        private boolean cullFaces = false;
 
         private Builder() {}
 
@@ -105,6 +121,23 @@ public final class Aero_RenderOptions {
         /** Disable depth testing for X-ray/overlay style renders. Default {@code true}. */
         public Builder depthTest(boolean enabled) {
             this.depthTest = enabled;
+            return this;
+        }
+
+        /**
+         * Marks the model as double-sided — disables GL_CULL_FACE so triangles
+         * facing away from the camera still draw. Use for decals, banners,
+         * transparent foliage, or any mesh whose winding is intentionally
+         * inconsistent. Default is single-sided (back-face culled).
+         */
+        public Builder doubleSided() {
+            this.cullFaces = false;
+            return this;
+        }
+
+        /** Explicit override for back-face culling (default {@code true}). */
+        public Builder cullFaces(boolean enabled) {
+            this.cullFaces = enabled;
             return this;
         }
 

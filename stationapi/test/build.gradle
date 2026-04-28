@@ -30,69 +30,32 @@ repositories {
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
     mappings "net.glasslauncher:biny:${yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    // Babric fork — StationAPI transitively pulls this in, declaring the
+    // upstream `net.fabricmc:fabric-loader` here causes a duplicate-loader
+    // class-path collision at runtime.
+    modImplementation "babric:fabric-loader:0.15.6-babric.1"
 
     // StationAPI provides the BlockRegistryEvent / BlockEntityRegisterEvent /
     // BlockEntityRendererRegisterEvent we listen to.
     modImplementation "net.modificationstation:StationAPI:${stationapi_version}"
 
-    // The lib under test — built as the parent Loom project.
-    modImplementation files('../build/libs/aero-model-lib-' + project.findProperty('mod_version') + '.jar')
+    // The lib under test — resolved via the includeBuild('..') composite in
+    // settings.gradle, so edits in ../core or ../src don't need a manual jar
+    // rebuild.
+    modImplementation "dev.aerocoding:aero-model-lib:${mod_version}"
 
-    // Always More Items + its Glass Launcher dependency stack are downloaded
-    // via the `downloadAMI` task (below) and dropped into run/mods/. They
-    // can't be added as Gradle deps here because AMI 1.9.0 was built with
-    // Loom 1.11.x while StationAPI (and this project) still target Loom
-    // 1.9.x — Loom rejects newer-built mod jars at gradle-config time.
-    // Treating them as plain mod-folder jars sidesteps the version check.
+    // AMI + Glass Launcher mod stack — runtime-only because we don't compile
+    // against any of their APIs, just want them present in-game for the
+    // smoke test world. Versions pinned to the latest releases that were
+    // built with Fabric-Loom 1.9.2 so they pass Loom's bundled-version
+    // check at gradle-config time. Bumping past these requires Loom 1.11+
+    // (which in turn needs Gradle 8.14 + JDK 21).
+    modRuntimeOnly "net.glasslauncher.mods:AlwaysMoreItems:1.6.0"
+    modRuntimeOnly "net.glasslauncher.mods:glass-networking:1.0.6"
+    modRuntimeOnly "net.glasslauncher.mods:GlassConfigAPI:3.2.2"
+    // modmenu has no Loom-1.9.2-built release (every published version was
+    // built with Loom 1.11.7) — wait for the lib-wide Loom upgrade to add.
 }
-
-tasks.register('downloadAMI') {
-    description 'Downloads Always-More-Items + Glass Launcher runtime deps into run/mods/.'
-    doLast {
-        def modsDir = file('run/mods')
-        modsDir.mkdirs()
-        def downloads = [
-            'AlwaysMoreItems-1.9.0.jar': [
-                url: 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/AlwaysMoreItems/1.9.0/AlwaysMoreItems-1.9.0.jar',
-                sha256: 'b590e2482f28b304ed512d9ad7550ba11e7221a0e9281dc15a825f0d1a2d7ab5'
-            ],
-            'glass-networking-1.0.6.jar': [
-                url: 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/glass-networking/1.0.6/glass-networking-1.0.6.jar',
-                sha256: '353010d31e8b77a417e990f196e12cec6750c7bb1f66e109d918f52c9bfbb53e'
-            ],
-            'GlassConfigAPI-3.2.5.jar': [
-                url: 'https://maven.glass-launcher.net/releases/net/glasslauncher/mods/GlassConfigAPI/3.2.5/GlassConfigAPI-3.2.5.jar',
-                sha256: '521fd621dd3aede2132fa06572e3493cd2dc99e453cc5a1fde79aee9f37c639f'
-            ],
-            'modmenu-1.1.1.jar': [
-                url: 'https://maven.glass-launcher.net/releases/net/danygames2014/modmenu/1.1.1/modmenu-1.1.1.jar',
-                sha256: 'f9cae45c4de9f8b440701e95b3335dc3b7865e2a5993f6c9f6205aac6044c654'
-            ],
-        ]
-        downloads.each { name, metadata ->
-            def out = new File(modsDir, name)
-            if (!out.exists()) {
-                println "  Downloading ${name}..."
-                out.bytes = new java.net.URL(metadata.url).bytes
-            }
-            def digest = java.security.MessageDigest.getInstance('SHA-256')
-            out.withInputStream { input ->
-                byte[] buffer = new byte[8192]
-                int read
-                while ((read = input.read(buffer)) != -1) {
-                    digest.update(buffer, 0, read)
-                }
-            }
-            def actual = digest.digest().encodeHex().toString()
-            if (!actual.equalsIgnoreCase(metadata.sha256)) {
-                throw new GradleException("Checksum mismatch for ${name}: expected ${metadata.sha256}, got ${actual}")
-            }
-        }
-    }
-}
-
-runClient.dependsOn downloadAMI
 
 processResources {
     inputs.property "version", project.version
@@ -110,5 +73,105 @@ loom {
             ideConfigGenerated true
             runDir 'run'
         }
+    }
+}
+
+// Profile-enabled client run. Adds:
+//   • -Daero.profiler=true       — turns on the lib's own section profiler
+//                                  (Aero_Profiler) which a test-mod hook
+//                                  dumps every 60 s + on shutdown.
+//   • -XX:StartFlightRecording   — records a JFR file for the entire run.
+//                                  `settings=profile` includes CPU sampling
+//                                  + allocation events. The flag syntax is
+//                                  cross-version safe: works on OpenJDK
+//                                  8u272+, Java 11+, and Java 17 without
+//                                  any -XX:+UnlockCommercialFeatures /
+//                                  -XX:+FlightRecorder pre-flags (those
+//                                  are rejected on modern JVMs anyway).
+//   • -XX:FlightRecorderOptions  — bumps repository size so a long session
+//                                  doesn't drop chunks.
+//
+// Output JFR lands at run/aero-profile.jfr — analyse with
+// `jfr summary` and `jfr print --events jdk.ExecutionSample`.
+tasks.register('runClientProfile') {
+    group = 'fabric'
+    description = 'Run the client with Aero profiler + JFR recording enabled.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-profile.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.profiler=true',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientProfile] aero.profiler=true · JFR -> ' + jfrFile
+    }
+}
+
+// Auto-quitting benchmark run. Adds `-Daero.benchmark.exitAfterSec=N` so
+// the JVM kills itself cleanly N seconds after the test mod's profiler hook
+// installs. Pair with -Daero.stresstest=true (or call runClientStress
+// instead). Useful for CI-style perf comparisons where you want a fixed
+// 90 s window of recorded data, parseable by the jfr_top.py helper.
+//
+// Override the duration with: `-Pbench=N` (defaults to 90 s).
+tasks.register('runClientBenchmark') {
+    group = 'fabric'
+    description = 'Run the client with stress + profiler + auto-exit after ${bench}s.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        // workingDir is unreliable at config phase — pin the JFR output to
+        // `<test>/run/` regardless of how Loom resolves it later, so the
+        // file always lands in a known location.
+        def runDir = new File(project.projectDir, 'run')
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-benchmark.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-bench-repo').absolutePath
+        def benchSec = (project.findProperty('bench') ?: '90').toString()
+        runClient.jvmArgs(
+            '-Daero.stresstest=true',
+            '-Daero.profiler=true',
+            '-Daero.benchmark.exitAfterSec=' + benchSec,
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-bench',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        // The benchmark hook does System.exit(0), which Gradle's JavaExec
+        // wrapper interprets as failure even though the JFR file is intact.
+        // Suppress so CI scripts don't choke.
+        runClient.ignoreExitValue = true
+        println '[runClientBenchmark] stress + profiler + exit @ ' + benchSec + 's · JFR -> ' + jfrFile
+    }
+}
+
+// Stress test client run. Dense-grid mode flips inside AeroTestMod via
+// `-Daero.stresstest=true`: every chunk gets the full showcase + a 4×4
+// motor grid, animated LOD distance bumped to 256 blocks. Combined with
+// the profile flags from runClientProfile, this is what we hand the
+// reviewer when they ask for harder-stressed benchmarks.
+tasks.register('runClientStress') {
+    group = 'fabric'
+    description = 'Run the client with stress test world + Aero profiler + JFR.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-stress.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-stress-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.stresstest=true',
+            '-Daero.profiler=true',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-stress',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientStress] aero.stresstest=true · aero.profiler=true · JFR -> ' + jfrFile
     }
 }

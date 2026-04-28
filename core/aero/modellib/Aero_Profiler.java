@@ -1,6 +1,5 @@
 package aero.modellib;
 
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,7 +41,6 @@ public final class Aero_Profiler {
     private static volatile boolean enabled = Boolean.getBoolean("aero.profiler");
 
     private static final Map sections = new LinkedHashMap();
-    private static final Map openStarts = new HashMap();
 
     private Aero_Profiler() {}
 
@@ -54,24 +52,30 @@ public final class Aero_Profiler {
         enabled = value;
     }
 
+    /**
+     * Starts a section timer. Zero-allocation when the section was seen at
+     * least once (the start time is stored on the cached {@link Section}
+     * object instead of in a parallel {@code Map<String, Long>}).
+     */
     public static void start(String section) {
         if (!enabled) return;
         synchronized (Aero_Profiler.class) {
-            openStarts.put(section, Long.valueOf(System.nanoTime()));
+            Section s = (Section) sections.get(section);
+            if (s == null) {
+                s = new Section();
+                sections.put(section, s);
+            }
+            s.openStartNanos = System.nanoTime();
         }
     }
 
     public static void end(String section) {
         if (!enabled) return;
         synchronized (Aero_Profiler.class) {
-            Long start = (Long) openStarts.remove(section);
-            if (start == null) return;
-            long elapsed = System.nanoTime() - start.longValue();
             Section s = (Section) sections.get(section);
-            if (s == null) {
-                s = new Section();
-                sections.put(section, s);
-            }
+            if (s == null || s.openStartNanos == 0L) return;
+            long elapsed = System.nanoTime() - s.openStartNanos;
+            s.openStartNanos = 0L;
             s.calls++;
             s.totalNanos += elapsed;
         }
@@ -99,11 +103,11 @@ public final class Aero_Profiler {
 
     public static synchronized void reset() {
         sections.clear();
-        openStarts.clear();
     }
 
     private static final class Section {
         long calls;
         long totalNanos;
+        long openStartNanos;   // 0 = not currently open; set by start(), cleared by end()
     }
 }

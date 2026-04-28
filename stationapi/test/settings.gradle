@@ -8,4 +8,9 @@ pluginManagement {
     }
 }
 
+// Pull the parent aero-model-lib build into this composite, so
+// `modImplementation "dev.aerocoding:aero-model-lib:${mod_version}"` resolves
+// against live sources instead of a manually-rebuilt jar in ../build/libs/.
+includeBuild('..')
+
 rootProject.name = "aero-model-lib-test"

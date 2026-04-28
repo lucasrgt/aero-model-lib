@@ -15,7 +15,7 @@ public class AeroTestEntityRenderer extends EntityRenderer {
             .offset(-1.5f, 0f, -1.5f)
             .scale(0.45f)
             .cullingRadius(3f)
-            .animatedDistance(AeroTestMod.DEMO_ANIMATED_LOD_DISTANCE_BLOCKS)
+            .animatedDistance(AeroTestMod.demoAnimatedLodDistance())
             .build();
 
     public AeroTestEntityRenderer() {

@@ -77,6 +77,15 @@ public class Aero_MeshModel {
     private float[] cachedBounds;
     private SmoothLightData cachedStaticSmoothLightData;
 
+    // Display-list cache for the at-rest render path (groups + namedGroups
+    // composed at rest pose). Renderer-managed: Aero_MeshRenderer compiles
+    // on first static draw and stores the 4 GL list IDs (one per brightness
+    // bucket). Empty buckets get id 0 — caller skips them. Compile failure
+    // flips the failed flag so we don't hammer glGenLists every frame.
+    // Pure ints, no GL imports — keeps this class shared across runtimes.
+    private int[] cachedAtRestListIds;
+    private boolean atRestListsCompileFailed;
+
     /**
      * Optional morph targets keyed by name. Mutable holder — load-time
      * code can attach targets after construction via
@@ -113,6 +122,34 @@ public class Aero_MeshModel {
     /** True if at least one morph target is registered. Render fast-path probe. */
     public boolean hasMorphTargets() {
         return morphTargets != null && !morphTargets.isEmpty();
+    }
+
+    /**
+     * Returns the cached display-list IDs for the at-rest composition, or
+     * null if not yet compiled. {@code int[4]} indexed by brightness bucket;
+     * a zero entry means the bucket has no geometry and the caller should
+     * skip it. Renderer-only state — model code never reads it.
+     */
+    public int[] getAtRestListIds() {
+        return cachedAtRestListIds;
+    }
+
+    /** Stores compiled list IDs (renderer-only). */
+    public void setAtRestListIds(int[] ids) {
+        this.cachedAtRestListIds = ids;
+    }
+
+    /**
+     * True if at-rest list compilation already failed once. Renderer uses
+     * this to avoid retrying glGenLists every frame.
+     */
+    public boolean atRestListsCompileFailed() {
+        return atRestListsCompileFailed;
+    }
+
+    /** Marks at-rest list compilation as permanently failed (renderer-only). */
+    public void markAtRestListsCompileFailed() {
+        this.atRestListsCompileFailed = true;
     }
 
     /** Convenience constructor: scale=1, empty named groups. */

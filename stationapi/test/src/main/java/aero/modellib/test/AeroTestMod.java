@@ -39,9 +39,45 @@ public class AeroTestMod {
     public static GraphPoweredBlock graphPoweredBlock;
     public static AeroRobotEggItem robotEgg;
 
+    /**
+     * Stress mode — turn on with `-Daero.stresstest=true` (test build's
+     * `runClientStress` task wires this). When enabled:
+     *   • Each *qualifying* chunk also receives a 3×3 grid of motors on top
+     *     of its showcase placement (~9 extra motors → 23 BEs per qualifying
+     *     chunk vs the normal 14).
+     *   • Animated LOD distance is bumped to keep them animated even far away,
+     *     so a single profile sample exercises the maximum render path.
+     * Chunk *spacing* and entity spacing stay at the defaults — placing a
+     * showcase in every chunk plus a 4×4 motor grid recurses through neighbor
+     * worldgen and overflows the stack at chunk-boundary block updates.
+     * Off by default so normal `runClient` keeps the original showcase density.
+     */
+    static final boolean STRESS_TEST = Boolean.getBoolean("aero.stresstest");
+
     private static final int DEMO_BLOCK_SPACING_CHUNKS = 2;
-    private static final int DEMO_ENTITY_SPACING_CHUNKS = 4;
-    static final double DEMO_ANIMATED_LOD_DISTANCE_BLOCKS = 48d;
+    private static final int DEMO_ENTITY_SPACING_CHUNKS = STRESS_TEST ? 2 : 4;
+
+    /**
+     * Animated-LOD threshold (blocks). Beyond this, BEs render via the
+     * display-list at-rest path instead of Tessellator-driven renderAnimated
+     * — ~10× cheaper per frame. Resolved per-call so the value tracks the
+     * player's render-distance setting:
+     * <ul>
+     *   <li>{@code -Daero.animatedLOD=N}: explicit override</li>
+     *   <li>else, stress mode: scaled via
+     *       {@link aero.modellib.Aero_AnimationTickLOD#recommendedAnimatedDistance}</li>
+     *   <li>else: 48 blocks (the historical default for showcase density)</li>
+     * </ul>
+     */
+    public static double demoAnimatedLodDistance() {
+        String override = System.getProperty("aero.animatedLOD");
+        if (override != null) return Double.parseDouble(override);
+        if (STRESS_TEST) {
+            return aero.modellib.Aero_AnimationTickLOD.recommendedAnimatedDistance(
+                aero.modellib.Aero_RenderDistance.currentViewDistance());
+        }
+        return 48d;
+    }
 
     static {
         EntrypointManager.registerLookup(MethodHandles.lookup());
@@ -143,6 +179,21 @@ public class AeroTestMod {
         placeBEAbove(event, 8,  0, turretIkBlock.id,     new TurretIKBlockEntity());     // IK CCD
         placeBEAbove(event, 8,  4, morphCrystalBlock.id, new MorphCrystalBlockEntity()); // Morph
         placeBEAbove(event, 12, 4, graphPoweredBlock.id, new GraphPoweredBlockEntity()); // Graph
+
+        // -Daero.stresstest=true: 3×3 motor grid in the chunk's free quadrant
+        // so each qualifying chunk renders 9 extra animated motors. Uses
+        // placeBEAbove (not placeBE) to avoid overwriting surface terrain
+        // and keep neighbor block updates shallow. Positioned at (1,1)..(7,7)
+        // step 3 so they don't collide with the showcase placements.
+        if (STRESS_TEST) {
+            for (int gx = 0; gx < 3; gx++) {
+                for (int gz = 0; gz < 3; gz++) {
+                    int sx = 1 + gx * 3;     // 1, 4, 7
+                    int sz = 1 + gz * 3;
+                    placeBEAbove(event, sx, sz, motorBlock.id, new MotorBlockEntity());
+                }
+            }
+        }
 
         // Entity renderer smoke test: one animated model entity every 4x4
         // chunks. Drop it 2 blocks above the column top so it lands on the
