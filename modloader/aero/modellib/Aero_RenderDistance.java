@@ -79,6 +79,22 @@ public final class Aero_RenderDistance {
             }
             Aero_FrustumCull.updateCameraForward(mc.thePlayer.rotationYaw,
                 mc.thePlayer.rotationPitch);
+            // Recompute cone half-angle from MC's window aspect.
+            // Beta 1.7.3 hardcodes vertical FOV at 70° (no setting), so the
+            // only variable is window aspect ratio. Horizontal FOV =
+            // 2·atan(tan(35°)·aspect). +10° safety margin absorbs rotation
+            // lag at the screen edge so 2K / ultrawide setups don't false-cull
+            // entities the player can clearly see.
+            if (mc.displayHeight > 0) {
+                double aspect = (double) mc.displayWidth / (double) mc.displayHeight;
+                double hHalfRad = Math.atan(Math.tan(Math.toRadians(35.0d)) * aspect);
+                double hHalfDeg = Math.toDegrees(hHalfRad);
+                // +20° safety; minimum 75° as floor for ultrawide / HiDPI
+                // edge cases. Wide cone reduces cull effectiveness slightly
+                // but eliminates the screen-edge false-cull complaint.
+                double coneHalf = Math.max(75.0d, hHalfDeg + 20.0d);
+                Aero_FrustumCull.setConeHalfAngleDegrees(coneHalf);
+            }
         } catch (Throwable ignored) {
             Aero_FrustumCull.clearCamera();
         }

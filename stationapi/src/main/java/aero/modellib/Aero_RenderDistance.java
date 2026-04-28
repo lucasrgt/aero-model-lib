@@ -84,6 +84,23 @@ public final class Aero_RenderDistance {
             return;
         }
         Aero_FrustumCull.updateCameraForward(player.yaw, player.pitch);
+        // Recompute cone half-angle from MC's window aspect.
+        // Beta 1.7.3 hardcodes vertical FOV at 70° (no setting), so the
+        // only variable is window aspect ratio. Horizontal FOV =
+        // 2·atan(tan(35°)·aspect). +10° safety margin absorbs rotation
+        // lag at the screen edge so 2K / ultrawide setups don't false-cull
+        // entities the player can clearly see.
+        if (mc.displayHeight > 0) {
+            double aspect = (double) mc.displayWidth / (double) mc.displayHeight;
+            double hHalfRad = Math.atan(Math.tan(Math.toRadians(35.0d)) * aspect);
+            double hHalfDeg = Math.toDegrees(hHalfRad);
+            // +20° safety so HiDPI/fullscreen-aspect mismatches and FOV
+            // bobbing/zoom transients can't false-cull screen edges.
+            // Minimum 75° to cover ultrawide + Quake-Pro setups with one
+            // forgiving cone instead of micro-tuning per resolution.
+            double coneHalf = Math.max(75.0d, hHalfDeg + 20.0d);
+            Aero_FrustumCull.setConeHalfAngleDegrees(coneHalf);
+        }
     }
 
     public static boolean shouldRenderFrustumRelative(double x, double y, double z,

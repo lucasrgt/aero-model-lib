@@ -49,6 +49,19 @@ public final class Aero_FrustumCull {
     private static int lastYawBits = 0;
     private static int lastPitchBits = 0;
 
+    /**
+     * Cosine² of the cone's half-angle. Updated by
+     * {@link #setConeHalfAngleDegrees(double)} based on MC's actual
+     * horizontal FOV (vertical FOV setting + window aspect ratio).
+     * Default 80° half-angle = 160° cone, generous enough to cover any
+     * FOV up to Quake Pro on a 21:9 ultrawide without false-culling
+     * screen edges. The platform-specific Aero_RenderDistance recomputes
+     * this from {@code mc.gameSettings.fov} + window dimensions per
+     * frame so the cone tracks the player's actual viewport.
+     */
+    private static double coneCosHalfAngleSq = 0.030d; // cos²(80°)
+    private static final double DEFAULT_CONE_COS_HALF_ANGLE_SQ = 0.030d;
+
     private Aero_FrustumCull() {}
 
     /**
@@ -93,20 +106,35 @@ public final class Aero_FrustumCull {
      * extra branch outside.
      */
     /**
-     * Half-angle of the cull cone in cos² form. cos²(60°) = 0.25 → 120°
-     * total cone. MC's default FOV is 70°, so 120° gives ~25° margin per
-     * side to absorb rotation lag without pop-in. Anything outside the
-     * cone (dot²/distSq < this) gets culled, regardless of the simple
-     * front/behind hemisphere test.
-     */
-    private static final double FOV_HALF_ANGLE_COS_SQ = 0.25d;
-
-    /**
      * Below this squared-distance, never cull. Avoids pop on rotation for
      * BEs that are right next to the player and momentarily slip outside
      * the cone. 16² = 256 blocks².
      */
     private static final double CLOSE_RANGE_SQ = 256.0d;
+
+    /**
+     * Updates the cone's half-angle (in degrees). Called by the
+     * platform-specific render hook each frame after reading
+     * {@code mc.gameSettings.fov} + window aspect ratio. The lib stores
+     * the cos² form so {@link #isLikelyVisible} can compare without sqrt.
+     *
+     * <p>Argument is the FULL half-angle to cull at — the platform code
+     * should add a safety margin (typically 8-10°) on top of the actual
+     * horizontal FOV half-angle to absorb rotation lag.
+     */
+    public static void setConeHalfAngleDegrees(double halfAngleDegrees) {
+        if (halfAngleDegrees <= 0d || halfAngleDegrees >= 90d) {
+            coneCosHalfAngleSq = DEFAULT_CONE_COS_HALF_ANGLE_SQ;
+            return;
+        }
+        double cosVal = Math.cos(Math.toRadians(halfAngleDegrees));
+        coneCosHalfAngleSq = cosVal * cosVal;
+    }
+
+    /** Reverts the cone to its compile-time default (covers ultrawide + Quake-Pro FOV). */
+    public static void resetCone() {
+        coneCosHalfAngleSq = DEFAULT_CONE_COS_HALF_ANGLE_SQ;
+    }
 
     public static boolean isLikelyVisible(double dx, double dy, double dz,
                                           double behindTolerance) {
@@ -121,7 +149,7 @@ public final class Aero_FrustumCull {
         if (distSq < closeSq) return true;
         double dot = dx * fwdX + dy * fwdY + dz * fwdZ;
         if (dot <= 0) return false;                  // behind camera
-        return dot * dot >= distSq * FOV_HALF_ANGLE_COS_SQ; // inside cone
+        return dot * dot >= distSq * coneCosHalfAngleSq; // inside cone
     }
 
     /** {@link #DEFAULT_BEHIND_TOLERANCE}-block tolerance overload. */
