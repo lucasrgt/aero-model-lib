@@ -1,5 +1,3 @@
-> **AI DISCLAIMER:**  AeroModelLib is developed with heavy AI assistance for execution speed. Architecture, design decisions, testing, and review are hand-authored. The integrated 210+ unit test suite plus visual smoke validation on both runtimes gate every change. Code is fully open and critique is welcome. The goal is delivery quality, not opacity around the process.
-
 <img src="banner.png" alt="AeroModelLib" width="100%">
 
 > **Modern animated rendering for Minecraft Beta 1.7.3.** Blockbench
@@ -8,6 +6,9 @@
 > all on the OpenGL 1.1 fixed-function pipeline that Beta 1.7.3 ships with.
 
 > **Compatibility:** Java 8 core/ModLoader · JDK 17 StationAPI build · Minecraft Beta 1.7.3 · RetroMCP · ModLoader / Forge 1.0.6 · StationAPI / Babric · LWJGL (OpenGL 1.1+)
+
+> **AI DISCLAIMER:**  AeroModelLib is developed with heavy AI assistance for execution speed. Architecture, design decisions, testing, and review are hand-authored. The integrated 210+ unit test suite plus visual smoke validation on both runtimes gate every change. Code is fully open and critique is welcome. The goal is delivery quality, not opacity around the process.
+
 
 ---
 
