@@ -187,6 +187,26 @@ public class Aero_MeshRenderer {
         return true;
     }
 
+    /**
+     * Releases the GL display lists cached on a model. Call from a hot-reload
+     * or shutdown hook to keep the GL driver from accumulating list IDs over
+     * the JVM lifetime. Must run on the GL thread (single-threaded in Beta
+     * 1.7.3, so any tile-entity tick / TESR call site is fine).
+     *
+     * <p>Idempotent: a model that's never been rendered (or already disposed)
+     * is a no-op. After dispose, the next render of the model recompiles
+     * from scratch — useful for resource-pack reloads where textures change
+     * but the OBJ does not.
+     */
+    public static void disposeModel(Aero_MeshModel model) {
+        if (model == null) return;
+        int[] ids = model.extractAndClearAtRestListIds();
+        if (ids == null) return;
+        for (int g = 0; g < ids.length; g++) {
+            if (ids[g] != 0) GL11.glDeleteLists(ids[g], 1);
+        }
+    }
+
     private static int[] compileAtRestLists(Aero_MeshModel model) {
         int[] ids = new int[4];
         final float invSc = model.invScale;

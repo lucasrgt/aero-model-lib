@@ -152,6 +152,21 @@ public class Aero_MeshModel {
         this.atRestListsCompileFailed = true;
     }
 
+    /**
+     * Atomically returns the cached at-rest list IDs and clears the model's
+     * cache state (failed flag included so a recompile is allowed afterwards).
+     * The renderer's {@code disposeModel} hook calls this and then issues
+     * {@code glDeleteLists} on every non-zero id — keeps the API in core
+     * (no GL dependency) while still letting the platform-specific renderer
+     * release driver-side handles.
+     */
+    public int[] extractAndClearAtRestListIds() {
+        int[] ids = this.cachedAtRestListIds;
+        this.cachedAtRestListIds = null;
+        this.atRestListsCompileFailed = false;
+        return ids;
+    }
+
     /** Convenience constructor: scale=1, empty named groups. */
     public Aero_MeshModel(String name, float[][][] groups) {
         this(name, groups, 1.0f, new java.util.HashMap());
