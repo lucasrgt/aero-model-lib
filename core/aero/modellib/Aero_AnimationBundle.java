@@ -87,6 +87,43 @@ public class Aero_AnimationBundle {
         return p != null ? p : ZERO_PIVOT;
     }
 
+    // Single-entry cache mapping a clip's bone-index space to the pivot
+    // array per bone. Renderers loop over {@code clip.boneNames} every
+    // frame doing one {@code pivotOrZero(boneName)} per bone — that's a
+    // {@link java.util.HashMap#get HashMap.get} per bone per BE per frame
+    // (~345k/s in mega-load). The cache reduces it to one lookup-array
+    // dereference; reset only when the clip identity changes (state
+    // transition).
+    private Aero_AnimationClip cachedPivotsClip;
+    private float[][] cachedPivotsForClip;
+
+    /**
+     * Returns an array of pivot float[3]s indexed by {@code clip}'s bone
+     * index. {@code result[i]} corresponds to {@code clip.boneNames[i]}
+     * — never null; bones without an explicit pivot in this bundle map
+     * to the shared {@link #ZERO_PIVOT} sentinel. Memoised against the
+     * last clip identity, so consecutive calls with the same clip are
+     * O(1).
+     *
+     * <p>The returned array is shared across callers; do not mutate.</p>
+     *
+     * @param clip clip to resolve pivots for; must not be null.
+     */
+    public float[][] resolvePivotsFor(Aero_AnimationClip clip) {
+        if (clip == cachedPivotsClip && cachedPivotsForClip != null) {
+            return cachedPivotsForClip;
+        }
+        if (clip == null) throw new IllegalArgumentException("clip must not be null");
+        String[] names = clip.boneNames;
+        float[][] resolved = new float[names.length][];
+        for (int i = 0; i < names.length; i++) {
+            resolved[i] = pivotOrZero(names[i]);
+        }
+        cachedPivotsClip = clip;
+        cachedPivotsForClip = resolved;
+        return resolved;
+    }
+
     /** Returns the parent animated bone for a child group, or null if none. */
     public String getParentBoneName(String childName) {
         return (String) childMap.get(childName);

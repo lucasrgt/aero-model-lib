@@ -1,35 +1,36 @@
 package aero.modellib;
 
 /**
- * Cheap, dot-product-based behind-the-camera culler for animated entity
- * renderers.
+ * Cheap behind-the-camera / off-axis culling heuristic for animated
+ * entity renderers.
  *
- * <p>Beta 1.7.3's block/entity dispatchers only check distance; they do
- * <em>not</em> consult the view frustum. Combined with our extended
- * render-distance LOD (which can push animated entities to 256 blocks),
- * this means up to half of the visible-from-distance entities are being
- * rendered <em>behind the player every frame</em>, paying full Tessellator
- * + GL dispatch cost for nothing.
+ * <p><strong>This is not a real view-frustum check.</strong> It is a
+ * single forward-vector cone test: one cached camera forward per frame,
+ * one dot product per render call. It will <em>not</em> reject entities
+ * outside the projection's near/far planes, and it does <em>not</em>
+ * tighten as the cone passes the screen corners. It is intentionally
+ * looser than a 6-plane frustum so that screen-edge entities never
+ * false-cull on wide aspects (ultrawide, HiDPI, FOV bobbing/zoom).
  *
- * <p>This class fixes that with the cheapest possible heuristic:
- * one cached forward vector per frame, one dot product per render call.
- * No matrix math, no plane checks, no allocations.
+ * <p><strong>Why a cone instead of real planes?</strong> Beta 1.7.3's
+ * block-entity dispatcher does no frustum cull, so up to half the
+ * far-LOD animated entities every frame are rendered behind the
+ * player. The cone catches that bulk case for one dot product. Real
+ * frustum-plane culling requires extracting the projection × view
+ * matrix on every frame and is not worth the complexity for what it
+ * adds on top of distance + behind-camera rejection.
  *
- * <p>Algorithm: at the top of each render frame the active renderer
- * publishes the camera's yaw/pitch via
- * {@link #updateCameraForward(float, float)}. Entity renderers then call
- * {@link #isLikelyVisible(double, double, double, double)} with the
- * BE's camera-relative offset. If the dot product against the cached
- * forward is below a small negative tolerance, the BE is judged to be
- * behind the camera and the renderer skips it.
+ * <p>The cone's half-angle is set per-frame from MC's window aspect
+ * ratio (Beta hardcodes vertical FOV at 70°): horizontal half-FOV +
+ * 20° safety margin, floored at 75°. These values are <em>frozen</em>
+ * — do not micro-tune them per resolution. If a user reports
+ * false-culling, the answer is to disable the whole pass with
+ * {@code -Daero.frustumcull=false}, not to widen the cone further.
  *
- * <p>The behind-tolerance defaults to 8 blocks — generous enough that
- * a player rotating 360° doesn't see entities pop out of existence at
- * the screen edge, and big enough to forgive larger model bounding
- * boxes (mega-multiblocks etc).
- *
- * <p>Toggle off with {@code -Daero.frustumcull=false} if you have a
- * pathological case where this culls too aggressively.
+ * <p>Below {@link #CLOSE_RANGE_SQ} the cone is bypassed entirely so
+ * adjacent entities don't pop on rotation. The behind-tolerance
+ * widens that close-range pass for large multiblocks whose origin can
+ * cross the camera plane while their mesh is still on screen.
  */
 public final class Aero_FrustumCull {
 
@@ -51,13 +52,13 @@ public final class Aero_FrustumCull {
 
     /**
      * Cosine² of the cone's half-angle. Updated by
-     * {@link #setConeHalfAngleDegrees(double)} based on MC's actual
-     * horizontal FOV (vertical FOV setting + window aspect ratio).
-     * Default 80° half-angle = 160° cone, generous enough to cover any
-     * FOV up to Quake Pro on a 21:9 ultrawide without false-culling
-     * screen edges. The platform-specific Aero_RenderDistance recomputes
-     * this from {@code mc.gameSettings.fov} + window dimensions per
-     * frame so the cone tracks the player's actual viewport.
+     * {@link #setConeHalfAngleDegrees(double)} from the platform's
+     * per-frame aspect-ratio computation (see Aero_RenderDistance).
+     * The default 80° half-angle is intentionally generous so the
+     * cone reduces to "behind camera + far off-axis" rejection on any
+     * sane viewport. The cone is approximate by design; do not tune
+     * it tighter — the savings over the current setting are not worth
+     * the false-cull risk.
      */
     private static double coneCosHalfAngleSq = 0.030d; // cos²(80°)
     private static final double DEFAULT_CONE_COS_HALF_ANGLE_SQ = 0.030d;
@@ -114,13 +115,15 @@ public final class Aero_FrustumCull {
 
     /**
      * Updates the cone's half-angle (in degrees). Called by the
-     * platform-specific render hook each frame after reading
-     * {@code mc.gameSettings.fov} + window aspect ratio. The lib stores
-     * the cos² form so {@link #isLikelyVisible} can compare without sqrt.
+     * platform-specific render hook each frame from the window aspect
+     * ratio (Beta has no FOV setting — vertical FOV is hardcoded at
+     * 70°). Stored as cos² so {@link #isLikelyVisible} can compare
+     * without sqrt or acos.
      *
-     * <p>Argument is the FULL half-angle to cull at — the platform code
-     * should add a safety margin (typically 8-10°) on top of the actual
-     * horizontal FOV half-angle to absorb rotation lag.
+     * <p>Argument is the FULL half-angle the cone should cull at,
+     * including any safety margin the platform code applies. The
+     * current platform code adds a fixed 20° margin and floors at
+     * 75°; those values are frozen — see class javadoc.
      */
     public static void setConeHalfAngleDegrees(double halfAngleDegrees) {
         if (halfAngleDegrees <= 0d || halfAngleDegrees >= 90d) {

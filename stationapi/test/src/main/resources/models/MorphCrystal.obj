@@ -1,25 +1,37 @@
-# Morph showcase base mesh — axis-aligned cube without a named group, so
-# its triangles land in model.groups (static geometry). The lib's
-# drawGroupsMorph applies per-vertex blending only to static groups in
-# v0.2.0, not to per-bone named groups.
+# Morph showcase base mesh — octahedron crystal (compact resting state).
+# Renamed from cube -> crystal in v3.0 to match the visual the player
+# expects when seeing it in the "Crystals" row of the factory benchmark.
+# Pairs with MorphCrystal_expanded.obj (UNIFORM 1.5x scaling, so the
+# crystal "breathes" without distortion).
+#
+# Half-extents from center (0.5, 0.5, 0.5):
+#   apex (Y)     = 0.20   →  Y range 0.30..0.70
+#   equator (XZ) = 0.15   →  X/Z range 0.35..0.65
+#
+# Aspect ratio Y/X = 1.33 (taller than wide) preserved through morph.
+#
+# No named group — triangles land in model.groups (static geometry),
+# which is the only path drawGroupsMorph applies per-vertex blending to.
 
 vt 0 0
 vt 1 0
-vt 1 1
-vt 0 1
+vt 0.5 1
 
-v 0.3 0.0 0.3
-v 0.7 0.0 0.3
-v 0.7 0.0 0.7
-v 0.3 0.0 0.7
-v 0.3 0.6 0.3
-v 0.7 0.6 0.3
-v 0.7 0.6 0.7
-v 0.3 0.6 0.7
+# 6 vertices: top apex, 4 equatorial (NSEW), bottom apex.
+v 0.50 0.70 0.50
+v 0.65 0.50 0.50
+v 0.50 0.50 0.65
+v 0.35 0.50 0.50
+v 0.50 0.50 0.35
+v 0.50 0.30 0.50
 
-f 5/1 6/2 7/3 8/4
-f 1/1 4/2 3/3 2/4
-f 1/1 2/2 6/3 5/4
-f 4/1 1/2 5/3 8/4
-f 3/1 4/2 8/3 7/4
-f 2/1 3/2 7/3 6/4
+# 8 triangular faces — upper hemisphere (4) + lower hemisphere (4).
+# Winding is CCW from outside POV so faces survive any cull state.
+f 1/3 3/1 2/2
+f 1/3 4/1 3/2
+f 1/3 5/1 4/2
+f 1/3 2/1 5/2
+f 6/3 2/1 3/2
+f 6/3 3/1 4/2
+f 6/3 4/1 5/2
+f 6/3 5/1 2/2

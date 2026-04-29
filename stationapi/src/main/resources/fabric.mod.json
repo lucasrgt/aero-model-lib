@@ -15,6 +15,9 @@
   "icon": "assets/aero-model-lib/icon.png",
 
   "environment": "client",
+  "mixins": [
+    "aero-model-lib.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.15.0",
     "minecraft": "1.0.0-beta.7.3"

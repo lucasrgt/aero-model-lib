@@ -1,0 +1,13 @@
+pluginManagement {
+    repositories {
+        maven { url = "https://maven.fabricmc.net/" }
+        maven { url = "https://maven.glass-launcher.net/babric" }
+        maven { url = "https://maven.glass-launcher.net/snapshots" }
+        maven { url = "https://maven.glass-launcher.net/releases" }
+        gradlePluginPortal()
+    }
+}
+
+// Standalone — NO includeBuild for modellib. This is a bare-bones
+// StationAPI environment for benchmarking vs the full test mod.
+rootProject.name = "aero-bare-stapi"

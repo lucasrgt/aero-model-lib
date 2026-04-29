@@ -21,7 +21,8 @@ import org.lwjgl.opengl.GL11;
 public class Aero_MeshRenderer {
 
     private static final int MESH_ATTRIB_BITS =
-        GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT;
+        GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT
+        | GL11.GL_COLOR_BUFFER_BIT;
 
     // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
     private static float[] LIGHT_CACHE = new float[64];
@@ -35,6 +36,10 @@ public class Aero_MeshRenderer {
     // so the hierarchical render walk + any IK pre-pass can read poses by
     // ancestor index without re-resolving per child.
     private static Aero_BoneRenderPose[] POSE_POOL = newPosePool(16);
+
+    private static final int ANIMATED_RENDER_CULLED = 0;
+    private static final int ANIMATED_RENDER_ACTIVE = 1;
+    private static final int ANIMATED_RENDER_STATIC_DONE = 2;
 
     // -----------------------------------------------------------------------
     // Frustum cull glue
@@ -175,15 +180,28 @@ public class Aero_MeshRenderer {
     }
 
     /**
-     * Releases the GL display lists cached on a model. Call from a hot-reload
-     * or shutdown hook to keep the GL driver from accumulating list IDs over
-     * the JVM lifetime. Must run on the GL thread (single-threaded in Beta
-     * 1.7.3, so any block-entity tick / BER call site is fine).
+     * Releases the GL display lists cached on a model. Must run on the GL
+     * thread (single-threaded in Beta 1.7.3, so any block-entity tick / BER
+     * call site is fine).
+     *
+     * <p><strong>When to actually call this.</strong> Beta has no stable
+     * client-shutdown hook, and the GL driver releases every list on
+     * context destruction anyway — calling this on game exit is redundant.
+     * The intended call sites are:
+     * <ul>
+     *   <li>Resource-pack reload — bind a new texture, dispose the model,
+     *       next render recompiles the lists with the new texture coords
+     *       baked in.</li>
+     *   <li>Model hot-swap during dev — replace the {@code Aero_MeshModel}
+     *       reference with a freshly loaded one and dispose the old one
+     *       before dropping it.</li>
+     *   <li>Tooling / CI — disposing models between tests so the JVM can
+     *       be reused without leaking list IDs.</li>
+     * </ul>
      *
      * <p>Idempotent: a model that's never been rendered (or already disposed)
      * is a no-op. After dispose, the next render of the model recompiles
-     * from scratch — useful for resource-pack reloads where textures change
-     * but the OBJ does not.
+     * from scratch.
      */
     public static void disposeModel(Aero_MeshModel model) {
         if (model == null) return;
@@ -421,22 +439,7 @@ public class Aero_MeshRenderer {
                                                 Aero_ProceduralPose proceduralPose,
                                                 Aero_IkChain[] ikChains,
                                                 Aero_MorphState morphState) {
-        updateCameraForwardFromPlayer();
-        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
-
-        // Distance LOD: beyond the recommended animated radius (scales with
-        // player render-distance setting), fall through to the display-list
-        // at-rest path. Eliminates per-frame Tessellator cost for far entities
-        // without requiring every renderer to plumb its own lodRelative call.
-        // The threshold uses Aero_AnimationTickLOD's policy so tick + render
-        // LOD line up at the same distance.
-        double distSq = x * x + y * y + z * z;
-        double animatedRadius = Aero_AnimationTickLOD.recommendedAnimatedDistance(
-            Aero_RenderDistance.currentViewDistance());
-        if (distSq > animatedRadius * animatedRadius) {
-            renderModelAtRest(model, x, y, z, 0f, brightness, options);
-            return;
-        }
+        if (prepareAnimatedRender(model, x, y, z, brightness, options) != ANIMATED_RENDER_ACTIVE) return;
 
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
@@ -452,11 +455,13 @@ public class Aero_MeshRenderer {
 
                 if (clip != null) {
                     pool = ensurePoolSize(clip.boneNames.length);
+                    // Pre-resolved pivots — single bundle.resolvePivotsFor
+                    // call replaces N×HashMap.get inside the loop body.
+                    float[][] clipPivots = bundle.resolvePivotsFor(clip);
                     // Pass 1: pre-resolve every animated bone's pose.
                     for (int b = 0; b < clip.boneNames.length; b++) {
                         String boneName = clip.boneNames[b];
-                        float[] pivot = bundle.pivotOrZero(boneName);
-                        Aero_AnimationPoseResolver.resolveClip(b, boneName, pivot,
+                        Aero_AnimationPoseResolver.resolveClip(b, boneName, clipPivots[b],
                             clip, state, time, partialTick,
                             SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, pool[b]);
                         if (proceduralPose != null) proceduralPose.apply(boneName, pool[b]);
@@ -597,6 +602,7 @@ public class Aero_MeshRenderer {
                                        Aero_RenderOptions options) {
         if (graph == null) throw new IllegalArgumentException("graph must not be null");
         if (bundle == null) throw new IllegalArgumentException("bundle must not be null");
+        if (prepareAnimatedRender(model, x, y, z, brightness, options) != ANIMATED_RENDER_ACTIVE) return;
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
@@ -657,6 +663,7 @@ public class Aero_MeshRenderer {
                                        Aero_RenderOptions options,
                                        Aero_ProceduralPose proceduralPose) {
         if (stack == null) throw new IllegalArgumentException("stack must not be null");
+        if (prepareAnimatedRender(model, x, y, z, brightness, options) != ANIMATED_RENDER_ACTIVE) return;
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
@@ -700,8 +707,354 @@ public class Aero_MeshRenderer {
     }
 
     // -----------------------------------------------------------------------
+    // Batched animated render — v3.0 BE batching path
+    // -----------------------------------------------------------------------
+    //
+    // Drains an Aero_AnimatedBatcher.Batch in a single Tessellator session
+    // per bone (vs one per instance × bone in the non-batched path). Per-
+    // vertex CPU matrix transforms replace the GL matrix-stack push/pop +
+    // glRotate/glTranslate sequence each instance previously paid.
+    //
+    // Win is bounded by the GL state-setup cost saved per cycle; for the
+    // stress test's 9-10 motor grid sharing one model with one named bone
+    // ("rotor"), this collapses 9-10 tess cycles per frame into 1.
+    //
+    // Constraints (v3.0):
+    //   - Flat-skeleton only: bones with ancestorBoneIdx.length > 1 fall
+    //     back to per-instance rendering (composing nested ancestor poses
+    //     in CPU is doable but adds complexity for marginal gain — most
+    //     mass-produced static-machine BEs are flat).
+    //   - No procedural pose / IK / morph batching — those route to the
+    //     non-batched overload.
+
+    public static void renderAnimatedBatch(Aero_AnimatedBatcher.Batch batch) {
+        Aero_MeshModel model = batch.model;
+        int count = batch.count;
+        if (count == 0) return;
+
+        // Use first instance's options; we assume all in a same-model
+        // batch share render options (showcase BERs typically use DEFAULT).
+        Aero_RenderOptions options = batch.options[0];
+        if (options == null) options = Aero_RenderOptions.DEFAULT;
+
+        Aero_Profiler.start("aero.mesh.renderAnimatedBatch");
+        try {
+            Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            // Per-instance, per-bone resolved poses. Lazy-resolve on first
+            // need; null if instance has no named bones / nested skeleton.
+            Aero_BoneRenderPose[][] perInstancePoses = ensureBatchPoseScratch(count, entries.length);
+
+            // Pre-resolve poses for all instances. Falls back to the
+            // unbatched path (returns false) if any instance has nested
+            // ancestor chain.
+            boolean canBatch = resolveBatchPoses(model, batch, count, entries, perInstancePoses);
+            if (!canBatch) {
+                drainAsUnbatched(batch, count);
+                return;
+            }
+
+            Tessellator tess = Tessellator.INSTANCE;
+            // Bind the batch's texture once before any tess.draw — at this
+            // point in the entity render pass, the texture state is whatever
+            // the last unbatched BER bound. Our batched draws need the
+            // model's own texture for the duration of all subsequent cycles.
+            Aero_AnimatedBatcher.bindBatchTexture(batch);
+            beginMeshState(options);
+            try {
+                // Static (unnamed) groups — no per-instance bone transform,
+                // just translate. Single tess cycle for ALL instances.
+                if (hasStaticGeometry(model)) {
+                    tess.start(GL11.GL_TRIANGLES);
+                    // Dedup tess.color across (instance, bucket) — instances
+                    // in the same chunk share lighting so consecutive bright
+                    // values usually match.
+                    float lastBrightStatic = Float.NaN;
+                    for (int g = 0; g < 4; g++) {
+                        float[][] tris = model.groups[g];
+                        if (tris.length == 0) continue;
+                        float bucketFactor = Aero_MeshModel.BRIGHTNESS_FACTORS[g];
+                        lastBrightStatic = emitStaticInstancesBatched(tess, tris,
+                            model.invScale, bucketFactor, batch, count, options,
+                            lastBrightStatic);
+                    }
+                    tess.draw();
+                }
+
+                // Named bones — per-vertex CPU matrix transform composes
+                // pose + instance translate. Single tess cycle per bone
+                // for ALL instances.
+                for (int e = 0; e < entries.length; e++) {
+                    Aero_MeshModel.NamedGroup ng = entries[e];
+                    boolean hasGeom = false;
+                    for (int g = 0; g < 4; g++) {
+                        if (ng.tris[g].length > 0) { hasGeom = true; break; }
+                    }
+                    if (!hasGeom) continue;
+
+                    tess.start(GL11.GL_TRIANGLES);
+                    // tess.color dedup — instances inside a batch share a
+                    // chunk so most consecutive brightness values match.
+                    // NaN sentinel forces the first iteration to set the
+                    // color; downstream comparisons skip the JNI call when
+                    // the bright value is identical.
+                    float lastBright = Float.NaN;
+                    for (int g = 0; g < 4; g++) {
+                        float[][] tris = ng.tris[g];
+                        if (tris.length == 0) continue;
+                        float bucketFactor = Aero_MeshModel.BRIGHTNESS_FACTORS[g];
+                        for (int i = 0; i < count; i++) {
+                            Aero_BoneRenderPose pose = perInstancePoses[i][e];
+                            float bright = batch.brightnesses[i] * bucketFactor;
+                            if (bright != lastBright) {
+                                tess.color(bright * options.tintR, bright * options.tintG,
+                                           bright * options.tintB, options.alpha);
+                                lastBright = bright;
+                            }
+                            if (pose == null) {
+                                // Named group with no animated bone in the
+                                // clip (e.g. static body parts of a model
+                                // whose only animated parts are sub-bones).
+                                // Match the unbatched path: render at rest
+                                // pose, no transform — just instance
+                                // translate. Otherwise the static body
+                                // disappears, leaving "fans floating in air".
+                                emitBoneInstanceBatchedRest(tess, tris,
+                                    model.invScale,
+                                    batch.xs[i], batch.ys[i], batch.zs[i]);
+                            } else {
+                                emitBoneInstanceBatched(tess, tris, model.invScale, pose,
+                                    batch.xs[i], batch.ys[i], batch.zs[i]);
+                            }
+                        }
+                    }
+                    tess.draw();
+                }
+            } finally {
+                endMeshState();
+            }
+        } finally {
+            Aero_Profiler.end("aero.mesh.renderAnimatedBatch");
+        }
+    }
+
+    /**
+     * Per-call scratch grown on demand. Holds {@code [instanceCount][boneCount]}
+     * resolved poses for the duration of one batched render. The poses
+     * themselves are pulled from {@link #POSE_POOL} (per-bone reuse) and
+     * snapshotted into the matching {@code BoneRef} index.
+     */
+    private static Aero_BoneRenderPose[][] BATCH_POSES = new Aero_BoneRenderPose[16][];
+
+    private static Aero_BoneRenderPose[][] ensureBatchPoseScratch(int instanceCount, int boneCount) {
+        if (BATCH_POSES.length < instanceCount) {
+            BATCH_POSES = new Aero_BoneRenderPose[Math.max(instanceCount, BATCH_POSES.length * 2)][];
+        }
+        for (int i = 0; i < instanceCount; i++) {
+            if (BATCH_POSES[i] == null || BATCH_POSES[i].length < boneCount) {
+                BATCH_POSES[i] = new Aero_BoneRenderPose[Math.max(boneCount, 4)];
+            }
+            for (int b = 0; b < boneCount; b++) {
+                if (BATCH_POSES[i][b] == null) BATCH_POSES[i][b] = new Aero_BoneRenderPose();
+                else BATCH_POSES[i][b].reset();
+            }
+        }
+        return BATCH_POSES;
+    }
+
+    /**
+     * Resolves per-instance bone poses for the batch. Returns false if
+     * any instance has a nested ancestor chain (multi-bone-deep), in
+     * which case the caller must fall back to per-instance rendering.
+     */
+    private static boolean resolveBatchPoses(Aero_MeshModel model,
+                                              Aero_AnimatedBatcher.Batch batch, int count,
+                                              Aero_MeshModel.NamedGroup[] entries,
+                                              Aero_BoneRenderPose[][] perInstancePoses) {
+        for (int i = 0; i < count; i++) {
+            Aero_AnimationPlayback state = batch.states[i];
+            Aero_AnimationBundle bundle = batch.bundles[i];
+            Aero_AnimationClip clip = state.getCurrentClip();
+            if (clip == null) {
+                // No active clip — pose stays at identity (reset() on each scratch entry above).
+                continue;
+            }
+            Aero_MeshModel.BoneRef[] refs = model.boneRefsFor(clip, bundle);
+            // Reject nested skeletons in v3.0 first cut.
+            for (int e = 0; e < entries.length; e++) {
+                if (refs[e].ancestorBoneIdx.length > 1) return false;
+            }
+            float time = state.getInterpolatedTime(batch.partialTicks[i]);
+            Aero_BoneRenderPose[] pool = ensurePoolSize(clip.boneNames.length);
+            float[][] clipPivots = bundle.resolvePivotsFor(clip);
+            for (int b = 0; b < clip.boneNames.length; b++) {
+                String boneName = clip.boneNames[b];
+                Aero_AnimationPoseResolver.resolveClip(b, boneName, clipPivots[b],
+                    clip, state, time, batch.partialTicks[i],
+                    SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, pool[b]);
+            }
+            // Snapshot deepest (== self for flat skeletons) per bone group.
+            for (int e = 0; e < entries.length; e++) {
+                Aero_MeshModel.BoneRef rf = refs[e];
+                if (rf.ancestorBoneIdx.length == 0) {
+                    perInstancePoses[i][e] = null;  // bone not in clip; no transform
+                } else {
+                    int idx = rf.ancestorBoneIdx[0];  // flat: only self
+                    copyPose(pool[idx], perInstancePoses[i][e]);
+                }
+            }
+        }
+        return true;
+    }
+
+    private static void copyPose(Aero_BoneRenderPose src, Aero_BoneRenderPose dst) {
+        dst.pivotX = src.pivotX; dst.pivotY = src.pivotY; dst.pivotZ = src.pivotZ;
+        dst.offsetX = src.offsetX; dst.offsetY = src.offsetY; dst.offsetZ = src.offsetZ;
+        dst.rotX = src.rotX; dst.rotY = src.rotY; dst.rotZ = src.rotZ;
+        dst.scaleX = src.scaleX; dst.scaleY = src.scaleY; dst.scaleZ = src.scaleZ;
+        dst.uOffset = src.uOffset; dst.vOffset = src.vOffset;
+        dst.uScale = src.uScale; dst.vScale = src.vScale;
+    }
+
+    private static boolean hasStaticGeometry(Aero_MeshModel model) {
+        for (int g = 0; g < 4; g++) {
+            if (model.groups[g].length > 0) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Emits all batch instances of {@code tris} for a single brightness
+     * bucket. Returns the last-set {@code bright} value so the caller can
+     * carry it across buckets and avoid re-issuing identical
+     * {@code tess.color(...)} calls (the dedup hits ~80% of the time when
+     * many BEs in a batch share the same chunk lighting).
+     */
+    private static float emitStaticInstancesBatched(Tessellator tess, float[][] tris, float invSc,
+                                                    float bucketFactor,
+                                                    Aero_AnimatedBatcher.Batch batch, int count,
+                                                    Aero_RenderOptions options,
+                                                    float lastBright) {
+        for (int i = 0; i < count; i++) {
+            float bright = batch.brightnesses[i] * bucketFactor;
+            if (bright != lastBright) {
+                tess.color(bright * options.tintR, bright * options.tintG,
+                           bright * options.tintB, options.alpha);
+                lastBright = bright;
+            }
+            double instX = batch.xs[i], instY = batch.ys[i], instZ = batch.zs[i];
+            for (int t = 0; t < tris.length; t++) {
+                float[] tri = tris[t];
+                tess.vertex(instX + tri[0]*invSc,  instY + tri[1]*invSc,  instZ + tri[2]*invSc,  tri[3],  tri[4]);
+                tess.vertex(instX + tri[5]*invSc,  instY + tri[6]*invSc,  instZ + tri[7]*invSc,  tri[8],  tri[9]);
+                tess.vertex(instX + tri[10]*invSc, instY + tri[11]*invSc, instZ + tri[12]*invSc, tri[13], tri[14]);
+            }
+        }
+        return lastBright;
+    }
+
+    private static void emitBoneInstanceBatched(Tessellator tess, float[][] tris, float invSc,
+                                                 Aero_BoneRenderPose pose,
+                                                 double instX, double instY, double instZ) {
+        // Pre-compute trig once per (instance, bone). The same matrix
+        // applies to every vertex of this bone for this instance.
+        final float DEG_TO_RAD = (float) (Math.PI / 180.0);
+        float cosX = (float) Math.cos(pose.rotX * DEG_TO_RAD);
+        float sinX = (float) Math.sin(pose.rotX * DEG_TO_RAD);
+        float cosY = (float) Math.cos(pose.rotY * DEG_TO_RAD);
+        float sinY = (float) Math.sin(pose.rotY * DEG_TO_RAD);
+        float cosZ = (float) Math.cos(pose.rotZ * DEG_TO_RAD);
+        float sinZ = (float) Math.sin(pose.rotZ * DEG_TO_RAD);
+        float scaleX = pose.scaleX, scaleY = pose.scaleY, scaleZ = pose.scaleZ;
+        float pivotX = pose.pivotX, pivotY = pose.pivotY, pivotZ = pose.pivotZ;
+        float postX  = pose.pivotX + pose.offsetX;
+        float postY  = pose.pivotY + pose.offsetY;
+        float postZ  = pose.pivotZ + pose.offsetZ;
+
+        for (int t = 0; t < tris.length; t++) {
+            float[] tri = tris[t];
+            // Apply pose × (vertex × invScale) for each of the 3 vertices.
+            // Same transform sequence as Aero_MeshRenderer.applyPose() but
+            // composed in CPU: T(-pivot) → S → Rx → Ry → Rz → T(pivot+offset).
+            for (int v = 0; v < 3; v++) {
+                int off = v * 5;
+                float lx = tri[off]     * invSc - pivotX;
+                float ly = tri[off + 1] * invSc - pivotY;
+                float lz = tri[off + 2] * invSc - pivotZ;
+                lx *= scaleX; ly *= scaleY; lz *= scaleZ;
+                // Rx: y, z change
+                float ny = ly * cosX - lz * sinX;
+                float nz = ly * sinX + lz * cosX;
+                ly = ny; lz = nz;
+                // Ry: x, z change
+                float nx = lx * cosY + lz * sinY;
+                nz       = -lx * sinY + lz * cosY;
+                lx = nx; lz = nz;
+                // Rz: x, y change
+                nx = lx * cosZ - ly * sinZ;
+                ny = lx * sinZ + ly * cosZ;
+                lx = nx; ly = ny;
+                tess.vertex(instX + lx + postX, instY + ly + postY, instZ + lz + postZ,
+                            tri[off + 3], tri[off + 4]);
+            }
+        }
+    }
+
+    /**
+     * Like {@link #emitBoneInstanceBatched} but for the rest-pose case
+     * (no animated bone — named group exists in the OBJ but has no
+     * matching pivot/clip in the bundle). Mirrors the unbatched path's
+     * behavior of still drawing the geometry at its model-space
+     * position when {@code applyPoseChain} returns null.
+     */
+    private static void emitBoneInstanceBatchedRest(Tessellator tess, float[][] tris, float invSc,
+                                                     double instX, double instY, double instZ) {
+        for (int t = 0; t < tris.length; t++) {
+            float[] tri = tris[t];
+            tess.vertex(instX + tri[0]*invSc,  instY + tri[1]*invSc,  instZ + tri[2]*invSc,  tri[3],  tri[4]);
+            tess.vertex(instX + tri[5]*invSc,  instY + tri[6]*invSc,  instZ + tri[7]*invSc,  tri[8],  tri[9]);
+            tess.vertex(instX + tri[10]*invSc, instY + tri[11]*invSc, instZ + tri[12]*invSc, tri[13], tri[14]);
+        }
+    }
+
+    /**
+     * Drains a batch by rendering each instance through the unbatched
+     * path. Used when the batch contains a model that can't be safely
+     * batched (multi-bone skeleton, etc).
+     */
+    private static void drainAsUnbatched(Aero_AnimatedBatcher.Batch batch, int count) {
+        for (int i = 0; i < count; i++) {
+            renderAnimated(batch.model, batch.bundles[i], batch.defs[i], batch.states[i],
+                batch.xs[i], batch.ys[i], batch.zs[i],
+                batch.brightnesses[i], batch.partialTicks[i], batch.options[i]);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    private static int prepareAnimatedRender(Aero_MeshModel model,
+                                             double x, double y, double z,
+                                             float brightness,
+                                             Aero_RenderOptions options) {
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return ANIMATED_RENDER_CULLED;
+
+        // Distance LOD: beyond the recommended animated radius (scales with
+        // player render-distance setting), fall through to the display-list
+        // at-rest path. Eliminates per-frame Tessellator cost for far entities
+        // without requiring every renderer to plumb its own lodRelative call.
+        // The threshold uses Aero_AnimationTickLOD's policy so tick + render
+        // LOD line up at the same distance.
+        double distSq = x * x + y * y + z * z;
+        double animatedRadius = Aero_AnimationTickLOD.recommendedAnimatedDistance(
+            Aero_RenderDistance.currentViewDistance());
+        if (distSq > animatedRadius * animatedRadius) {
+            renderModelAtRest(model, x, y, z, 0f, brightness, options);
+            return ANIMATED_RENDER_STATIC_DONE;
+        }
+        return ANIMATED_RENDER_ACTIVE;
+    }
 
     /**
      * Walks the resolved ancestor chain (root → leaf) of the given BoneRef
@@ -785,12 +1138,23 @@ public class Aero_MeshRenderer {
      * Static-geometry draw with morph-target blending. Per-vertex applies
      * {@code finalPos = base + Σ(weight × delta)} across active targets.
      */
+    // Pooled scratch for drawGroupsMorph — render thread is single-threaded
+    // in Beta 1.7.3 so static reuse is safe. Pre-sized to 4 since 99% of
+    // morph cases have ≤4 active targets; grows on demand.
+    private static Aero_MorphTarget[] SCRATCH_MORPH_TARGETS = new Aero_MorphTarget[4];
+    private static float[] SCRATCH_MORPH_WEIGHTS = new float[4];
+
     private static void drawGroupsMorph(Tessellator tess, Aero_MeshModel model,
                                          float brightness, Aero_RenderOptions options,
                                          Aero_MorphState morphState) {
         java.util.Map weights = morphState.getWeightsView();
-        Aero_MorphTarget[] activeTargets = new Aero_MorphTarget[weights.size()];
-        float[] activeWeights = new float[weights.size()];
+        int upperBound = weights.size();
+        if (SCRATCH_MORPH_TARGETS.length < upperBound) {
+            SCRATCH_MORPH_TARGETS = new Aero_MorphTarget[upperBound];
+            SCRATCH_MORPH_WEIGHTS = new float[upperBound];
+        }
+        Aero_MorphTarget[] activeTargets = SCRATCH_MORPH_TARGETS;
+        float[] activeWeights = SCRATCH_MORPH_WEIGHTS;
         int activeCount = 0;
         java.util.Iterator it = weights.entrySet().iterator();
         while (it.hasNext()) {
@@ -961,7 +1325,12 @@ public class Aero_MeshRenderer {
         }
         GL11.glDisable(GL11.GL_LIGHTING);
         applyBlendMode(options.blend);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        if (options.alphaClip > 0f) {
+            GL11.glEnable(GL11.GL_ALPHA_TEST);
+            GL11.glAlphaFunc(GL11.GL_GREATER, options.alphaClip);
+        } else {
+            GL11.glDisable(GL11.GL_ALPHA_TEST);
+        }
         if (options.depthTest) {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
         } else {

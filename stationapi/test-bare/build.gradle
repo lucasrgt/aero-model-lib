@@ -1,0 +1,108 @@
+plugins {
+    id 'fabric-loom' version '1.9.2'
+    id 'babric-loom-extension' version '1.9.2'
+}
+
+archivesBaseName = mod_id
+version = mod_version
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.glass-launcher.net/babric' }
+    maven { url = 'https://maven.glass-launcher.net/snapshots' }
+    maven { url = 'https://maven.glass-launcher.net/releases' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://jitpack.io/' }
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven { url = 'https://api.modrinth.com/maven' }
+        }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.glasslauncher:biny:${yarn_mappings}:v2"
+    modImplementation "babric:fabric-loader:0.15.6-babric.1"
+    // Just StationAPI — no AMI, no glass-networking, no GlassConfigAPI,
+    // no modellib. The bare baseline.
+    modImplementation "net.modificationstation:StationAPI:${stationapi_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mod_id", mod_id
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version, "mod_id": mod_id
+    }
+}
+
+loom {
+    runs {
+        client {
+            client()
+            ideConfigGenerated true
+            runDir 'run'
+        }
+    }
+}
+
+// Bare-stationapi benchmark with the same JVM tuning as runClientStressSmooth
+// (ZGC + C1-only). Lets the player see what FPS the empty StationAPI stack
+// can produce, comparing against the runClientEmpty number which has
+// modellib's mixins applied + 3 extra runtime mods.
+tasks.register('runClientBare') {
+    group = 'fabric'
+    description = 'Bare StationAPI (no modellib, no AMI, no extras) baseline FPS.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-bare.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-bare-repo').absolutePath
+        runClient.jvmArgs(
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:TieredStopAtLevel=1',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-bare',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientBare] BARE StationAPI · ZGC + C1 · JFR -> ' + jfrFile
+    }
+}
+
+// Same bare config but with DEFAULT JVM flags (G1GC, C2 enabled). Peak
+// throughput should be ~5-10% higher than runClientBare's C1-only mode,
+// with occasional GC spikes (G1's default ~36ms p95 pauses). Use this
+// to measure the absolute ceiling StationAPI alone can produce —
+// i.e. "what would calmilamsy's 800 FPS report look like under default
+// JVM tuning?".
+tasks.register('runClientBareDefault') {
+    group = 'fabric'
+    description = 'Bare StationAPI with DEFAULT JVM (G1 + C2) — peak throughput.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-bare-default.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-bare-default-repo').absolutePath
+        runClient.jvmArgs(
+            '-Xmx4G',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-bare-default',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientBareDefault] BARE StationAPI · default JVM · JFR -> ' + jfrFile
+    }
+}

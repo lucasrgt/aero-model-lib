@@ -19,7 +19,15 @@ repositories {
     maven { url = 'https://maven.glass-launcher.net/babric' }
     maven { url = 'https://maven.glass-launcher.net/snapshots' }
     maven { url = 'https://maven.glass-launcher.net/releases' }
+    // Required by StationAPI's transitive dependency chain
+    // (typetools, UnsafeEvents, spasm). Mirrors test/build.gradle.
+    maven { url = 'https://jitpack.io/' }
+    maven { url = 'https://maven.minecraftforge.net/' }
     mavenCentral()
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
 }
 
 dependencies {
@@ -30,6 +38,14 @@ dependencies {
     // `babric:fabric-loader` at runtime when this lib is consumed via a
     // composite build (see stationapi/test/).
     modImplementation "babric:fabric-loader:0.15.6-babric.1"
+    // StationAPI compile-only — the v3.0 PalettedContainerCacheMixin
+    // targets a StationAPI internal class. The library DOES NOT ship
+    // StationAPI; it's expected to be present at runtime when this lib
+    // is loaded (every consumer mod already pulls it in transitively).
+    // If StationAPI isn't on the runtime classpath, the mixin apply
+    // fails silently and modellib loads without the cache — graceful
+    // degradation, no crash.
+    modCompileOnly "net.modificationstation:StationAPI:2.0.0-alpha.5.4"
 }
 
 // Pull in the shared pure-Java core sources from sibling dir libraries/modellib/core/.

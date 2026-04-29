@@ -45,15 +45,23 @@ public final class Aero_AnimationTickLOD {
 
     /**
      * Recommended {@code animatedDistance} for the player's current view
-     * distance setting. Beta MC has 4 tiers (Far / Normal / Short / Tiny);
-     * this maps each to a scaled LOD radius so that the heavier the visible
-     * world, the more aggressively far entities fall onto the at-rest path.
+     * distance setting. Beta MC has 4 view-distance tiers and this maps
+     * each to a per-tier LOD radius beyond which animated entities are
+     * routed to the at-rest display-list path.
      *
-     * <p>Rationale: at Far render distance the player can see 256 blocks of
-     * world, which means many more entities are visible at once — animating
-     * them all is overkill since the player can't perceive the animation at
-     * that distance anyway. Scaling LOD inversely with visible chunk count
-     * keeps the per-frame animation budget roughly constant.
+     * <p><strong>The numbers are a heuristic, not a derivation.</strong>
+     * They were picked empirically against the {@code runClientStress}
+     * worldgen on the dev workstation so a 3×3 mega-model tower per
+     * qualifying chunk stays in a playable FPS range. They do not come
+     * from a closed-form "keep per-frame budget constant" formula; the
+     * underlying intuition is that animation invisibility-at-distance
+     * scales roughly with visible chunk count, but the actual values
+     * trade aggression vs visible-LOD-pop on this scene.
+     *
+     * <p>If your scene has a different geometry / animation cost mix,
+     * call the lower-level {@link #tickStride(double, double, double, double)}
+     * with your own radii. These defaults are a reasonable starting
+     * point, not a universal answer.
      *
      * @param viewDistance vanilla MC's renderDistance enum
      *        (0=Far, 1=Normal, 2=Short, 3=Tiny — see
@@ -61,10 +69,18 @@ public final class Aero_AnimationTickLOD {
      */
     public static double recommendedAnimatedDistance(int viewDistance) {
         switch (viewDistance) {
-            case Aero_RenderDistanceCulling.VIEW_DISTANCE_FAR:    return 64.0d;  // most aggressive: 1/4 of visible
-            case Aero_RenderDistanceCulling.VIEW_DISTANCE_NORMAL: return 80.0d;  // ~5/8 of visible
-            case Aero_RenderDistanceCulling.VIEW_DISTANCE_SHORT:  return 64.0d;  // matches visible (4 chunks = 64 blocks)
-            case Aero_RenderDistanceCulling.VIEW_DISTANCE_TINY:   return 32.0d;  // matches visible (2 chunks = 32 blocks)
+            // Far visible = 16 chunks = 256 blocks. 64 blocks = 1/4 of
+            // visible; aggressive because the player can't perceive
+            // animation that far out.
+            case Aero_RenderDistanceCulling.VIEW_DISTANCE_FAR:    return 64.0d;
+            // Normal visible = 8 chunks = 128 blocks. 80 blocks ≈ 5/8 of
+            // visible — less aggressive, the LOD swap is more noticeable
+            // at this view distance.
+            case Aero_RenderDistanceCulling.VIEW_DISTANCE_NORMAL: return 80.0d;
+            // Short / Tiny: cap at the visible radius (4 chunks / 2 chunks)
+            // since anything beyond it is already culled by distance.
+            case Aero_RenderDistanceCulling.VIEW_DISTANCE_SHORT:  return 64.0d;
+            case Aero_RenderDistanceCulling.VIEW_DISTANCE_TINY:   return 32.0d;
             default:                                              return 96.0d;
         }
     }
@@ -102,6 +118,11 @@ public final class Aero_AnimationTickLOD {
     public static boolean shouldTick(int stride, int age) {
         if (stride <= 0) return false;
         if (stride == 1) return true;
-        return (age % stride) == 0;
+        // {@link #tickStride} only ever returns powers of two (1, 2, 4),
+        // so the bitwise-AND form is equivalent to the modulo. AND is
+        // ~3× cheaper than int division-modulo on most CPUs and saves a
+        // measurable slice when 11k+ BE ticks/sec hit this method on
+        // the MEGA test.
+        return (age & (stride - 1)) == 0;
     }
 }

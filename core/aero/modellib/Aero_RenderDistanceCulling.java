@@ -78,7 +78,7 @@ public final class Aero_RenderDistanceCulling {
         requireFinite("z", z);
         double radius = blockRadiusWithMargin(viewDistance, visualRadiusBlocks,
             maxRenderDistanceBlocks);
-        return squaredDistance(x, y, z) <= radius * radius;
+        return effectiveDistanceSq(x, y, z) <= radius * radius;
     }
 
     public static Aero_RenderLod lodRelative(double x, double y, double z,
@@ -103,7 +103,7 @@ public final class Aero_RenderDistanceCulling {
 
         double viewRadius = Math.min(blockRadiusForViewDistance(viewDistance), maxRenderDistanceBlocks);
         double staticRadius = viewRadius + visualRadiusBlocks;
-        double distanceSq = squaredDistance(x, y, z);
+        double distanceSq = effectiveDistanceSq(x, y, z);
         if (distanceSq > staticRadius * staticRadius) return Aero_RenderLod.CULLED;
 
         double animatedRadius = Math.min(animatedDistanceBlocks, viewRadius) + visualRadiusBlocks;
@@ -167,6 +167,17 @@ public final class Aero_RenderDistanceCulling {
 
     public static double squaredDistance(double x, double y, double z) {
         return x * x + y * y + z * z;
+    }
+
+    private static double effectiveDistanceSq(double x, double y, double z) {
+        return Aero_LODConfig.ENABLED
+            ? biasedDistanceSq(x, y, z, Aero_LODConfig.Y_BIAS)
+            : squaredDistance(x, y, z);
+    }
+
+    private static double biasedDistanceSq(double x, double y, double z, double yBias) {
+        double by = y * yBias;
+        return x * x + by * by + z * z;
     }
 
     private static void requireFinite(String name, double value) {

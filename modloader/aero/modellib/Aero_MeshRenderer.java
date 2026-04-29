@@ -41,7 +41,8 @@ import org.lwjgl.opengl.GL11;
 public class Aero_MeshRenderer {
 
     private static final int MESH_ATTRIB_BITS =
-        GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT;
+        GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT
+        | GL11.GL_COLOR_BUFFER_BIT;
 
     // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
     private static float[] LIGHT_CACHE = new float[64];
@@ -188,15 +189,28 @@ public class Aero_MeshRenderer {
     }
 
     /**
-     * Releases the GL display lists cached on a model. Call from a hot-reload
-     * or shutdown hook to keep the GL driver from accumulating list IDs over
-     * the JVM lifetime. Must run on the GL thread (single-threaded in Beta
-     * 1.7.3, so any tile-entity tick / TESR call site is fine).
+     * Releases the GL display lists cached on a model. Must run on the GL
+     * thread (single-threaded in Beta 1.7.3, so any tile-entity tick / TESR
+     * call site is fine).
+     *
+     * <p><strong>When to actually call this.</strong> Beta has no stable
+     * client-shutdown hook for ModLoader mods, and the GL driver releases
+     * every list on context destruction anyway — calling this on game exit
+     * is redundant. The intended call sites are:
+     * <ul>
+     *   <li>Resource-pack reload — bind a new texture, dispose the model,
+     *       next render recompiles the lists with the new texture coords
+     *       baked in.</li>
+     *   <li>Model hot-swap during dev — replace the {@code Aero_MeshModel}
+     *       reference with a freshly loaded one and dispose the old one
+     *       before dropping it.</li>
+     *   <li>Tooling / CI — disposing models between tests so the JVM can
+     *       be reused without leaking list IDs.</li>
+     * </ul>
      *
      * <p>Idempotent: a model that's never been rendered (or already disposed)
      * is a no-op. After dispose, the next render of the model recompiles
-     * from scratch — useful for resource-pack reloads where textures change
-     * but the OBJ does not.
+     * from scratch.
      */
     public static void disposeModel(Aero_MeshModel model) {
         if (model == null) return;
@@ -510,13 +524,13 @@ public class Aero_MeshRenderer {
 
                 if (clip != null) {
                     pool = ensurePoolSize(clip.boneNames.length);
+                    float[][] clipPivots = bundle.resolvePivotsFor(clip);
                     // Pass 1: resolve every animated bone's pose into the
                     // pool so the hierarchical render walk + any IK pre-pass
                     // can read parent poses while drawing children.
                     for (int b = 0; b < clip.boneNames.length; b++) {
                         String boneName = clip.boneNames[b];
-                        float[] pivot = bundle.pivotOrZero(boneName);
-                        Aero_AnimationPoseResolver.resolveClip(b, boneName, pivot,
+                        Aero_AnimationPoseResolver.resolveClip(b, boneName, clipPivots[b],
                             clip, state, time, partialTick,
                             SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, pool[b]);
                         if (proceduralPose != null) proceduralPose.apply(boneName, pool[b]);
@@ -850,14 +864,23 @@ public class Aero_MeshRenderer {
      * target. Skips back to the raw fast path when no targets have a
      * non-zero weight, so the caller doesn't need to gate this externally.
      */
+    // Pooled scratch for drawGroupsMorph — see stationapi twin for rationale.
+    private static Aero_MorphTarget[] SCRATCH_MORPH_TARGETS = new Aero_MorphTarget[4];
+    private static float[] SCRATCH_MORPH_WEIGHTS = new float[4];
+
     private static void drawGroupsMorph(Tessellator tess, Aero_MeshModel model,
                                          float brightness, Aero_RenderOptions options,
                                          Aero_MorphState morphState) {
         // Snapshot active (target, weight) pairs so the inner loop is a flat
         // index walk instead of a HashMap iteration per triangle.
         java.util.Map weights = morphState.getWeightsView();
-        Aero_MorphTarget[] activeTargets = new Aero_MorphTarget[weights.size()];
-        float[] activeWeights = new float[weights.size()];
+        int upperBound = weights.size();
+        if (SCRATCH_MORPH_TARGETS.length < upperBound) {
+            SCRATCH_MORPH_TARGETS = new Aero_MorphTarget[upperBound];
+            SCRATCH_MORPH_WEIGHTS = new float[upperBound];
+        }
+        Aero_MorphTarget[] activeTargets = SCRATCH_MORPH_TARGETS;
+        float[] activeWeights = SCRATCH_MORPH_WEIGHTS;
         int activeCount = 0;
         java.util.Iterator it = weights.entrySet().iterator();
         while (it.hasNext()) {
@@ -1034,7 +1057,12 @@ public class Aero_MeshRenderer {
         }
         GL11.glDisable(GL11.GL_LIGHTING);
         applyBlendMode(options.blend);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        if (options.alphaClip > 0f) {
+            GL11.glEnable(GL11.GL_ALPHA_TEST);
+            GL11.glAlphaFunc(GL11.GL_GREATER, options.alphaClip);
+        } else {
+            GL11.glDisable(GL11.GL_ALPHA_TEST);
+        }
         if (options.depthTest) {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
         } else {

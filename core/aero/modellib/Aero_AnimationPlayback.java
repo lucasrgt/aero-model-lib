@@ -123,14 +123,39 @@ public class Aero_AnimationPlayback {
                             boolean includeFrom) {
         if (toInclusive < fromBound || (toInclusive == fromBound && !includeFrom)) return;
         Aero_AnimationClip.KeyframeEvent[] events = clip.events;
-        for (int i = 0; i < events.length; i++) {
+        if (events.length == 0) return;
+
+        // Events are sorted by time at clip construction (see
+        // Aero_AnimationClip constructor). Binary-search for the first
+        // event whose time satisfies the lower bound; iterate forward
+        // and break when we pass the upper bound. Worst case becomes
+        // O(log n + matches) instead of O(n).
+        int start = lowerBound(events, fromBound, includeFrom);
+        for (int i = start; i < events.length; i++) {
             Aero_AnimationClip.KeyframeEvent event = events[i];
             float t = event.time;
-            boolean lowerOk = includeFrom ? (t >= fromBound) : (t > fromBound);
-            if (lowerOk && t <= toInclusive) {
-                eventListener.onEvent(event.channel, event.data, event.locator, t);
-            }
+            if (t > toInclusive) break;
+            eventListener.onEvent(event.channel, event.data, event.locator, t);
         }
+    }
+
+    /**
+     * Returns the index of the first event with {@code time >= bound}
+     * (when {@code inclusive}) or {@code time > bound} (when not). Events
+     * MUST be sorted by ascending time. Returns {@code events.length}
+     * when every event lies before the bound.
+     */
+    private static int lowerBound(Aero_AnimationClip.KeyframeEvent[] events,
+                                  float bound, boolean inclusive) {
+        int lo = 0, hi = events.length;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            float t = events[mid].time;
+            boolean before = inclusive ? (t < bound) : (t <= bound);
+            if (before) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
     }
 
     /**

@@ -66,9 +66,25 @@ public final class Aero_AnimationClip {
         return events.length > 0;
     }
 
+    // Single-entry reference-equality cache for indexOfBone. The hot
+    // pattern is multi-layer stacks calling indexOfBone(boneName) 3-N
+    // times in a row with the same {@code boneName} reference (one
+    // call per layer or per channel inside Aero_AnimationStack /
+    // Aero_AnimationPlayback). The cache turns those follow-ups into
+    // a reference-equality compare + array-equivalent hit.
+    private String cachedBoneNameRef;
+    private int cachedBoneIdx;
+
     public int indexOfBone(String name) {
+        // Reference-eq fast path — covers the "same boneName called N
+        // times in a tight loop" pattern. JVM-interned strings compare
+        // by reference too, so callers passing literal strings hit this.
+        if (name == cachedBoneNameRef) return cachedBoneIdx;
         Integer idx = (Integer) boneIndexByName.get(name);
-        return idx != null ? idx.intValue() : -1;
+        int resolved = idx != null ? idx.intValue() : -1;
+        cachedBoneNameRef = name;
+        cachedBoneIdx = resolved;
+        return resolved;
     }
 
     public boolean sampleRotInto(int boneIdx, float time, float[] out) {
