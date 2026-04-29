@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "aero.modellib.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "plugin": "aero.modellib.mixin.AeroMixinPlugin",
+  "client": [
+    "BlockRenderManagerChunkBakeMixin",
+    "GameRendererMixin",
+    "PalettedContainerCacheMixin",
+    "WorldRendererBatchFlushMixin",
+    "WorldRendererChunksAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

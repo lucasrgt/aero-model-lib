@@ -31,6 +31,16 @@ stationapi/test/*.jfr
 stationapi/test/jfr-*-repo/
 stationapi/test/jfr-repo/
 
+# Same exclusions for the test-bare sibling (StationAPI-only minimal mod).
+stationapi/test-bare/build/
+stationapi/test-bare/.gradle/
+stationapi/test-bare/.idea/
+stationapi/test-bare/run/
+stationapi/test-bare/*.iml
+stationapi/test-bare/*.jfr
+stationapi/test-bare/jfr-*-repo/
+stationapi/test-bare/jfr-repo/
+
 # Moved unit-test runner output
 modloader/tests/out/
 modloader/tests/bench-out/

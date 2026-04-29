@@ -27,6 +27,19 @@ public final class Aero_RenderOptions {
      * banners, and transparent foliage should keep this {@code false}.
      */
     public final boolean cullFaces;
+    /**
+     * Alpha-clip threshold. {@code 0f} = disabled (no GL_ALPHA_TEST applied).
+     * Values in {@code (0, 1]} enable {@code glAlphaFunc(GL_GREATER, threshold)}
+     * — pixels with alpha at or below the threshold are discarded entirely
+     * (no blend, no depth write, no overdraw). Use this for hard cutouts
+     * (foliage, fences, decals) instead of {@link Aero_MeshBlendMode#ALPHA}
+     * — alpha clipping keeps depth-test/sort working correctly and is
+     * substantially cheaper than blend on Beta's fixed-function pipeline.
+     *
+     * <p>Stacks with {@link #blend}: enabling both clips low-alpha pixels
+     * out before the blend step (useful for foliage with soft edges).
+     */
+    public final float alphaClip;
 
     public static Builder builder() {
         return new Builder();
@@ -39,6 +52,16 @@ public final class Aero_RenderOptions {
     /** Translucent variant: enables alpha blending, sets alpha, leaves tint white. */
     public static Aero_RenderOptions translucent(float alpha) {
         return builder().alpha(alpha).blend(Aero_MeshBlendMode.ALPHA).build();
+    }
+
+    /**
+     * Cutout variant: enables {@code GL_ALPHA_TEST} with the given threshold.
+     * Pixels with alpha ≤ threshold are discarded — no blending, no overdraw,
+     * depth test stays correct. Pair with a 1-bit-mask texture for
+     * vegetation, fences, decals.
+     */
+    public static Aero_RenderOptions alphaClipped(float threshold) {
+        return builder().alphaClip(threshold).build();
     }
 
     /**
@@ -59,6 +82,7 @@ public final class Aero_RenderOptions {
         this.blend = builder.blend;
         this.depthTest = builder.depthTest;
         this.cullFaces = builder.cullFaces;
+        this.alphaClip = builder.alphaClip;
     }
 
     public Builder toBuilder() {
@@ -70,6 +94,7 @@ public final class Aero_RenderOptions {
         b.blend = blend;
         b.depthTest = depthTest;
         b.cullFaces = cullFaces;
+        b.alphaClip = alphaClip;
         return b;
     }
 
@@ -85,6 +110,10 @@ public final class Aero_RenderOptions {
         // would silently invisibilify some models. Opt-in via cullFaces(true)
         // when you've verified the model's winding is consistent.
         private boolean cullFaces = false;
+        // Default 0 = disabled. >0 enables glAlphaFunc(GL_GREATER, threshold)
+        // and discards low-alpha pixels — used as a cheaper alternative to
+        // ALPHA blending for hard cutouts.
+        private float alphaClip = 0f;
 
         private Builder() {}
 
@@ -138,6 +167,18 @@ public final class Aero_RenderOptions {
         /** Explicit override for back-face culling (default {@code true}). */
         public Builder cullFaces(boolean enabled) {
             this.cullFaces = enabled;
+            return this;
+        }
+
+        /**
+         * Sets the alpha-clip threshold. {@code 0} disables (default);
+         * values in {@code (0, 1]} enable {@code GL_ALPHA_TEST} with
+         * {@code glAlphaFunc(GL_GREATER, threshold)}. Stacks with
+         * {@link #blend(Aero_MeshBlendMode)} when both are set.
+         */
+        public Builder alphaClip(float threshold) {
+            validateUnit("alphaClip", threshold);
+            this.alphaClip = threshold;
             return this;
         }
 

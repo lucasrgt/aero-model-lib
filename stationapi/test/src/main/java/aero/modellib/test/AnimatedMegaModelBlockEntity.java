@@ -45,11 +45,25 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
         // bundle and spawn the side-effect AT that pivot offset relative
         // to the BE — so a particle declared on the "turbine_l" bone fires
         // from the actual turbine position, not the block centre.
+        //
+        // Sound calls go through {@link aero.modellib.Aero_SoundCoalesce}
+        // — under MEGA load (144 identical BEs per chunk all firing the
+        // same sound on the same tick) raw {@code world.playSound} hits
+        // a sub-frame stutter as Paul Lamb's SoundSystem churns through
+        // 144 source allocations. The coalescer caps simultaneous plays
+        // per-name to {@link Aero_SoundCoalesce#getMaxPerName()} (default
+        // 3), keeping the closest-to-camera N. Toggle:
+        // {@code -Daero.soundcoalesce=false} for raw playSound.
         animState.setEventListener(new Aero_AnimationEventListener() {
             @Override
             public void onEvent(String channel, String data, String locator, float time) {
-                System.out.println("[aerotest:event] " + channel + "=" + data
-                    + " @ t=" + time + "s loc=" + locator);
+                if (!AeroTestMod.MEGA_TEST) {
+                    // The println is hot under MEGA load (144 BEs × 2-3
+                    // events / cycle = stdout backpressure). Keep it for
+                    // dev / debug runs only.
+                    System.out.println("[aerotest:event] " + channel + "=" + data
+                        + " @ t=" + time + "s loc=" + locator);
+                }
                 if (world == null) return;
 
                 // Resolve the locator to its CURRENT animated pivot — this
@@ -68,9 +82,14 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
                 double cx = x + ox, cy = y + oy, cz = z + oz;
 
                 if ("sound".equals(channel)) {
-                    world.playSound(cx, cy, cz, data, 0.6f, 1.0f);
+                    aero.modellib.Aero_SoundCoalesce.queue(cx, cy, cz, data, 0.6f, 1.0f);
                 } else if ("particle".equals(channel)) {
-                    for (int i = 0; i < 5; i++) {
+                    // Particle cap: under MEGA load skip the 5-particle
+                    // burst and emit a single particle (still visible
+                    // from a distance, ~5× cheaper). Real downstream
+                    // mods can scale similarly via a flag.
+                    int burst = AeroTestMod.MEGA_TEST ? 1 : 5;
+                    for (int i = 0; i < burst; i++) {
                         world.addParticle(data,
                             cx + (Math.random() - 0.5) * 0.3,
                             cy,

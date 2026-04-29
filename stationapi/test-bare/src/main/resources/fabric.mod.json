@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "${mod_id}",
+  "version": "${version}",
+  "name": "Aero Bare StationAPI Benchmark",
+  "description": "Empty mod placeholder so Loom has something to load. Used to measure the bare StationAPI baseline FPS.",
+  "environment": "*",
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "stationapi": "*"
+  }
+}

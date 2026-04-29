@@ -113,6 +113,70 @@ tasks.register('runClientProfile') {
     }
 }
 
+// Diagnostic: runClient with chunk-visibility cull DISABLED. Used to
+// isolate whether the per-chunk HOQ-based skip (Aero_ChunkVisibility)
+// is responsible for visible-BE flicker on camera rotation. If BEs
+// remain stable with this task and flicker with plain runClient, the
+// HOQ leg is the culprit. Strictly diagnostic — remove once the cull
+// stack is verified.
+tasks.register('runClientNoChunkVis') {
+    group = 'fabric'
+    description = 'Run client with -Daero.chunkvisibility=false (HOQ flicker diagnostic).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        runClient.jvmArgs('-Daero.chunkvisibility=false')
+        println '[runClientNoChunkVis] aero.chunkvisibility=false'
+    }
+}
+
+// Diagnostic: runClient with occlusion DDA disabled. Tests whether the
+// camera→BE oblique raycast is the source of cull flicker (sand dunes,
+// tree logs in the line could trip the threshold).
+tasks.register('runClientNoOcclusion') {
+    group = 'fabric'
+    description = 'Run client with -Daero.occlusioncull=false (occlusion flicker diagnostic).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        runClient.jvmArgs('-Daero.occlusioncull=false')
+        println '[runClientNoOcclusion] aero.occlusioncull=false'
+    }
+}
+
+// Diagnostic: runClient with cone heuristic disabled.
+tasks.register('runClientNoCone') {
+    group = 'fabric'
+    description = 'Run client with -Daero.frustumcull=false (cone flicker diagnostic).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        runClient.jvmArgs('-Daero.frustumcull=false')
+        println '[runClientNoCone] aero.frustumcull=false'
+    }
+}
+
+// Diagnostic: runClient with ALL aero culling off — baseline visibility.
+// If BEs still flicker with this, the bug isn't in our cull stack.
+tasks.register('runClientNoAeroCull') {
+    group = 'fabric'
+    description = 'Run client with all aero culling disabled (baseline diagnostic).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        runClient.jvmArgs(
+            '-Daero.chunkvisibility=false',
+            '-Daero.frustumcull=false',
+            '-Daero.occlusioncull=false'
+        )
+        println '[runClientNoAeroCull] all aero culls disabled'
+    }
+}
+
 // Auto-quitting benchmark run. Adds `-Daero.benchmark.exitAfterSec=N` so
 // the JVM kills itself cleanly N seconds after the test mod's profiler hook
 // installs. Pair with -Daero.stresstest=true (or call runClientStress
@@ -155,6 +219,199 @@ tasks.register('runClientBenchmark') {
 // motor grid, animated LOD distance bumped to 256 blocks. Combined with
 // the profile flags from runClientProfile, this is what we hand the
 // reviewer when they ask for harder-stressed benchmarks.
+// Empty mode — disables ALL test-mod content (no blocks, no BEs, no
+// items, no worldgen placements) so the player can compare FPS against
+// just StationAPI + the runtime mod stack (AlwaysMoreItems, glass-
+// networking, GlassConfigAPI). Useful for isolating "is this overhead
+// from modellib's content, or from the surrounding ecosystem?".
+//
+// modellib's mixins still apply at class-load (they're declared in the
+// mod's mixins.json and the loader can't conditionally skip those without
+// custom plugin work) but they no-op because the test mod doesn't
+// register any blocks/BEs. Effective overhead: a few HEAD-inject
+// method dispatches per PalettedContainer.get call (~ns scale).
+tasks.register('runClientEmpty') {
+    group = 'fabric'
+    description = 'Empty test mod (no content) — measures StationAPI + runtime mods baseline.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-empty.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-empty-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.testmod.disabled=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:TieredStopAtLevel=1',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-empty',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientEmpty] StationAPI + runtime mods baseline (no test content) · JFR -> ' + jfrFile
+    }
+}
+
+// Realistic mode — simulates a typical tech-mod player base, not the
+// exhibit-hall density of the demo or the worst-case 23-BEs-per-chunk
+// stress test. Each qualifying chunk gets 4 BEs + 3 chunk-baked blocks,
+// chunks are 6 apart, so a typical viewing position sees 1-3 bases →
+// 4-12 visible BEs. This is the FPS number that reflects real users.
+// Factory mode — Satisfactory-style multi-floor base. 8 floors of 16
+// motors each (128 animated motors), separated by cobblestone ceilings
+// that occlude upper floors when player is on a lower floor. This is
+// the closest benchmark to real tech-mod gameplay (multi-floor factory
+// bases) — far closer than the surface stress test which had no occlusion.
+//
+// Default JVM (G1+C2) for peak throughput. Use the `Smooth` variant if
+// JIT/GC spikes annoy you more than peak FPS does.
+// Factory structure WITHOUT animated BEs — diagnostic isolation. When
+// the chunk-update count is high near the factory, this task shows
+// whether the cause is the cobblestone-tower lighting cascades (still
+// high here) or the animated BEs (low here). Compare this number
+// against runClientFactoryDefault.
+tasks.register('runClientFactoryEmpty') {
+    group = 'fabric'
+    description = 'Factory cobblestone structure only (no animated BEs) — isolates lighting cascade cost.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-factory-empty.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-factory-empty-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.factory=true',
+            '-Daero.factoryEmpty=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-factory-empty',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientFactoryEmpty] cobblestone-only factory · default JVM · JFR -> ' + jfrFile
+    }
+}
+
+tasks.register('runClientMegaDefault') {
+    group = 'fabric'
+    description = 'MEGA torture test (16 floors × 4 × 3×3 animated stacks = 576 BEs/chunk) · default JVM.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-mega.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-mega-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.mega=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-mega',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientMegaDefault] 16-floor 3x3 stacks · default JVM · JFR -> ' + jfrFile
+    }
+}
+
+tasks.register('runClientMegaSmooth') {
+    group = 'fabric'
+    description = 'MEGA torture test · ZGC + C1-only (smoothest frame times for visual stability check).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-mega-smooth.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-mega-smooth-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.mega=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:TieredStopAtLevel=1',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-mega-smooth',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientMegaSmooth] 16-floor 3x3 stacks · ZGC + C1-only · JFR -> ' + jfrFile
+    }
+}
+
+tasks.register('runClientFactoryDefault') {
+    group = 'fabric'
+    description = 'Satisfactory-style multi-floor factory · default JVM (peak throughput).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-factory.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-factory-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.factory=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-factory',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientFactoryDefault] 8-floor factory · default JVM · JFR -> ' + jfrFile
+    }
+}
+
+tasks.register('runClientRealisticDefault') {
+    group = 'fabric'
+    description = 'Realistic player-base layout · default JVM (peak throughput, occasional GC/JIT spikes).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-realistic-default.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-realistic-default-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.realistic=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-realistic-default',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientRealisticDefault] realistic player-base · default JVM (peak throughput) · JFR -> ' + jfrFile
+    }
+}
+
+tasks.register('runClientRealistic') {
+    group = 'fabric'
+    description = 'Realistic player-base layout (4 BEs + 3 chunk-baked per chunk, 6-chunk spacing).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-realistic.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-realistic-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.realistic=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:TieredStopAtLevel=1',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-realistic',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientRealistic] realistic player-base · ZGC + C1-only · JFR -> ' + jfrFile
+    }
+}
+
 tasks.register('runClientStress') {
     group = 'fabric'
     description = 'Run the client with stress test world + Aero profiler + JFR.'
@@ -173,5 +430,108 @@ tasks.register('runClientStress') {
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
         )
         println '[runClientStress] aero.stresstest=true · aero.profiler=true · JFR -> ' + jfrFile
+    }
+}
+
+// G1 with aggressive pause goal — alternative to runClientStress for users
+// who hit the FPS spikes that calmilamsy reported. JFR analysis showed
+// p95 GC pause ≈ 36 ms on the default G1 config, which causes the
+// 180 → 80 FPS spikes when garbage collection lands mid-frame. Flags here
+// force G1 to run more frequent but smaller collections (target 10 ms max
+// pause), trading slight throughput for stable frame-times.
+//
+// Heap bumped to 4 GB so young-gen lasts longer between collections; this
+// hides allocation pressure from StationAPI/vanilla code (ChunkCache
+// autoboxing, Field.copy reflection) which is outside modellib's reach.
+tasks.register('runClientStressG1') {
+    group = 'fabric'
+    description = 'Stress + JFR with tight G1 pause goals (10 ms target, 4 GB heap).'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-stress-g1.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-stress-g1-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.stresstest=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:+UseG1GC',
+            '-XX:MaxGCPauseMillis=10',
+            '-XX:G1HeapRegionSize=16M',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-stress-g1',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientStressG1] tight G1 (10ms target, 4G heap) · JFR -> ' + jfrFile
+    }
+}
+
+// ZGC — sub-millisecond pause times regardless of heap size. If the
+// runClientStressG1 spikes are still visible (G1's tight goal is best-effort,
+// not guaranteed), this trades a bit more CPU + memory for genuinely
+// pause-less GC. Java 17+ feature.
+tasks.register('runClientStressZGC') {
+    group = 'fabric'
+    description = 'Stress + JFR with ZGC (sub-ms pauses, no spike). Java 17+.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-stress-zgc.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-stress-zgc-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.stresstest=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-stress-zgc',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientStressZGC] ZGC generational · JFR -> ' + jfrFile
+    }
+}
+
+// Smooth — combined GC (ZGC) + JIT (C1-only) tuning. Targets the
+// last residual spike pattern: ZGC took GC pauses to sub-ms, but
+// JFR analysis showed 38 JIT compilations totaling 7.2 s over 86 s
+// of play (median 147 ms each, max 478 ms) — the C2 server
+// compiler stealing CPU briefly when it lands on a hot method.
+//
+// Stopping at C1 (the quick compiler) skips the expensive C2 stage
+// entirely. Peak throughput drops slightly (~5-10%) but compilation
+// is bounded to a few ms per method instead of hundreds. With
+// modellib's own paths already CPU-light (<1% of profile), the
+// peak loss is invisible while the spike pattern goes away.
+//
+// Use this flavour when "smooth frame-times" matters more than
+// "absolute peak FPS" — i.e. anything that involves recording or
+// player-facing demos.
+tasks.register('runClientStressSmooth') {
+    group = 'fabric'
+    description = 'Stress + ZGC + C1-only JIT (no spike, no JIT stalls). Java 17+.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        def runDir = runClient.workingDir
+        runDir.mkdirs()
+        def jfrFile = new File(runDir, 'aero-stress-smooth.jfr').absolutePath
+        def jfrRepo = new File(runDir, 'jfr-stress-smooth-repo').absolutePath
+        runClient.jvmArgs(
+            '-Daero.stresstest=true',
+            '-Daero.profiler=true',
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:TieredStopAtLevel=1',
+            '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-stress-smooth',
+            '-XX:FlightRecorderOptions=repository=' + jfrRepo
+        )
+        println '[runClientStressSmooth] ZGC + C1-only JIT · JFR -> ' + jfrFile
     }
 }

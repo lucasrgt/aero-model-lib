@@ -3,13 +3,13 @@ package aero.modellib.test;
 import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_MeshRenderer;
 import aero.modellib.Aero_ObjLoader;
+import aero.modellib.Aero_RenderDistance;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 
 /**
- * Static-mesh renderer for {@link MegaModelBlockEntity}. Calls the smooth-
- * lighting overload of {@link Aero_MeshRenderer#renderModel} so each face
- * picks up the correct world brightness (day/night + nearby torches).
+ * Static-mesh renderer for {@link MegaModelBlockEntity}. Uses the at-rest
+ * renderer so named groups can hit Aero_MeshRenderer's display-list fast-path.
  */
 public class MegaModelBlockEntityRenderer extends BlockEntityRenderer {
 
@@ -17,31 +17,9 @@ public class MegaModelBlockEntityRenderer extends BlockEntityRenderer {
 
     @Override
     public void render(BlockEntity be, double x, double y, double z, float partialTick) {
+        if (!Aero_RenderDistance.shouldRenderRelative(x, y, z, 4.0d)) return;
         bindTexture("/models/retronism_megacrusher.png");
-        // Static path uses the smooth-lighting overload (per-vertex brightness
-        // bilinearly sampled from neighbour columns). Animated counterpart
-        // uses the flat-brightness path because the mesh moves frame-to-frame
-        // and per-vertex sampling becomes meaningless.
-        // Sample lighting from the column top so blocks placed in water /
-        // lava / shaded areas still pick up sky brightness instead of the
-        // dim fluid-light value at be.y+1.
-        int sampleY = Math.max(be.y + 1, be.world.getTopY(be.x, be.z));
-        Aero_MeshRenderer.renderModel(MODEL, x, y, z, 0f, be.world, be.x, sampleY, be.z);
-
-        // The MegaCrusher OBJ has all geometry in named groups; the static
-        // groups[] array is empty, so renderModel alone would draw nothing.
-        // Iterate the named groups at rest pose with the same brightness.
         float brightness = AeroLight.brightnessAbove(be.world, be.x, be.y, be.z);
-        Aero_MeshModel.NamedGroup[] entries = MODEL.getNamedGroupArray();
-        for (int i = 0; i < entries.length; i++) {
-            org.lwjgl.opengl.GL11.glPushMatrix();
-            org.lwjgl.opengl.GL11.glTranslated(x, y, z);
-            org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_CULL_FACE);
-            org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_LIGHTING);
-            Aero_MeshRenderer.renderGroup(MODEL, entries[i].name, brightness);
-            org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_LIGHTING);
-            org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_CULL_FACE);
-            org.lwjgl.opengl.GL11.glPopMatrix();
-        }
+        Aero_MeshRenderer.renderModelAtRest(MODEL, x, y, z, 0f, brightness);
     }
 }

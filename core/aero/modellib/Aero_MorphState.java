@@ -21,14 +21,16 @@ public final class Aero_MorphState {
 
     private final Map weights = new HashMap();
 
+    // Set keeps every entry with a non-zero weight; zero-weighted entries
+    // are removed in `set` (see below) so isEmpty() reduces to
+    // `weights.isEmpty()`. The previous implementation iterated +
+    // unboxed every value per-call to defend against zero-weighted
+    // entries; that defense is no longer needed since `set` evicts on
+    // zero, but keeping the early return on `weights.isEmpty()` is the
+    // O(1) path renderers rely on.
+
     public boolean isEmpty() {
-        if (weights.isEmpty()) return true;
-        Iterator it = weights.values().iterator();
-        while (it.hasNext()) {
-            float w = ((Float) it.next()).floatValue();
-            if (w != 0f) return false;
-        }
-        return true;
+        return weights.isEmpty();
     }
 
     public float get(String name) {
