@@ -42,6 +42,26 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
     @Override
     public double distanceFrom(double x, double y, double z) {
         Aero_BECellIndex.track(this);
+        if (this instanceof Aero_CellPageRenderableBE) {
+            if (!Aero_ChunkVisibility.isBlockChunkVisible(this.x, this.z)) {
+                return Double.POSITIVE_INFINITY;
+            }
+            Aero_CellPageRenderableBE renderable = (Aero_CellPageRenderableBE) this;
+            double dx = this.x - x;
+            double dy = this.y - y;
+            double dz = this.z - z;
+            Aero_RenderLod lod = Aero_RenderDistance.lodRelative(dx, dy, dz,
+                renderable.aeroCellVisualRadius(),
+                renderable.aeroCellAnimatedDistance(),
+                renderable.aeroCellMaxRenderDistance());
+            if (!lod.shouldRender()) {
+                return Double.POSITIVE_INFINITY;
+            }
+            if (renderable.aeroCanSkipIndividualRenderer(lod)
+                && Aero_BECellRenderer.tryQueueManagedAtRest(this, renderable)) {
+                return Double.POSITIVE_INFINITY;
+            }
+        }
         return Aero_RenderDistance.blockEntityDistanceFrom(this, x, y, z,
             getAeroRenderRadius(), getAeroMaxRenderDistance());
     }

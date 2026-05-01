@@ -18,7 +18,7 @@ import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 public class AnimatedMegaModelBlockEntityRenderer extends BlockEntityRenderer {
 
     public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/MegaCrusher.obj");
-    private static final String TEXTURE = "/models/retronism_megacrusher.png";
+    public static final String TEXTURE = "/models/retronism_megacrusher.png";
 
     @Override
     public void render(BlockEntity blockEntity, double x, double y, double z, float partialTick) {

@@ -20,6 +20,8 @@ public final class Aero_BECellRenderer {
 
     public static final boolean ENABLED =
         !"false".equalsIgnoreCase(System.getProperty("aero.becell.pages"));
+    public static final boolean SKIP_INDIVIDUAL_RENDERERS =
+        !"false".equalsIgnoreCase(System.getProperty("aero.becell.skipIndividual"));
 
     private static final int MIN_INSTANCES =
         clampInt(Integer.getInteger("aero.becell.minInstances", 2).intValue(), 1, 4096);
@@ -86,6 +88,41 @@ public final class Aero_BECellRenderer {
         double worldX = Aero_RenderDistance.cachedCameraX() + x;
         double worldY = Aero_RenderDistance.cachedCameraY() + y;
         double worldZ = Aero_RenderDistance.cachedCameraZ() + z;
+        if (!queueWorldAtRest(model, texturePath, be, worldX, worldY, worldZ,
+                rotation, brightness, options)) {
+            drawDirect(model, texturePath, x, y, z, rotation, brightness, options);
+        }
+    }
+
+    /**
+     * Called from {@link Aero_RenderDistanceBlockEntity#distanceFrom} before
+     * vanilla dispatches the individual renderer. A true return means the BE
+     * has been queued for this frame and the dispatcher can be suppressed.
+     */
+    public static boolean tryQueueManagedAtRest(BlockEntity be, Aero_CellPageRenderableBE renderable) {
+        if (!SKIP_INDIVIDUAL_RENDERERS || renderable == null) return false;
+        Aero_RenderOptions options = renderable.aeroCellRenderOptions();
+        if (options == null) options = Aero_RenderOptions.DEFAULT;
+        Aero_MeshModel model = renderable.aeroCellModel();
+        if (!canQueue(model, be, options) || !renderable.aeroCanCellPage()) return false;
+        return queueWorldAtRest(model, renderable.aeroCellTexturePath(), be,
+            be.x, be.y, be.z,
+            renderable.aeroCellRotation(),
+            renderable.aeroCellBrightness(),
+            options);
+    }
+
+    private static boolean queueWorldAtRest(Aero_MeshModel model, String texturePath,
+                                            BlockEntity be,
+                                            double worldX, double worldY, double worldZ,
+                                            float rotation, float brightness,
+                                            Aero_RenderOptions options) {
+        if (options == null) options = Aero_RenderOptions.DEFAULT;
+        if (!canQueue(model, be, options)) return false;
+
+        Aero_CellRenderableBE renderable = (Aero_CellRenderableBE) be;
+        if (!renderable.aeroCanCellPage()) return false;
+
         int cellX = Math.floorDiv(floorToInt(worldX), Aero_BECellIndex.CELL_SIZE);
         int cellY = Math.floorDiv(floorToInt(worldY), Aero_BECellIndex.CELL_SIZE);
         int cellZ = Math.floorDiv(floorToInt(worldZ), Aero_BECellIndex.CELL_SIZE);
@@ -101,17 +138,26 @@ public final class Aero_BECellRenderer {
         }
         page.add(be, worldX, worldY, worldZ);
         queuedThisFrame++;
+        return true;
     }
 
     public static void flush(double cameraX, double cameraY, double cameraZ) {
-        if (ACTIVE_PAGES.isEmpty()) return;
-        frameIndex++;
         pageCallsThisFrame = 0;
         pageRebuildsThisFrame = 0;
         directFallbacksThisFrame = 0;
-        Collections.sort(ACTIVE_PAGES, BY_RENDER_STATE);
-        for (int i = 0; i < ACTIVE_PAGES.size(); i++) {
-            flushPage(ACTIVE_PAGES.get(i), cameraX, cameraY, cameraZ);
+        if (ACTIVE_PAGES.isEmpty()) {
+            queuedThisFrame = 0;
+            return;
+        }
+        frameIndex++;
+        Aero_Profiler.start("aero.becell.flush");
+        try {
+            Collections.sort(ACTIVE_PAGES, BY_RENDER_STATE);
+            for (int i = 0; i < ACTIVE_PAGES.size(); i++) {
+                flushPage(ACTIVE_PAGES.get(i), cameraX, cameraY, cameraZ);
+            }
+        } finally {
+            Aero_Profiler.end("aero.becell.flush");
         }
         ACTIVE.clear();
         for (int i = 0; i < ACTIVE_PAGES.size(); i++) {
@@ -180,34 +226,40 @@ public final class Aero_BECellRenderer {
     }
 
     private static CachedPage compilePage(QueuedPage page, int[] modelIds, int membershipHash) {
-        int[] ids = new int[4];
-        for (int g = 0; g < 4; g++) {
-            int modelList = modelIds[g];
-            if (modelList == 0) continue;
-            int id = GL11.glGenLists(1);
-            if (id == 0) {
-                deleteIds(ids);
-                return null;
+        Aero_Profiler.start("aero.becell.compile");
+        try {
+            int[] ids = new int[4];
+            for (int g = 0; g < 4; g++) {
+                int modelList = modelIds[g];
+                if (modelList == 0) continue;
+                int id = GL11.glGenLists(1);
+                if (id == 0) {
+                    deleteIds(ids);
+                    return null;
+                }
+                GL11.glNewList(id, GL11.GL_COMPILE);
+                for (int i = 0; i < page.count; i++) {
+                    GL11.glPushMatrix();
+                    GL11.glTranslated(
+                        page.worldXs[i] - page.key.originX(),
+                        page.worldYs[i] - page.key.originY(),
+                        page.worldZs[i] - page.key.originZ());
+                    Aero_MeshRenderer.applyRotation(page.key.rotation);
+                    GL11.glCallList(modelList);
+                    GL11.glPopMatrix();
+                }
+                GL11.glEndList();
+                ids[g] = id;
             }
-            GL11.glNewList(id, GL11.GL_COMPILE);
-            for (int i = 0; i < page.count; i++) {
-                GL11.glPushMatrix();
-                GL11.glTranslated(
-                    page.worldXs[i] - page.key.originX(),
-                    page.worldYs[i] - page.key.originY(),
-                    page.worldZs[i] - page.key.originZ());
-                Aero_MeshRenderer.applyRotation(page.key.rotation);
-                GL11.glCallList(modelList);
-                GL11.glPopMatrix();
-            }
-            GL11.glEndList();
-            ids[g] = id;
+            return new CachedPage(ids, page.count, membershipHash, frameIndex);
+        } finally {
+            Aero_Profiler.end("aero.becell.compile");
         }
-        return new CachedPage(ids, page.count, membershipHash, frameIndex);
     }
 
     private static void drawCached(PageKey key, CachedPage cached,
                                    double cameraX, double cameraY, double cameraZ) {
+        Aero_Profiler.start("aero.becell.call");
         Aero_AnimatedBatcher.bindTexturePath(key.texturePath);
         Aero_MeshRenderer.beginMeshState(key.options);
         try {
@@ -232,21 +284,27 @@ public final class Aero_BECellRenderer {
             }
         } finally {
             Aero_MeshRenderer.endMeshState();
+            Aero_Profiler.end("aero.becell.call");
         }
         cached.lastUsedFrame = frameIndex;
     }
 
     private static void drawDirect(QueuedPage page, double cameraX, double cameraY, double cameraZ) {
+        Aero_Profiler.start("aero.becell.direct");
         Aero_AnimatedBatcher.bindTexturePath(page.key.texturePath);
-        for (int i = 0; i < page.count; i++) {
-            Aero_MeshRenderer.renderModelAtRestPreculled(page.key.model,
-                page.worldXs[i] - cameraX,
-                page.worldYs[i] - cameraY,
-                page.worldZs[i] - cameraZ,
-                page.key.rotation,
-                page.key.brightness,
-                page.key.options);
-            directFallbacksThisFrame++;
+        try {
+            for (int i = 0; i < page.count; i++) {
+                Aero_MeshRenderer.renderModelAtRestPreculled(page.key.model,
+                    page.worldXs[i] - cameraX,
+                    page.worldYs[i] - cameraY,
+                    page.worldZs[i] - cameraZ,
+                    page.key.rotation,
+                    page.key.brightness,
+                    page.key.options);
+                directFallbacksThisFrame++;
+            }
+        } finally {
+            Aero_Profiler.end("aero.becell.direct");
         }
     }
 
@@ -255,9 +313,14 @@ public final class Aero_BECellRenderer {
                                    float rotation, float brightness,
                                    Aero_RenderOptions options) {
         if (model == null) return;
+        Aero_Profiler.start("aero.becell.direct");
         Aero_AnimatedBatcher.bindTexturePath(texturePath);
-        Aero_MeshRenderer.renderModelAtRestPreculled(model, x, y, z, rotation, brightness, options);
-        directFallbacksThisFrame++;
+        try {
+            Aero_MeshRenderer.renderModelAtRestPreculled(model, x, y, z, rotation, brightness, options);
+            directFallbacksThisFrame++;
+        } finally {
+            Aero_Profiler.end("aero.becell.direct");
+        }
     }
 
     private static void sweepOldPages() {
