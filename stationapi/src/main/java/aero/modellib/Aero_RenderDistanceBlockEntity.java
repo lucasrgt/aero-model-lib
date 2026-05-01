@@ -106,6 +106,15 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
      * @return true if the entity should advance its animation this tick
      */
     public boolean shouldTickAnimation() {
+        return shouldTickAnimation(0.0d);
+    }
+
+    /**
+     * Distance-tiered animation tick decision with motion simplification.
+     * Pass horizontal/visual speed in blocks per tick for fast-moving BEs or
+     * contraptions whose exact pose is harder to perceive while moving.
+     */
+    public boolean shouldTickAnimation(double velocityBlocksPerTick) {
         if (this.world == null) return false;
         Aero_BECellIndex.track(this);
         double cx = this.x + 0.5;
@@ -127,7 +136,8 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
             double dx = cx - p.x;
             double dy = cy - p.y;
             double dz = cz - p.z;
-            stride = Aero_AnimationTickLOD.tickStride(dx*dx + dy*dy + dz*dz);
+            stride = Aero_AnimationTickLOD.tickStrideWithMotion(
+                dx*dx + dy*dy + dz*dz, velocityBlocksPerTick);
         }
         boolean tick = Aero_AnimationTickLOD.shouldTick(stride, aeroTickAge);
         aeroTickAge++;

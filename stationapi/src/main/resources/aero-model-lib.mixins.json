@@ -6,6 +6,7 @@
   "plugin": "aero.modellib.mixin.AeroMixinPlugin",
   "client": [
     "BlockRenderManagerChunkBakeMixin",
+    "ChunkBuilderPalettedCacheScopeMixin",
     "GameRendererMixin",
     "PalettedContainerCacheMixin",
     "WorldRendererBatchFlushMixin",

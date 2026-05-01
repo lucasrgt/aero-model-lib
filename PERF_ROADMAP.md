@@ -21,14 +21,17 @@ que precisa de benchmark/JFR antes de virar prioridade.
 ## Validação atual
 
 Validado nesta leva:
-- `modloader/tests/run.ps1`: 214 testes passando.
+- `modloader/tests/run.ps1`: 220 testes passando.
 - `stationapi`: `compileJava remapJar` passando.
 - `stationapi/test`: `compileJava` passando.
 
 Ainda pendente antes de declarar ganho real em produção:
 - Rodar benchmark visual/stress com muitos BEs, preferencialmente comparando
   antes/depois por JFR.
-- Conferir adoção em mods consumidores reais, especialmente Beta Energistics.
+- Conferir adoção em mods consumidores reais. Neste checkout, Beta Energistics
+  não apresentou uso visível de `Aero_Mesh*`, `Aero_RenderDistanceBlockEntity`
+  ou `Aero_CellPageRenderableBE`; então não havia BE real para migrar sem antes
+  conectar o mod à AeroModelLib.
 
 ## Restrições de plataforma
 
@@ -48,9 +51,11 @@ agora deve ser descobrir, com benchmark/JFR, qual destes custos sobrou no topo:
 
 1. Adoção incompleta de `Aero_CellPageRenderableBE` nos mods reais.
 2. Iteração vanilla por todos os BEs antes do skip por `distanceFrom`.
-3. Troca de estado GL dentro do animated batcher.
-4. Triângulos desnecessários em OBJ grande.
-5. Chunk meshing / `PalettedContainer.get` em entrada de mundo ou chunk novo.
+3. Triângulos desnecessários em OBJ grande que ainda não use
+   `-Daero.obj.cullhidden=true`.
+4. Chunk meshing / `PalettedContainer.get` em entrada de mundo ou chunk novo,
+   agora com modo chunk-scoped para A/B.
+5. Falta de LODs reais nos assets dos consumidores.
 
 ---
 
@@ -110,19 +115,17 @@ depende de JFR/RenderDoc ou instrumentação futura.
 **Falta medir:** JFR em stress real para confirmar o quanto o custo de easing /
 binary search / slerp caiu.
 
-### A5. Composite-key sort do animated batcher - **ABERTO P1**
+### A5. Composite-key sort do animated batcher - **CONCLUÍDO**
 
-**Hoje:** o batcher ordena por textura, mas não por estado GL completo.
+**Entregue:** `Aero_AnimatedBatcher` agora agrupa por chave composta:
+identidade do modelo, `texturePath`, tint/alpha, `alphaClip`, blend,
+`depthTest` e `cullFaces`. O flush ordena por essa chave, mantendo texturas
+adjacentes e reduzindo troca de estado GL.
 
-**Falta:** ordenar também por chave composta de estado:
-`texturePath + blend + depthTest + cullFaces + alphaClip + tint/alpha`.
+**Toggle:** `-Daero.batcher.sort=false`.
 
-**Por que pode importar:** reduz `glEnable/glDisable`, `glBlendFunc`,
-`glAlphaFunc` e mudanças de estado quando muitos modelos animados têm opções
-diferentes.
-
-**Critério para atacar:** JFR/trace mostrando troca de estado GL como custo
-relevante depois de cell pages.
+**Falta medir:** JFR/trace para confirmar queda real em binds/estado na cena
+do consumidor.
 
 ### A6. Índice global para não iterar BE vanilla - **PARCIAL / REFORMULADO**
 
@@ -153,18 +156,22 @@ triângulo flatten em `float[]` e o renderer não usa index buffer.
 
 **Valor real:** pré-requisito para detectar faces internas em B2.
 
-### B2. OBJ hidden face removal - **ABERTO P1**
+### B2. OBJ hidden face removal - **CONCLUÍDO, OPT-IN**
 
-**Falta:** remover faces totalmente internas de modelos OBJ compostos por
-blocos/caixas adjacentes.
+**Entregue:** `Aero_ObjLoader` pode remover pares de triângulos coincidentes
+e opostos dentro do mesmo grupo OBJ. O passe roda em load-time e é
+deliberadamente conservador: não cruza grupos/named bones, preservando partes
+móveis.
 
-**Cuidado:** opt-in obrigatório. Alguns modelos esperam que a câmera veja
-interior ou backfaces.
+**Flags:**
+- `-Daero.obj.cullhidden=true`
+- `-Daero.obj.cullhidden.grid=N` (default `4096`)
 
-**Flag proposta:** `-Daero.obj.cullhidden=true` default off.
+**Fallback visual:** default off. Modelos com interior visível, decals
+coincidentes ou backfaces intencionais continuam usando o OBJ completo.
 
-**Critério para atacar:** modelo grande com redução de faces mensurável e sem
-diff visual em câmera externa.
+**Falta medir:** redução de triângulos em OBJs reais exportados do pipeline do
+mod.
 
 ### B3. Mipmap em texturas de modelo - **DEFERIDO**
 
@@ -187,18 +194,29 @@ estado GL restaurado em ambos os runtimes.
 - `-Daero.smallobj=false`
 - `-Daero.smallobj.px=N`
 
-### B6. Skeletal LOD intermediário - **ABERTO P2**
+### B6. Skeletal LOD intermediário - **CONCLUÍDO, OPT-IN**
 
-**Ideia:** tier entre ANIMATED e STATIC que anima só ossos acima de certa
-profundidade na hierarquia.
+**Entregue:** render animado pode limitar a profundidade da cadeia de pose em
+modelos distantes, reduzindo custo de hierarquia quando BPDL ainda precisa
+aplicar transforms por bone.
 
-**Critério para atacar:** modelos com hierarquia profunda onde BPDL ainda deixa
-pose/chain cost alto.
+**Flags:**
+- `-Daero.skeletalLod=true`
+- `-Daero.skeletalLod.distance=N` (default `48`)
+- `-Daero.skeletalLod.depth=N` (default `1`)
 
-### B7. Mesh quantization - **ABERTO P2**
+**Fallbacks:** desliga automaticamente para procedural pose, IK e morph ativo,
+porque truncar cadeia nesses casos pode quebrar intenção visual.
+
+### B7. Mesh quantization - **DEFERIDO**
 
 **Ideia:** guardar posições/UV/normais em representação quantizada para reduzir
 heap. Não acelera display list diretamente; é otimização de memória.
+
+**Por que não foi implementado nesta leva:** a malha pública ainda é
+`float[][][]` flatten. Adicionar uma cópia quantizada sem trocar o contrato só
+aumentaria heap. O próximo passo correto é um formato/tooling de asset ou um
+novo backend de malha compacta, não uma microcamada em runtime.
 
 ### B8. Async chunk meshing - **ABERTO P1 GRANDE**
 
@@ -209,19 +227,33 @@ state da modellib.
 
 **Flag proposta:** `-Daero.chunkmesh.async=true` default off.
 
-### B9. Cache chunk-scope no caller de `PalettedContainer.get` - **ABERTO P1**
+### B9. Cache chunk-scope no caller de `PalettedContainer.get` - **CONCLUÍDO, OPT-IN**
 
-**Ideia correta:** cache com vida limitada ao build de chunk, ativado no caller
-de `WorldRenderer.compileChunks`, não em cada `PalettedContainer.get`.
+**Entregue:** `ChunkBuilderPalettedCacheScopeMixin` abre um escopo durante
+`ChunkBuilder.rebuild()`, e `PalettedContainerCacheMixin` só ativa a cache
+quando o modo antigo global está ligado ou quando esse escopo opt-in está
+ativo.
 
-**Depende de:** desenho final de B8 se o meshing virar async.
+**Flags:**
+- `-Daero.palettedcache.chunkScope=true` para o modo novo, restrito a rebuild
+  de chunk.
+- `-Daero.palettedcache=true` mantém o modo global antigo só para A/B.
 
-### B10. Motion-based animation simplification - **ABERTO P2**
+**Motivo do default off:** o modo global já mediu regressão em steady-state.
+O modo escopado precisa benchmark em entrada de mundo/chunk novo antes de
+ligar por padrão.
 
-**Ideia:** reduzir tick/pose quando entidade/BE móvel está rápido demais para o
-olho perceber pose precisa.
+### B10. Motion-based animation simplification - **CONCLUÍDO**
 
-### B11. Billboard distante - **ABERTO P2**
+**Entregue:** `Aero_AnimationTickLOD.tickStrideWithMotion(...)` e overloads em
+`Aero_RenderDistanceBlockEntity` / `Aero_RenderDistanceTileEntity` permitem
+dobrar o stride quando a velocidade visual passa do limiar.
+
+**Uso:** consumidores que conhecem velocidade visual chamam
+`shouldTickAnimation(velocityBlocksPerTick)`. O método sem argumento mantém
+comportamento antigo.
+
+### B11. Billboard distante - **DEFERIDO**
 
 **Ideia:** trocar at-rest distante por sprite/silhueta quando distância passa
 do range útil do modelo real.
@@ -229,10 +261,18 @@ do range útil do modelo real.
 **Cuidado:** FBO/offscreen em Beta precisa ser investigado; alternativa é
 pre-bake offline via tooling.
 
-### B12. LODs reais de modelo / decimation - **ABERTO P2 GRANDE**
+**Status:** não implementado nesta leva. Sem pipeline de sprite/FBO seguro, um
+billboard runtime tem risco alto de regressão visual e de estado GL.
 
-**Ideia:** carregar `model.lod1.obj`, `model.lod2.obj` ou gerar decimation
-offline. Melhor como pipeline/tooling do que em runtime.
+### B12. LODs reais de modelo / decimation - **INFRA CONCLUÍDA / ADOÇÃO PARCIAL**
+
+**Entregue:** `Aero_ModelSpec.mesh(...).meshLod(...)` permite declarar OBJs ou
+`Aero_MeshModel`s alternativos por distância. Render estático/at-rest escolhe
+o mesh correto por distância; render animado continua no mesh base para evitar
+quebrar named bones/animation bindings.
+
+**Falta para ganho real:** assets `lod1/lod2` ou pipeline de decimation
+offline nos mods consumidores.
 
 ---
 
@@ -357,14 +397,21 @@ Antes de implementar técnica nova, medir:
 
 Próximas implementações prováveis, em ordem conservadora:
 
-1. Migrar BEs reais do Beta Energistics para `Aero_CellPageRenderableBE`.
-2. A5 - composite-key sort do animated batcher, se estado GL aparecer no topo.
-3. B2 - hidden face removal, se triângulo/modelo OBJ aparecer no topo.
-4. B9 - cache chunk-scope, se entrada de mundo/chunk build aparecer no topo.
+1. Conectar mods reais que usam muitos BEs à AeroModelLib e implementar
+   `Aero_CellPageRenderableBE` onde o renderer puder virar cell page.
+2. Criar assets `lod1/lod2` reais e declarar via `Aero_ModelSpec.meshLod(...)`.
+3. Rodar A/B de `-Daero.obj.cullhidden=true` em OBJs grandes para medir
+   redução de triângulos sem diff visual.
+4. Rodar A/B de `-Daero.palettedcache.chunkScope=true` em entrada de mundo e
+   chunk streaming.
 5. A6 - dispatcher/cell iteration mais invasivo, se a iteração vanilla por BE
    continuar cara mesmo depois do skip individual.
 
 ## Bloqueados
 
-Nenhum bloqueio confirmado no momento. Itens grandes dependem de benchmark para
-evitar otimizar o gargalo errado.
+- B7 mesh quantization: bloqueado por contrato interno `float[][][]`; precisa
+  novo formato/tooling para reduzir heap de verdade.
+- B11 billboard distante: bloqueado por falta de pipeline/FBO/offline bake
+  seguro para Beta/LWJGL 2.
+- Migração Beta Energistics: não havia uso visível de AeroModelLib neste
+  checkout; primeiro passo é o mod consumir a lib nos renderers relevantes.

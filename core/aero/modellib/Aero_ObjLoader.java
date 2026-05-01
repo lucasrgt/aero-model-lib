@@ -4,6 +4,8 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,6 +46,8 @@ public class Aero_ObjLoader {
 
     private static final int MAX_CACHE_ENTRIES =
         Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
+    private static final int HIDDEN_FACE_GRID =
+        Math.max(1, Integer.getInteger("aero.obj.cullhidden.grid", 4096).intValue());
 
     private static final Map cache = new LinkedHashMap(16, 0.75f, true) {
         protected boolean removeEldestEntry(Map.Entry eldest) {
@@ -69,7 +73,7 @@ public class Aero_ObjLoader {
             Aero_MeshModel model;
             try {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-                model = parseObj(reader, name);
+                model = parseObj(reader, name, hiddenFaceCullEnabled());
             } finally {
                 is.close();
             }
@@ -93,7 +97,13 @@ public class Aero_ObjLoader {
     // OBJ Parser
     // -----------------------------------------------------------------------
 
-    private static Aero_MeshModel parseObj(BufferedReader reader, String name) throws Exception {
+    static Aero_MeshModel parseObjForTest(BufferedReader reader, String name,
+                                          boolean cullHiddenFaces) throws Exception {
+        return parseObj(reader, name, cullHiddenFaces);
+    }
+
+    private static Aero_MeshModel parseObj(BufferedReader reader, String name,
+                                           boolean cullHiddenFaces) throws Exception {
         List verts = new ArrayList();  // float[3]: x, y, z
         List uvs   = new ArrayList();  // float[2]: u, v  (V-flipped)
 
@@ -133,6 +143,14 @@ public class Aero_ObjLoader {
                 currentNamedGroup = (List[]) namedGroupLists.get(groupName);
             }
             // vn, s, usemtl, mtllib → ignored
+        }
+
+        if (cullHiddenFaces) {
+            cullHiddenFaces(staticGroups);
+            Iterator ngIt = namedGroupLists.values().iterator();
+            while (ngIt.hasNext()) {
+                cullHiddenFaces((List[]) ngIt.next());
+            }
         }
 
         boolean hasStatic = !allEmpty(staticGroups);
@@ -225,6 +243,171 @@ public class Aero_ObjLoader {
     private static boolean allEmpty(List[] groups) {
         for (int g = 0; g < groups.length; g++) if (!groups[g].isEmpty()) return false;
         return true;
+    }
+
+    private static boolean hiddenFaceCullEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("aero.obj.cullhidden"));
+    }
+
+    /**
+     * Removes exact coincident opposite-facing triangle pairs. This is an
+     * opt-in load-time pass for blocky OBJ exports where adjacent boxes keep
+     * both internal faces. It deliberately operates inside one logical OBJ
+     * group at a time so static geometry never deletes a moving named part.
+     */
+    private static void cullHiddenFaces(List[] groups) {
+        HashMap byFace = new HashMap();
+        for (int g = 0; g < groups.length; g++) {
+            List tris = groups[g];
+            for (int i = 0; i < tris.size(); i++) {
+                float[] tri = (float[]) tris.get(i);
+                FaceKey key = new FaceKey(tri);
+                ArrayList refs = (ArrayList) byFace.get(key);
+                if (refs == null) {
+                    refs = new ArrayList(2);
+                    byFace.put(key, refs);
+                }
+                refs.add(new TriRef(tri));
+            }
+        }
+
+        IdentityHashMap remove = new IdentityHashMap();
+        Iterator it = byFace.values().iterator();
+        while (it.hasNext()) {
+            ArrayList refs = (ArrayList) it.next();
+            if (refs.size() < 2) continue;
+            boolean[] consumed = new boolean[refs.size()];
+            for (int i = 0; i < refs.size(); i++) {
+                if (consumed[i]) continue;
+                TriRef a = (TriRef) refs.get(i);
+                for (int j = i + 1; j < refs.size(); j++) {
+                    if (consumed[j]) continue;
+                    TriRef b = (TriRef) refs.get(j);
+                    if (a.isOppositeFacing(b)) {
+                        consumed[i] = true;
+                        consumed[j] = true;
+                        remove.put(a.tri, Boolean.TRUE);
+                        remove.put(b.tri, Boolean.TRUE);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (remove.isEmpty()) return;
+        for (int g = 0; g < groups.length; g++) {
+            Iterator triIt = groups[g].iterator();
+            while (triIt.hasNext()) {
+                if (remove.containsKey(triIt.next())) triIt.remove();
+            }
+        }
+    }
+
+    private static final class TriRef {
+        final float[] tri;
+        final float nx;
+        final float ny;
+        final float nz;
+
+        TriRef(float[] tri) {
+            this.tri = tri;
+            float ax = tri[5] - tri[0];
+            float ay = tri[6] - tri[1];
+            float az = tri[7] - tri[2];
+            float bx = tri[10] - tri[0];
+            float by = tri[11] - tri[1];
+            float bz = tri[12] - tri[2];
+            float x = ay * bz - az * by;
+            float y = az * bx - ax * bz;
+            float z = ax * by - ay * bx;
+            float len = (float) Math.sqrt(x * x + y * y + z * z);
+            if (len > 1e-7f) {
+                x /= len;
+                y /= len;
+                z /= len;
+            }
+            this.nx = x;
+            this.ny = y;
+            this.nz = z;
+        }
+
+        boolean isOppositeFacing(TriRef other) {
+            return nx * other.nx + ny * other.ny + nz * other.nz < -0.98f;
+        }
+    }
+
+    private static final class FaceKey {
+        final long[] coords = new long[9];
+        final int hash;
+
+        FaceKey(float[] tri) {
+            for (int v = 0; v < 3; v++) {
+                int src = v * 5;
+                int dst = v * 3;
+                coords[dst] = quantize(tri[src]);
+                coords[dst + 1] = quantize(tri[src + 1]);
+                coords[dst + 2] = quantize(tri[src + 2]);
+            }
+            sortVertices(coords);
+            int h = 1;
+            for (int i = 0; i < coords.length; i++) {
+                long c = coords[i];
+                h = 31 * h + (int) (c ^ (c >>> 32));
+            }
+            this.hash = h;
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof FaceKey)) return false;
+            FaceKey other = (FaceKey) obj;
+            for (int i = 0; i < coords.length; i++) {
+                if (coords[i] != other.coords[i]) return false;
+            }
+            return true;
+        }
+
+        private static long quantize(float value) {
+            return Math.round(value * HIDDEN_FACE_GRID);
+        }
+
+        private static void sortVertices(long[] coords) {
+            for (int i = 0; i < 2; i++) {
+                for (int j = i + 1; j < 3; j++) {
+                    if (compareVertex(coords, j, i) < 0) {
+                        swapVertex(coords, i, j);
+                    }
+                }
+            }
+        }
+
+        private static int compareVertex(long[] coords, int a, int b) {
+            int ao = a * 3;
+            int bo = b * 3;
+            for (int i = 0; i < 3; i++) {
+                long av = coords[ao + i];
+                long bv = coords[bo + i];
+                if (av < bv) return -1;
+                if (av > bv) return 1;
+            }
+            return 0;
+        }
+
+        private static void swapVertex(long[] coords, int a, int b) {
+            int ao = a * 3;
+            int bo = b * 3;
+            for (int i = 0; i < 3; i++) {
+                long tmp = coords[ao + i];
+                coords[ao + i] = coords[bo + i];
+                coords[bo + i] = tmp;
+            }
+        }
     }
 
     private static String[] split(String s) { return s.trim().split("\\s+"); }

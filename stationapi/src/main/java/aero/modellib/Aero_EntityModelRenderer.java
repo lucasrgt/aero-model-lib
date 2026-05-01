@@ -29,7 +29,7 @@ public final class Aero_EntityModelRenderer {
         if (spec.isJson()) {
             render(spec.getJsonModel(), x, y, z, yaw, brightness, spec.getEntityTransform());
         } else {
-            render(spec.getMeshModel(), x, y, z, yaw, brightness,
+            render(spec.getMeshModelForRelative(x, y, z), x, y, z, yaw, brightness,
                 spec.getEntityTransform(), spec.getRenderOptions());
         }
     }
@@ -132,7 +132,7 @@ public final class Aero_EntityModelRenderer {
         if (spec.isJson()) {
             render(spec.getJsonModel(), x, y, z, yaw, brightness, spec.getEntityTransform());
         } else {
-            renderAtRest(spec.getMeshModel(), x, y, z, yaw, brightness,
+            renderAtRest(spec.getMeshModelForRelative(x, y, z), x, y, z, yaw, brightness,
                 spec.getEntityTransform(), options);
         }
     }
@@ -456,7 +456,7 @@ public final class Aero_EntityModelRenderer {
             renderJsonPreculled(spec.getJsonModel(), x, y, z, yaw, brightness,
                 spec.getEntityTransform());
         } else {
-            renderMeshAtRestPreculled(spec.getMeshModel(), x, y, z, yaw, brightness,
+            renderMeshAtRestPreculled(spec.getMeshModelForRelative(x, y, z), x, y, z, yaw, brightness,
                 spec.getEntityTransform(), options);
         }
     }

@@ -59,6 +59,8 @@ public class AeroMixinPlugin implements IMixinConfigPlugin {
             .getResource(PALETTED_CONTAINER_RESOURCE) != null;
         palettedContainerAvailable = found;
         boolean optedIn = "true".equalsIgnoreCase(System.getProperty("aero.palettedcache"));
+        boolean scopedOptedIn =
+            "true".equalsIgnoreCase(System.getProperty("aero.palettedcache.chunkScope"));
         if (!found) {
             LOGGER.warning("[aero-model-lib] StationAPI PalettedContainer NOT FOUND"
                 + " (" + PALETTED_CONTAINER_CLASS + ")"
@@ -72,11 +74,18 @@ public class AeroMixinPlugin implements IMixinConfigPlugin {
                 + " — paletted-cache mixin OPTED IN (-Daero.palettedcache=true)."
                 + " Note: bench measurements show this is a net regression in steady"
                 + " state (~20% FPS loss). Useful only for world-entry trava A/B testing.");
+        } else if (scopedOptedIn) {
+            LOGGER.info("[aero-model-lib] StationAPI PalettedContainer detected"
+                + " — paletted-cache mixin CHUNK-SCOPED"
+                + " (-Daero.palettedcache.chunkScope=true). Cache activates only"
+                + " during ChunkBuilder.rebuild().");
         } else {
             LOGGER.info("[aero-model-lib] StationAPI PalettedContainer detected"
                 + " — paletted-cache mixin DEFAULT-OFF in v3.0 (net regression in"
-                + " steady-state benchmark). Opt in with -Daero.palettedcache=true"
-                + " for world-entry experimentation.");
+                + " steady-state benchmark). Opt in with"
+                + " -Daero.palettedcache.chunkScope=true for chunk-rebuild"
+                + " experimentation, or -Daero.palettedcache=true for the old"
+                + " global A/B mode.");
         }
     }
 

@@ -19,6 +19,8 @@ public final class Aero_ModelSpec {
     private final String texturePath;
     private final Aero_JsonModel jsonModel;
     private final Aero_MeshModel meshModel;
+    private final Aero_MeshModel[] meshLodModels;
+    private final double[] meshLodDistanceSq;
     private final Aero_AnimationSpec animationSpec;
     private final Aero_EntityModelTransform entityTransform;
     private final Aero_RenderOptions renderOptions;
@@ -46,6 +48,8 @@ public final class Aero_ModelSpec {
         this.texturePath = builder.texturePath;
         this.jsonModel = builder.resolveJsonModel();
         this.meshModel = builder.resolveMeshModel();
+        this.meshLodModels = builder.resolveMeshLodModels();
+        this.meshLodDistanceSq = builder.resolveMeshLodDistanceSq();
         this.animationSpec = builder.animationSpec;
         this.entityTransform = builder.transformBuilder.build();
         this.renderOptions = builder.renderOptions;
@@ -88,6 +92,28 @@ public final class Aero_ModelSpec {
     public Aero_MeshModel getMeshModel() {
         if (meshModel == null) throw new IllegalStateException("spec is not a mesh model");
         return meshModel;
+    }
+
+    public Aero_MeshModel getMeshModelForDistanceSq(double distanceSq) {
+        Aero_MeshModel selected = getMeshModel();
+        if (meshLodModels == null || meshLodModels.length == 0) return selected;
+        double selectedDistanceSq = -1.0d;
+        for (int i = 0; i < meshLodModels.length; i++) {
+            if (distanceSq >= meshLodDistanceSq[i]
+                && meshLodDistanceSq[i] >= selectedDistanceSq) {
+                selected = meshLodModels[i];
+                selectedDistanceSq = meshLodDistanceSq[i];
+            }
+        }
+        return selected;
+    }
+
+    public Aero_MeshModel getMeshModelForRelative(double x, double y, double z) {
+        return getMeshModelForDistanceSq(x * x + y * y + z * z);
+    }
+
+    public boolean hasMeshLods() {
+        return meshLodModels != null && meshLodModels.length > 0;
     }
 
     public Aero_AnimationSpec getAnimationSpec() {
@@ -160,6 +186,9 @@ public final class Aero_ModelSpec {
         private final String modelPath;
         private final Aero_JsonModel jsonModel;
         private final Aero_MeshModel meshModel;
+        private java.util.ArrayList meshLodPaths;
+        private java.util.ArrayList meshLodModels;
+        private java.util.ArrayList meshLodDistances;
         private String texturePath;
         private Aero_AnimationSpec animationSpec;
         private Aero_AnimationSpec.Builder animationBuilder;
@@ -276,6 +305,28 @@ public final class Aero_ModelSpec {
             return this;
         }
 
+        public Builder meshLod(String modelPath, double fromDistanceBlocks) {
+            if (kind != Kind.MESH) throw new IllegalStateException("meshLod() requires a mesh spec");
+            if (modelPath == null) throw new IllegalArgumentException("modelPath must not be null");
+            requireNonNegativeFinite("fromDistanceBlocks", fromDistanceBlocks);
+            ensureMeshLodLists();
+            meshLodPaths.add(modelPath);
+            meshLodModels.add(null);
+            meshLodDistances.add(Double.valueOf(fromDistanceBlocks));
+            return this;
+        }
+
+        public Builder meshLod(Aero_MeshModel model, double fromDistanceBlocks) {
+            if (kind != Kind.MESH) throw new IllegalStateException("meshLod() requires a mesh spec");
+            if (model == null) throw new IllegalArgumentException("model must not be null");
+            requireNonNegativeFinite("fromDistanceBlocks", fromDistanceBlocks);
+            ensureMeshLodLists();
+            meshLodPaths.add(null);
+            meshLodModels.add(model);
+            meshLodDistances.add(Double.valueOf(fromDistanceBlocks));
+            return this;
+        }
+
         public Builder renderOptions(Aero_RenderOptions renderOptions) {
             if (renderOptions == null) {
                 throw new IllegalArgumentException("renderOptions must not be null");
@@ -304,6 +355,40 @@ public final class Aero_ModelSpec {
         private Aero_MeshModel resolveMeshModel() {
             if (kind != Kind.MESH) return null;
             return meshModel != null ? meshModel : Aero_ObjLoader.load(modelPath);
+        }
+
+        private Aero_MeshModel[] resolveMeshLodModels() {
+            if (kind != Kind.MESH || meshLodDistances == null || meshLodDistances.isEmpty()) {
+                return null;
+            }
+            int n = meshLodDistances.size();
+            Aero_MeshModel[] out = new Aero_MeshModel[n];
+            for (int i = 0; i < n; i++) {
+                Aero_MeshModel model = (Aero_MeshModel) meshLodModels.get(i);
+                String path = (String) meshLodPaths.get(i);
+                out[i] = model != null ? model : Aero_ObjLoader.load(path);
+            }
+            return out;
+        }
+
+        private double[] resolveMeshLodDistanceSq() {
+            if (kind != Kind.MESH || meshLodDistances == null || meshLodDistances.isEmpty()) {
+                return null;
+            }
+            int n = meshLodDistances.size();
+            double[] out = new double[n];
+            for (int i = 0; i < n; i++) {
+                double d = ((Double) meshLodDistances.get(i)).doubleValue();
+                out[i] = d * d;
+            }
+            return out;
+        }
+
+        private void ensureMeshLodLists() {
+            if (meshLodDistances != null) return;
+            meshLodPaths = new java.util.ArrayList();
+            meshLodModels = new java.util.ArrayList();
+            meshLodDistances = new java.util.ArrayList();
         }
 
         private static void requireNonNegativeFinite(String name, double value) {
