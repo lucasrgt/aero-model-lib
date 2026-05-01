@@ -264,12 +264,13 @@ para grupos pequenos, blend/translucência, camera cache ausente ou falha em
 - `-Daero.becell.pages=false`
 - `-Daero.becell.minInstances=N` (default `2`)
 - `-Daero.becell.pageTtlFrames=N` (default `600`)
+- `-Daero.becell.rebuildsPerFrame=N` (default `8`, `-1` = ilimitado)
 
 **Falta:** migrar todos os BERs consumidores para o `queueAtRest` /
-`Aero_CellPageRenderableBE` e adicionar rebuild amortizado real.
+`Aero_CellPageRenderableBE`.
 **Critério de pronto:**
 - [x] Page cache do `Aero_BECellRenderer` com buckets por texture/options/light/orientation
-- [ ] Rebuild amortizado `-Daero.becell.rebuildsPerFrame=N`
+- [x] Rebuild amortizado `-Daero.becell.rebuildsPerFrame=N`
 - [x] Fallback quando `glGenLists` falha
 - [x] Dispose em unload/reload
 

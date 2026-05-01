@@ -42,7 +42,8 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
   existing at-rest display lists under local transforms, with direct-render
   fallback for small groups, translucent options, missing camera cache, or GL
   list failure. Toggle with `-Daero.becell.pages=false`; tune with
-  `-Daero.becell.minInstances=N` and `-Daero.becell.pageTtlFrames=N`.
+  `-Daero.becell.minInstances=N`, `-Daero.becell.pageTtlFrames=N`, and
+  `-Daero.becell.rebuildsPerFrame=N` (`8` default, `-1` unlimited).
 
 - **Managed BE Cell Pages before individual renderer dispatch.** StationAPI
   BEs can implement `Aero_CellPageRenderableBE` to expose model, texture,
