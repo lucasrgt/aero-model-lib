@@ -56,6 +56,8 @@ agora deve ser descobrir, com benchmark/JFR, qual destes custos sobrou no topo:
 4. Chunk meshing / `PalettedContainer.get` em entrada de mundo ou chunk novo,
    agora com modo chunk-scoped para A/B.
 5. Falta de LODs reais nos assets dos consumidores.
+6. Se CPU/driver continuarem no topo, avaliar um modo high-memory que troca
+   RAM/driver memory por menos emissão Java/Tessellator e menos rebuild.
 
 ---
 
@@ -381,6 +383,46 @@ elegível voltam ao Tessellator.
 
 ---
 
+## Grupo E - High-Memory Performance Mode
+
+### E1. Preset agressivo de cache RAM/driver - **ABERTO P1**
+
+**Ideia:** como Beta 1.7.3 tem baseline de memória baixo, aceitar mais
+heap/driver memory pode ser uma troca boa se isso reduzir CPU, Tessellator,
+JNI e recompilações de display list. Este modo não deve duplicar dados por
+duplicar; só vale quando a RAM evita trabalho repetido.
+
+**Checklist conservadora:**
+- Aumentar TTL de cell pages para cenas com muitos BEs estáticos ou em LOD
+  at-rest.
+- Preaquecer bone pages/model at-rest lists/cell pages em momentos controlados
+  para evitar hitch no primeiro olhar.
+- Manter LUT de animação ligado para curvas usadas em massa.
+- Usar LODs reais em assets grandes, aceitando mais modelos carregados em RAM
+  para cortar triângulo distante.
+- Medir e limitar quantidade de display lists vivas por modelo/célula.
+- Expor métricas de memória aproximada: listas compiladas, páginas vivas,
+  páginas expiradas, falhas de `glGenLists`, rebuilds evitados.
+
+**Flags candidatas para um preset futuro:**
+- `-Daero.perf.memory=high`
+- `-Daero.prewarm=true`
+- `-Daero.prewarm.perFrame=N`
+- `-Daero.becell.pageTtlFrames=1800`
+- `-Daero.becell.rebuildsPerFrame=16`
+- `-Daero.bonepages=true`
+- `-Daero.anim.lut=true`
+
+**Risco:** display lists demais podem pressionar driver/VRAM em máquinas
+fracas. Precisa de limites, fallback automático e profiler antes de virar
+default.
+
+**Critério de sucesso:** benchmark com fábrica densa mostrando queda de
+`aero.mesh.renderAnimated`, `aero.becell.direct`, rebuilds de cell page e tempo
+em Tessellator, sem aumento perceptível de hitch ou erro de `glGenLists`.
+
+---
+
 ## Próxima Onda Recomendada
 
 Antes de implementar técnica nova, medir:
@@ -404,7 +446,9 @@ Próximas implementações prováveis, em ordem conservadora:
    redução de triângulos sem diff visual.
 4. Rodar A/B de `-Daero.palettedcache.chunkScope=true` em entrada de mundo e
    chunk streaming.
-5. A6 - dispatcher/cell iteration mais invasivo, se a iteração vanilla por BE
+5. Avaliar E1 high-memory mode se o topo do JFR for CPU/driver repetitivo e a
+   máquina tiver margem de RAM/VRAM.
+6. A6 - dispatcher/cell iteration mais invasivo, se a iteração vanilla por BE
    continuar cara mesmo depois do skip individual.
 
 ## Bloqueados
