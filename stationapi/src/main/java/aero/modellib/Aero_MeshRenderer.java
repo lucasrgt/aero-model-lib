@@ -30,6 +30,12 @@ public class Aero_MeshRenderer {
         !"false".equalsIgnoreCase(System.getProperty("aero.bonepages"));
     private static final int BONE_PAGES_MIN_TRIS =
         Math.max(0, Integer.getInteger("aero.bonepages.minTris", 24).intValue());
+    private static final boolean SKELETAL_LOD_ENABLED =
+        "true".equalsIgnoreCase(System.getProperty("aero.skeletalLod"));
+    private static final double SKELETAL_LOD_DISTANCE =
+        doubleProperty("aero.skeletalLod.distance", 48.0d, 0.0d, 4096.0d);
+    private static final int SKELETAL_LOD_DEPTH =
+        Math.max(0, Integer.getInteger("aero.skeletalLod.depth", 1).intValue());
 
     // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
     private static float[] LIGHT_CACHE = new float[64];
@@ -275,7 +281,8 @@ public class Aero_MeshRenderer {
                                                        double x, double y, double z,
                                                        float brightness,
                                                        Aero_RenderOptions options,
-                                                       Aero_MorphState morphState) {
+                                                       Aero_MorphState morphState,
+                                                       int poseDepthLimit) {
         if (!BONE_PAGES_ENABLED) return false;
         if (morphState != null && model.hasMorphTargets() && !morphState.isEmpty()) return false;
 
@@ -295,7 +302,7 @@ public class Aero_MeshRenderer {
                         GL11.glPushMatrix();
                         try {
                             Aero_BoneRenderPose deepest = (pool != null && refs != null)
-                                ? applyPoseChain(refs[e], pool)
+                                ? applyPoseChain(refs[e], pool, poseDepthLimit)
                                 : null;
                             int[] groupPages = pages.bonePages != null && e < pages.bonePages.length
                                 ? pages.bonePages[e]
@@ -872,8 +879,10 @@ public class Aero_MeshRenderer {
                 }
             }
 
+            int poseDepthLimit = skeletalPoseDepthLimit(x, y, z,
+                proceduralPose, ikChains, morphState);
             if (renderAnimatedViaBonePages(model, entries, refs, pool, x, y, z,
-                    brightness, options, morphState)) {
+                    brightness, options, morphState, poseDepthLimit)) {
                 return;
             }
 
@@ -897,7 +906,7 @@ public class Aero_MeshRenderer {
                         try {
                             // Pass 2: walk root → leaf, applying ancestors.
                             Aero_BoneRenderPose deepest = pool != null
-                                ? applyPoseChain(rf, pool)
+                                ? applyPoseChain(rf, pool, poseDepthLimit)
                                 : null;
                             float uOff   = deepest != null ? deepest.uOffset : 0f;
                             float vOff   = deepest != null ? deepest.vOffset : 0f;
@@ -1571,7 +1580,15 @@ public class Aero_MeshRenderer {
      */
     private static Aero_BoneRenderPose applyPoseChain(Aero_MeshModel.BoneRef rf,
                                                        Aero_BoneRenderPose[] pool) {
+        return applyPoseChain(rf, pool, -1);
+    }
+
+    private static Aero_BoneRenderPose applyPoseChain(Aero_MeshModel.BoneRef rf,
+                                                       Aero_BoneRenderPose[] pool,
+                                                       int maxDepth) {
         int len = rf.ancestorBoneIdx.length;
+        if (len == 0) return null;
+        if (maxDepth >= 0 && len > maxDepth) len = maxDepth;
         if (len == 0) return null;
         Aero_BoneRenderPose deepest = null;
         for (int c = 0; c < len; c++) {
@@ -1580,6 +1597,20 @@ public class Aero_MeshRenderer {
             deepest = pose;
         }
         return deepest;
+    }
+
+    private static int skeletalPoseDepthLimit(double x, double y, double z,
+                                              Aero_ProceduralPose proceduralPose,
+                                              Aero_IkChain[] ikChains,
+                                              Aero_MorphState morphState) {
+        if (!SKELETAL_LOD_ENABLED) return -1;
+        if (proceduralPose != null) return -1;
+        if (ikChains != null && ikChains.length > 0) return -1;
+        if (morphState != null && !morphState.isEmpty()) return -1;
+        double distSq = x * x + y * y + z * z;
+        return distSq >= SKELETAL_LOD_DISTANCE * SKELETAL_LOD_DISTANCE
+            ? SKELETAL_LOD_DEPTH
+            : -1;
     }
 
     private static Aero_BoneRenderPose[] newPosePool(int size) {
@@ -1821,6 +1852,17 @@ public class Aero_MeshRenderer {
 
     static void beginMeshState() {
         beginMeshState(Aero_RenderOptions.DEFAULT);
+    }
+
+    private static double doubleProperty(String name, double fallback, double min, double max) {
+        String raw = System.getProperty(name);
+        if (raw == null) return fallback;
+        try {
+            double parsed = Double.parseDouble(raw.trim());
+            return parsed >= min && parsed <= max ? parsed : fallback;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     static void beginMeshState(Aero_RenderOptions options) {

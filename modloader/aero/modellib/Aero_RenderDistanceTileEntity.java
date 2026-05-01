@@ -43,6 +43,15 @@ public class Aero_RenderDistanceTileEntity extends TileEntity {
      * @return true if the entity should advance its animation this tick
      */
     public boolean shouldTickAnimation() {
+        return shouldTickAnimation(0.0d);
+    }
+
+    /**
+     * Distance-tiered animation tick decision with motion simplification.
+     * Pass horizontal/visual speed in blocks per tick for fast-moving
+     * contraptions whose exact pose is harder to perceive while moving.
+     */
+    public boolean shouldTickAnimation(double velocityBlocksPerTick) {
         if (this.worldObj == null) return false;
         double cx = this.xCoord + 0.5;
         double cy = this.yCoord + 0.5;
@@ -58,7 +67,8 @@ public class Aero_RenderDistanceTileEntity extends TileEntity {
             double dx = p.posX - cx;
             double dy = p.posY - cy;
             double dz = p.posZ - cz;
-            stride = Aero_AnimationTickLOD.tickStride(dx*dx + dy*dy + dz*dz);
+            stride = Aero_AnimationTickLOD.tickStrideWithMotion(
+                dx*dx + dy*dy + dz*dz, velocityBlocksPerTick);
         }
         boolean tick = Aero_AnimationTickLOD.shouldTick(stride, aeroTickAge);
         aeroTickAge++;

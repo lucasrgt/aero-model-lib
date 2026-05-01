@@ -55,6 +55,16 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
   `-Daero.becell.skipIndividual=false`. Cell page timings now appear in
   `Aero_Profiler` as `aero.becell.flush`, `compile`, `call`, and `direct`.
 
+- **PERF roadmap implementation pass.** Animated batches now sort by a
+  composite render-state key instead of texture alone; OBJ load can opt into
+  conservative hidden-face removal with `-Daero.obj.cullhidden=true`; animated
+  mesh renderers can opt into skeletal-chain depth LOD with
+  `-Daero.skeletalLod=true`; animation tick LOD has a motion-aware stride
+  helper plus `shouldTickAnimation(velocityBlocksPerTick)` overloads; mesh
+  specs can declare static/at-rest model LODs via `meshLod(...)`; and the
+  StationAPI PalettedContainer cache gained a safer chunk-rebuild scoped mode
+  via `-Daero.palettedcache.chunkScope=true`.
+
 - **Smart LOD Y-bias is enabled by default.** `Aero_RenderDistanceCulling`
   now computes LOD and `shouldRenderRelative(...)` distance with vertical
   distance weighted by `-Daero.ybias=N` (default `2.0`). Set

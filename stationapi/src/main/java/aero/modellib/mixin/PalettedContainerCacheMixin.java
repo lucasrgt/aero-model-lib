@@ -1,5 +1,6 @@
 package aero.modellib.mixin;
 
+import aero.modellib.Aero_PalettedContainerCacheScope;
 import net.modificationstation.stationapi.impl.world.chunk.PalettedContainer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -66,14 +67,17 @@ public abstract class PalettedContainerCacheMixin<T> {
      * cost is too high to justify a default-on optimization. Opt in with
      * {@code -Daero.palettedcache=true} to A/B test on your scene.
      *
-     * <p>Future direction: cache at the CALLER level (chunk-meshing
-     * entry point) instead of the {@code get(int)} call site, so the
-     * overhead is paid once per chunk-build instead of once per face-cull
-     * lookup. Tracked as v3.x candidate.
+     * <p>v3.x also exposes a scoped mode:
+     * {@code -Daero.palettedcache.chunkScope=true}. That mode keeps the cache
+     * inactive except while {@code ChunkBuilder.rebuild()} is running, reducing
+     * steady-state risk while still targeting chunk-mesh bursts.
      */
     @Unique
-    private static final boolean AERO_CACHE_ENABLED =
+    private static final boolean AERO_GLOBAL_CACHE_ENABLED =
         "true".equalsIgnoreCase(System.getProperty("aero.palettedcache"));
+    @Unique
+    private static final boolean AERO_SCOPED_CACHE_ENABLED =
+        "true".equalsIgnoreCase(System.getProperty("aero.palettedcache.chunkScope"));
 
     @Unique private int aero$idx0 = -1, aero$idx1 = -1, aero$idx2 = -1, aero$idx3 = -1;
     @Unique private Object aero$val0, aero$val1, aero$val2, aero$val3;
@@ -82,7 +86,7 @@ public abstract class PalettedContainerCacheMixin<T> {
 
     @Inject(method = "get(I)Ljava/lang/Object;", at = @At("HEAD"), cancellable = true, require = 0, expect = 0)
     private void aero_modellib_cachedGet(int index, CallbackInfoReturnable<T> cir) {
-        if (!AERO_CACHE_ENABLED) return;
+        if (!aero_modellib_isCacheActive()) return;
         PalettedContainer.Data<T> currentData = this.data;
         if (currentData != aero$cachedData) {
             // Storage swap — palette resized, repacked, or replaced. Flush.
@@ -99,7 +103,7 @@ public abstract class PalettedContainerCacheMixin<T> {
 
     @Inject(method = "get(I)Ljava/lang/Object;", at = @At("RETURN"), require = 0, expect = 0)
     private void aero_modellib_storeMiss(int index, CallbackInfoReturnable<T> cir) {
-        if (!AERO_CACHE_ENABLED) return;
+        if (!aero_modellib_isCacheActive()) return;
         // Only fires on cache miss — HEAD inject's setReturnValue cancels
         // the original method body, so RETURN won't fire on hit.
         T value = cir.getReturnValue();
@@ -110,5 +114,11 @@ public abstract class PalettedContainerCacheMixin<T> {
             case 3: aero$idx3 = index; aero$val3 = value; break;
         }
         aero$evictPtr++;
+    }
+
+    @Unique
+    private static boolean aero_modellib_isCacheActive() {
+        return AERO_GLOBAL_CACHE_ENABLED
+            || (AERO_SCOPED_CACHE_ENABLED && Aero_PalettedContainerCacheScope.isActive());
     }
 }

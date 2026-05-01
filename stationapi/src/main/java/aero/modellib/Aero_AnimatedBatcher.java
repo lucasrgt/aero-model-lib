@@ -7,7 +7,6 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.IdentityHashMap;
 
 /**
  * Per-frame collector for animated BlockEntity renders. Coalesces multiple
@@ -32,8 +31,8 @@ import java.util.IdentityHashMap;
  * <p>BERs replace {@code Aero_MeshRenderer.renderAnimated(...)} with
  * {@link #queueAnimated(Aero_MeshModel, Aero_AnimationBundle, Aero_AnimationDefinition,
  * Aero_AnimationPlayback, double, double, double, float, float, Aero_RenderOptions)}.
- * The collector keys batches by model identity (IdentityHashMap). At
- * flush time, {@link Aero_MeshRenderer#renderAnimatedBatch} drains the
+ * The collector keys batches by model identity plus texture/render options.
+ * At flush time, {@link Aero_MeshRenderer#renderAnimatedBatch} drains the
  * batch in one Tessellator session per bone with per-vertex CPU matrix
  * transforms.
  *
@@ -63,41 +62,33 @@ public final class Aero_AnimatedBatcher {
         !"false".equalsIgnoreCase(System.getProperty("aero.animatedbatch"));
 
     /**
-     * When true, {@link #flush()} sorts {@link #ACTIVE_BATCHES} by
-     * {@link Batch#texturePath} so batches sharing a texture drain back
-     * to back. Combined with the {@link #lastBoundPath} dedup in
-     * {@link #bindBatchTexture(Batch)}, this elides redundant
-     * {@code glBindTexture} calls between models that all reference the
-     * same atlas (the common case for tech-mod terrain-style textures).
-     * Toggle: {@code -Daero.batcher.sort=false}.
+     * When true, {@link #flush()} sorts {@link #ACTIVE_BATCHES} by a
+     * composite render-state key so batches sharing texture/options drain
+     * back to back. Combined with the {@link #lastBoundPath} dedup in
+     * {@link #bindBatchTexture(Batch)}, this elides redundant texture binds
+     * and reduces GL state churn between models.
+     *
+     * <p>Toggle: {@code -Daero.batcher.sort=false}.
      */
     public static final boolean SORT_ENABLED =
         !"false".equalsIgnoreCase(System.getProperty("aero.batcher.sort"));
 
     /**
-     * Per-frame batch storage. Keyed by model identity so different
-     * blocks sharing a model coalesce, and the same model across
-     * different downstream mods stays apart.
+     * Per-frame batch storage. Keyed by model identity plus texture/render
+     * options, so different visual states never share the same tess cycle.
      */
-    private static final IdentityHashMap<Aero_MeshModel, Batch> BATCHES = new IdentityHashMap<>();
+    private static final HashMap<BatchKey, Batch> BATCHES = new HashMap<BatchKey, Batch>();
     private static final ArrayList<Batch> ACTIVE_BATCHES = new ArrayList<Batch>();
 
     /**
-     * Comparator that orders batches by texture path, with nulls first
-     * (no-bind path runs before any path-bound batch). Nulls-first keeps
-     * the comparator total-ordered without throwing on the rare BER that
-     * doesn't set a texture path.
+     * Comparator that orders by texture, options, then model identity.
+     * Texture first maximizes bind dedup; option bits then group state changes.
      */
-    private static final Comparator<Batch> BY_TEXTURE_PATH =
+    private static final Comparator<Batch> BY_RENDER_STATE =
         new Comparator<Batch>() {
             @Override
             public int compare(Batch a, Batch b) {
-                String pa = a.texturePath;
-                String pb = b.texturePath;
-                if (pa == pb) return 0;            // identity (interned)
-                if (pa == null) return -1;
-                if (pb == null) return 1;
-                return pa.compareTo(pb);
+                return a.key.compareTo(b.key);
             }
         };
 
@@ -150,13 +141,15 @@ public final class Aero_AnimatedBatcher {
                 x, y, z, brightness, partialTick, options);
             return;
         }
-        Batch batch = BATCHES.get(model);
+        Aero_RenderOptions opts = options != null ? options : Aero_RenderOptions.DEFAULT;
+        BatchKey key = new BatchKey(model, texturePath, opts);
+        Batch batch = BATCHES.get(key);
         if (batch == null) {
-            batch = new Batch(model, texturePath);
-            BATCHES.put(model, batch);
+            batch = new Batch(key);
+            BATCHES.put(key, batch);
         }
         if (batch.count == 0) ACTIVE_BATCHES.add(batch);
-        batch.add(bundle, def, state, x, y, z, brightness, partialTick, options);
+        batch.add(bundle, def, state, x, y, z, brightness, partialTick, opts);
     }
 
     /**
@@ -219,12 +212,11 @@ public final class Aero_AnimatedBatcher {
         // routinely changes glBindTexture, so the bound-id we cached last
         // frame is stale. First bind of this flush must always fire.
         lastBoundPath = null;
-        // Sort by texture path so batches sharing a texture drain
-        // adjacently, letting bindBatchTexture's lastBoundPath dedup
-        // skip redundant glBindTexture calls. Skipped when only one
-        // batch is queued (sort cost > savings) or the toggle is off.
+        // Sort by composite state so compatible batches drain adjacently.
+        // Skipped when only one batch is queued (sort cost > savings) or the
+        // toggle is off.
         if (SORT_ENABLED && ACTIVE_BATCHES.size() > 1) {
-            ACTIVE_BATCHES.sort(BY_TEXTURE_PATH);
+            ACTIVE_BATCHES.sort(BY_RENDER_STATE);
         }
         for (int i = 0; i < ACTIVE_BATCHES.size(); i++) {
             Batch b = ACTIVE_BATCHES.get(i);
@@ -252,6 +244,7 @@ public final class Aero_AnimatedBatcher {
         // ~30KB per unique-model batch) and only paid for batches that
         // actually fire.
         private static final int INITIAL_CAPACITY = 256;
+        final BatchKey key;
         final Aero_MeshModel model;
         final String texturePath;
         Aero_AnimationBundle[] bundles = new Aero_AnimationBundle[INITIAL_CAPACITY];
@@ -265,9 +258,10 @@ public final class Aero_AnimatedBatcher {
         Aero_RenderOptions[] options = new Aero_RenderOptions[INITIAL_CAPACITY];
         int count = 0;
 
-        Batch(Aero_MeshModel model, String texturePath) {
-            this.model = model;
-            this.texturePath = texturePath;
+        Batch(BatchKey key) {
+            this.key = key;
+            this.model = key.model;
+            this.texturePath = key.texturePath;
         }
 
         void add(Aero_AnimationBundle bundle, Aero_AnimationDefinition def,
@@ -309,6 +303,105 @@ public final class Aero_AnimatedBatcher {
             brightnesses = Arrays.copyOf(brightnesses, n);
             partialTicks = Arrays.copyOf(partialTicks, n);
             options = Arrays.copyOf(options, n);
+        }
+    }
+
+    private static final class BatchKey implements Comparable<BatchKey> {
+        final Aero_MeshModel model;
+        final String texturePath;
+        final int textureHash;
+        final int tintRBits;
+        final int tintGBits;
+        final int tintBBits;
+        final int alphaBits;
+        final int alphaClipBits;
+        final Aero_MeshBlendMode blend;
+        final boolean depthTest;
+        final boolean cullFaces;
+        final int hash;
+
+        BatchKey(Aero_MeshModel model, String texturePath, Aero_RenderOptions options) {
+            this.model = model;
+            this.texturePath = texturePath;
+            this.textureHash = texturePath != null ? texturePath.hashCode() : 0;
+            this.tintRBits = Float.floatToIntBits(options.tintR);
+            this.tintGBits = Float.floatToIntBits(options.tintG);
+            this.tintBBits = Float.floatToIntBits(options.tintB);
+            this.alphaBits = Float.floatToIntBits(options.alpha);
+            this.alphaClipBits = Float.floatToIntBits(options.alphaClip);
+            this.blend = options.blend;
+            this.depthTest = options.depthTest;
+            this.cullFaces = options.cullFaces;
+
+            int result = System.identityHashCode(model);
+            result = 31 * result + textureHash;
+            result = 31 * result + tintRBits;
+            result = 31 * result + tintGBits;
+            result = 31 * result + tintBBits;
+            result = 31 * result + alphaBits;
+            result = 31 * result + alphaClipBits;
+            result = 31 * result + blend.hashCode();
+            result = 31 * result + (depthTest ? 1 : 0);
+            result = 31 * result + (cullFaces ? 1 : 0);
+            this.hash = result;
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof BatchKey)) return false;
+            BatchKey other = (BatchKey) obj;
+            if (model != other.model) return false;
+            if (tintRBits != other.tintRBits || tintGBits != other.tintGBits
+                || tintBBits != other.tintBBits || alphaBits != other.alphaBits
+                || alphaClipBits != other.alphaClipBits) return false;
+            if (blend != other.blend || depthTest != other.depthTest
+                || cullFaces != other.cullFaces) return false;
+            if (texturePath == other.texturePath) return true;
+            return texturePath != null && texturePath.equals(other.texturePath);
+        }
+
+        @Override
+        public int compareTo(BatchKey other) {
+            int c = compareTexture(texturePath, other.texturePath);
+            if (c != 0) return c;
+            c = blend.ordinal() - other.blend.ordinal();
+            if (c != 0) return c;
+            c = boolCompare(depthTest, other.depthTest);
+            if (c != 0) return c;
+            c = boolCompare(cullFaces, other.cullFaces);
+            if (c != 0) return c;
+            c = intCompare(alphaClipBits, other.alphaClipBits);
+            if (c != 0) return c;
+            c = intCompare(alphaBits, other.alphaBits);
+            if (c != 0) return c;
+            c = intCompare(tintRBits, other.tintRBits);
+            if (c != 0) return c;
+            c = intCompare(tintGBits, other.tintGBits);
+            if (c != 0) return c;
+            c = intCompare(tintBBits, other.tintBBits);
+            if (c != 0) return c;
+            return intCompare(System.identityHashCode(model), System.identityHashCode(other.model));
+        }
+
+        private static int compareTexture(String a, String b) {
+            if (a == b) return 0;
+            if (a == null) return -1;
+            if (b == null) return 1;
+            return a.compareTo(b);
+        }
+
+        private static int boolCompare(boolean a, boolean b) {
+            return a == b ? 0 : (a ? 1 : -1);
+        }
+
+        private static int intCompare(int a, int b) {
+            return a < b ? -1 : (a == b ? 0 : 1);
         }
     }
 }

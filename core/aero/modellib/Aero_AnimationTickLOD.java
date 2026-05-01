@@ -42,6 +42,7 @@ public final class Aero_AnimationTickLOD {
     public static final double DEFAULT_CLOSE_RADIUS  = 64.0d;
     public static final double DEFAULT_MEDIUM_RADIUS = 128.0d;
     public static final double DEFAULT_FAR_RADIUS    = 256.0d;
+    public static final double DEFAULT_FAST_SPEED_BLOCKS_PER_SECOND = 8.0d;
 
     /**
      * Recommended {@code animatedDistance} for the player's current view
@@ -103,6 +104,36 @@ public final class Aero_AnimationTickLOD {
         if (squaredDistance < mediumR * mediumR) return 2;
         if (squaredDistance < farR    * farR)    return 4;
         return 0;
+    }
+
+    /**
+     * Distance stride plus motion-based simplification. Useful for moving
+     * entities whose exact pose is harder to perceive while travelling fast.
+     *
+     * @param squaredDistance distance to viewer in block units squared
+     * @param velocityBlocksPerTick motion length in block/tick
+     * @return regular distance stride, doubled when speed exceeds the default
+     *         fast-motion threshold; 0 still means skip
+     */
+    public static int tickStrideWithMotion(double squaredDistance,
+                                           double velocityBlocksPerTick) {
+        return adjustStrideForMotion(tickStride(squaredDistance), velocityBlocksPerTick,
+            DEFAULT_FAST_SPEED_BLOCKS_PER_SECOND);
+    }
+
+    /**
+     * Applies a fast-motion multiplier to an already computed stride.
+     * Minecraft ticks at 20 Hz, so {@code fastSpeedBlocksPerSecond=8}
+     * corresponds to {@code 0.4} blocks/tick.
+     */
+    public static int adjustStrideForMotion(int stride, double velocityBlocksPerTick,
+                                            double fastSpeedBlocksPerSecond) {
+        if (stride <= 0) return 0;
+        if (fastSpeedBlocksPerSecond <= 0.0d) return stride;
+        double thresholdPerTick = fastSpeedBlocksPerSecond / 20.0d;
+        if (Math.abs(velocityBlocksPerTick) < thresholdPerTick) return stride;
+        int adjusted = stride << 1;
+        return adjusted > 8 ? 8 : adjusted;
     }
 
     /**

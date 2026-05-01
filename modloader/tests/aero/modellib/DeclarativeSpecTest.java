@@ -70,6 +70,25 @@ public class DeclarativeSpecTest {
     }
 
     @Test
+    public void meshSpecSelectsExplicitMeshLodByDistance() {
+        Aero_MeshModel base = meshNamed("base");
+        Aero_MeshModel mid = meshNamed("mid");
+        Aero_MeshModel far = meshNamed("far");
+
+        Aero_ModelSpec spec = Aero_ModelSpec.mesh(base)
+            .meshLod(far, 32d)
+            .meshLod(mid, 16d)
+            .build();
+
+        assertTrue(spec.hasMeshLods());
+        assertSame(base, spec.getMeshModelForDistanceSq(15d * 15d));
+        assertSame(mid, spec.getMeshModelForDistanceSq(16d * 16d));
+        assertSame(mid, spec.getMeshModelForDistanceSq(31d * 31d));
+        assertSame(far, spec.getMeshModelForDistanceSq(32d * 32d));
+        assertSame(far, spec.getMeshModelForRelative(40d, 0d, 0d));
+    }
+
+    @Test
     public void jsonSpecIsStaticAndCanKeepTexturePath() {
         Aero_JsonModel model = json();
         Aero_ModelSpec spec = Aero_ModelSpec.json(model)
@@ -237,7 +256,11 @@ public class DeclarativeSpecTest {
     }
 
     private static Aero_MeshModel mesh() {
-        return new Aero_MeshModel("mesh", emptyGroups(), 16f, new HashMap());
+        return meshNamed("mesh");
+    }
+
+    private static Aero_MeshModel meshNamed(String name) {
+        return new Aero_MeshModel(name, emptyGroups(), 16f, new HashMap());
     }
 
     private static Aero_JsonModel json() {
