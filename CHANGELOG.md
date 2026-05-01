@@ -7,6 +7,43 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
 ## [3.x] — Smart LOD + occlusion default-on
 
 ### Changed
+- **Bone-page display lists for rigid animated groups.** Animated renders can
+  now cache static geometry plus eligible named groups as per-bone display-list
+  pages and replay them under the current bone matrix. This covers nested
+  skeleton / procedural / IK / graph / stack paths that do not fit the flat
+  animated batcher. Toggle with `-Daero.bonepages=false`; tune the cutoff with
+  `-Daero.bonepages.minTris=N` (default `24`). Morph-active renders still use
+  the Tessellator fallback.
+
+- **Per-frame animation render budget.** StationAPI LOD now admits only a
+  bounded number of animated renders per visual frame and downgrades overflow
+  to the at-rest display-list path. This is the first Cell Pages step for dense
+  BE scenes where culling cannot help because everything is on screen. Toggle
+  with `-Daero.animBudget=false`; tune with `-Daero.maxAnimatedBE=N` (default
+  `128`, `-1` = unlimited). Admission is priority-aware: very near / large
+  objects can use a small critical reserve, while tiny/low-priority objects
+  stop consuming budget early. Tune with `-Daero.animBudget.criticalPx=N`,
+  `midPx`, `lowPx`, `nearBlocks`, `criticalExtra`,
+  `hysteresisFrames`, and `hysteresisExtra`.
+
+- **BE cell index scaffold.** StationAPI now tracks
+  `Aero_RenderDistanceBlockEntity` instances in small world cells, with dirty
+  flags for state/orientation/animation-page eligibility and a visible-cell
+  snapshot backed by `Aero_ChunkVisibility`. The base class registers on
+  tick/render, unregisters on `markRemoved()`, and reattaches on
+  `cancelRemoval()`. This does not replace individual BE rendering yet; it
+  prepares the Cell Pages renderer without changing visuals. Toggle with
+  `-Daero.becell=false`; tune cell size with `-Daero.becell.size=N` (default
+  `8`, clamped `1..32`).
+
+- **At-rest BE Cell Pages, opt-in API.** StationAPI renderers can now call
+  `Aero_BECellRenderer.queueAtRest(...)` for static / LOD-overflow mesh BEs.
+  The flush builds per-cell display-list pages that replay each model's
+  existing at-rest display lists under local transforms, with direct-render
+  fallback for small groups, translucent options, missing camera cache, or GL
+  list failure. Toggle with `-Daero.becell.pages=false`; tune with
+  `-Daero.becell.minInstances=N` and `-Daero.becell.pageTtlFrames=N`.
+
 - **Smart LOD Y-bias is enabled by default.** `Aero_RenderDistanceCulling`
   now computes LOD and `shouldRenderRelative(...)` distance with vertical
   distance weighted by `-Daero.ybias=N` (default `2.0`). Set

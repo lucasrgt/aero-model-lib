@@ -1,5 +1,6 @@
 package aero.modellib;
 
+import java.util.Arrays;
 import java.util.HashMap;
 
 /**
@@ -30,8 +31,14 @@ public final class CoreBenchmark {
         bench("anim.index.map+sample", 200, 2000, new Bench() {
             public float run() { return sampleWithMapLookup(clip); }
         });
+        bench("anim.sample.cursor", 200, 2000, new Bench() {
+            public float run() { return sampleWithCursor(clip); }
+        });
         bench("anim.index.linear+sample.reference", 20, 200, new Bench() {
             public float run() { return sampleWithLinearLookup(clip); }
+        });
+        bench("ik.ccd.solve", 20, 200, new Bench() {
+            public float run() { return solveCcdChain(); }
         });
         bench("entity.transform.yaw", 500, 50000, new Bench() {
             public float run() { return resolveEntityYaw(entityTransform); }
@@ -101,6 +108,22 @@ public final class CoreBenchmark {
         return sum;
     }
 
+    private static float sampleWithCursor(Aero_AnimationClip clip) {
+        float[] out = new float[3];
+        int[] cursor = new int[clip.boneNames.length];
+        Arrays.fill(cursor, -1);
+        float sum = 0f;
+        for (int step = 0; step < 64; step++) {
+            float time = step * (1f / 63f);
+            for (int i = 0; i < clip.boneNames.length; i++) {
+                if (clip.sampleRotInto(i, time, out, cursor)) {
+                    sum += out[0] + out[1] + out[2];
+                }
+            }
+        }
+        return sum;
+    }
+
     private static int linearIndexOf(String[] names, String name) {
         for (int i = 0; i < names.length; i++) {
             if (names[i].equals(name)) return i;
@@ -135,6 +158,26 @@ public final class CoreBenchmark {
             else if (lod.isStaticOnly()) sum += i * 0.5f;
         }
         return sum;
+    }
+
+    private static float solveCcdChain() {
+        int[] idx = {0, 1, 2, 3};
+        float[][] pivots = {
+            {0f, 0f, 0f},
+            {0f, 0f, 1f},
+            {0f, 0f, 2f},
+            {0f, 0f, 3f}
+        };
+        Aero_BoneRenderPose[] pool = new Aero_BoneRenderPose[idx.length];
+        for (int i = 0; i < pool.length; i++) {
+            pool[i] = new Aero_BoneRenderPose();
+            pool[i].reset();
+        }
+        float[] target = {1.5f, 0.25f, 1.5f};
+        int iters = Aero_CCDSolver.solve(idx, pivots, pool, target, 0.01f);
+        float[] effector = new float[3];
+        Aero_BoneFK.computePivotInto(idx, pivots, pool, effector);
+        return iters + effector[0] + effector[1] + effector[2];
     }
 
     private static Aero_JsonModel buildJsonModel(int cubes) {

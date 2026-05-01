@@ -74,6 +74,11 @@ public class Aero_MeshModel {
     private Aero_AnimationClip cachedClip;
     private Aero_AnimationBundle cachedBundle;
     private BoneRef[] cachedBoneRefs;
+    private static final int BONE_REF_CACHE_SIZE = 4;
+    private final Aero_AnimationClip[] cachedBoneRefClips = new Aero_AnimationClip[BONE_REF_CACHE_SIZE];
+    private final Aero_AnimationBundle[] cachedBoneRefBundles = new Aero_AnimationBundle[BONE_REF_CACHE_SIZE];
+    private final BoneRef[][] cachedBoneRefArrays = new BoneRef[BONE_REF_CACHE_SIZE][];
+    private int cachedBoneRefNextSlot;
     private float[] cachedBounds;
     private SmoothLightData cachedStaticSmoothLightData;
 
@@ -85,6 +90,13 @@ public class Aero_MeshModel {
     // Pure ints, no GL imports — keeps this class shared across runtimes.
     private int[] cachedAtRestListIds;
     private boolean atRestListsCompileFailed;
+
+    // Display-list cache for rigid animated groups. The platform renderer
+    // stores one optional page set for static geometry plus one optional page
+    // set per named group. Kept here so all render overloads share the same
+    // compiled GL ids for a model instance.
+    private Aero_BonePageLists cachedBonePageLists;
+    private boolean bonePageListsCompileFailed;
 
     /**
      * Optional morph targets keyed by name. Mutable holder — load-time
@@ -165,6 +177,37 @@ public class Aero_MeshModel {
         this.cachedAtRestListIds = null;
         this.atRestListsCompileFailed = false;
         return ids;
+    }
+
+    /** Returns cached rigid animated display-list pages, or null if not compiled. */
+    public Aero_BonePageLists getBonePageLists() {
+        return cachedBonePageLists;
+    }
+
+    /** Stores rigid animated display-list pages (renderer-only). */
+    public void setBonePageLists(Aero_BonePageLists lists) {
+        this.cachedBonePageLists = lists;
+    }
+
+    /** True if animated page-list compilation failed once this model lifetime. */
+    public boolean bonePageListsCompileFailed() {
+        return bonePageListsCompileFailed;
+    }
+
+    /** Marks animated page-list compilation as failed (renderer-only). */
+    public void markBonePageListsCompileFailed() {
+        this.bonePageListsCompileFailed = true;
+    }
+
+    /**
+     * Atomically returns cached animated page lists and clears the cache
+     * state so the renderer can delete GL ids and allow a future recompile.
+     */
+    public Aero_BonePageLists extractAndClearBonePageLists() {
+        Aero_BonePageLists lists = this.cachedBonePageLists;
+        this.cachedBonePageLists = null;
+        this.bonePageListsCompileFailed = false;
+        return lists;
     }
 
     /** Convenience constructor: scale=1, empty named groups. */
@@ -342,6 +385,15 @@ public class Aero_MeshModel {
         if (clip == cachedClip && bundle == cachedBundle && cachedBoneRefs != null) {
             return cachedBoneRefs;
         }
+        for (int c = 0; c < BONE_REF_CACHE_SIZE; c++) {
+            BoneRef[] refs = cachedBoneRefArrays[c];
+            if (refs != null && clip == cachedBoneRefClips[c] && bundle == cachedBoneRefBundles[c]) {
+                cachedClip = clip;
+                cachedBundle = bundle;
+                cachedBoneRefs = refs;
+                return refs;
+            }
+        }
 
         NamedGroup[] entries = getNamedGroupArray();
         BoneRef[] refs = new BoneRef[entries.length];
@@ -437,6 +489,11 @@ public class Aero_MeshModel {
         cachedClip     = clip;
         cachedBundle   = bundle;
         cachedBoneRefs = refs;
+        int slot = cachedBoneRefNextSlot;
+        cachedBoneRefClips[slot] = clip;
+        cachedBoneRefBundles[slot] = bundle;
+        cachedBoneRefArrays[slot] = refs;
+        cachedBoneRefNextSlot = (slot + 1) & (BONE_REF_CACHE_SIZE - 1);
         return refs;
     }
 

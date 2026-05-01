@@ -8,6 +8,8 @@ import net.minecraft.src.*;
  */
 public final class Aero_RenderDistance {
 
+    private static EntityPlayer cachedLocalPlayer;
+
     private Aero_RenderDistance() {
     }
 
@@ -54,9 +56,15 @@ public final class Aero_RenderDistance {
                                              double visualRadiusBlocks,
                                              double animatedDistanceBlocks,
                                              double maxRenderDistanceBlocks) {
-        return Aero_RenderDistanceCulling.lodRelative(
+        Aero_RenderLod lod = Aero_RenderDistanceCulling.lodRelative(
             x, y, z, currentViewDistance(), visualRadiusBlocks,
             animatedDistanceBlocks, maxRenderDistanceBlocks);
+        if (!lod.shouldRender()) return lod;
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks)) {
+            return Aero_RenderLod.CULLED;
+        }
+        return lod;
     }
 
     public static Aero_RenderLod lodRelative(Aero_ModelSpec spec,
@@ -70,13 +78,15 @@ public final class Aero_RenderDistance {
     }
 
     public static void updateCameraForwardFromPlayer() {
-        if (!Aero_FrustumCull.ENABLED) return;
+        cachedLocalPlayer = null;
         try {
             Minecraft mc = ModLoader.getMinecraftInstance();
             if (mc == null || mc.thePlayer == null) {
                 Aero_FrustumCull.clearCamera();
                 return;
             }
+            cachedLocalPlayer = mc.thePlayer;
+            if (!Aero_FrustumCull.ENABLED) return;
             Aero_FrustumCull.updateCameraForward(mc.thePlayer.rotationYaw,
                 mc.thePlayer.rotationPitch);
             // Cone half-angle from MC window aspect (Beta hardcodes
@@ -94,6 +104,10 @@ public final class Aero_RenderDistance {
         } catch (Throwable ignored) {
             Aero_FrustumCull.clearCamera();
         }
+    }
+
+    public static EntityPlayer getCachedLocalPlayer() {
+        return cachedLocalPlayer;
     }
 
     public static boolean shouldRenderFrustumRelative(double x, double y, double z,

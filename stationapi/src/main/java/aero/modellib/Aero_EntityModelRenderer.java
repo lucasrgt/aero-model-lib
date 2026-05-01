@@ -56,14 +56,9 @@ public final class Aero_EntityModelRenderer {
         requireSpec(spec);
         Aero_RenderLod lod = Aero_RenderDistance.lodRelative(spec, x, y, z);
         if (!lod.shouldRender()) return;
-        if (!shouldRender(x, y, z, spec.getEntityTransform())) return;
         float brightness = entity.getBrightnessAtEyes(partialTick);
-        if (lod.shouldAnimate()) {
-            renderAnimated(spec, state, x, y, z, yaw, brightness, partialTick,
-                spec.getRenderOptions(), proceduralPose);
-        } else {
-            renderAtRest(spec, x, y, z, yaw, brightness);
-        }
+        renderResolvedLod(spec, state, lod, x, y, z, yaw, brightness, partialTick,
+            spec.getRenderOptions(), proceduralPose);
     }
 
     public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
@@ -80,7 +75,8 @@ public final class Aero_EntityModelRenderer {
         requireSpec(spec);
         requireOptions(options);
         Aero_RenderLod lod = Aero_RenderDistance.lodRelative(spec, x, y, z);
-        render(spec, state, lod, x, y, z, yaw, brightness, partialTick, options);
+        renderResolvedLod(spec, state, lod, x, y, z, yaw, brightness, partialTick,
+            options, null);
     }
 
     public static void render(Aero_ModelSpec spec, Aero_AnimationPlayback state,
@@ -429,6 +425,97 @@ public final class Aero_EntityModelRenderer {
         beginEntityTransform(x, y, z, yaw, transform);
         try {
             Aero_MeshRenderer.renderAnimated(model, bundle, def, state,
+                transform.offsetX, transform.offsetY, transform.offsetZ,
+                brightness, partialTick, options, proceduralPose);
+        } finally {
+            GL11.glPopMatrix();
+        }
+    }
+
+    private static void renderResolvedLod(Aero_ModelSpec spec,
+                                          Aero_AnimationPlayback state,
+                                          Aero_RenderLod lod,
+                                          double x, double y, double z,
+                                          float yaw, float brightness, float partialTick,
+                                          Aero_RenderOptions options,
+                                          Aero_ProceduralPose proceduralPose) {
+        if (!lod.shouldRender()) return;
+        if (lod.shouldAnimate()) {
+            renderAnimatedPreculled(spec, state, x, y, z, yaw, brightness, partialTick,
+                options, proceduralPose);
+        } else {
+            renderAtRestPreculled(spec, x, y, z, yaw, brightness, options);
+        }
+    }
+
+    private static void renderAtRestPreculled(Aero_ModelSpec spec,
+                                              double x, double y, double z,
+                                              float yaw, float brightness,
+                                              Aero_RenderOptions options) {
+        if (spec.isJson()) {
+            renderJsonPreculled(spec.getJsonModel(), x, y, z, yaw, brightness,
+                spec.getEntityTransform());
+        } else {
+            renderMeshAtRestPreculled(spec.getMeshModel(), x, y, z, yaw, brightness,
+                spec.getEntityTransform(), options);
+        }
+    }
+
+    private static void renderAnimatedPreculled(Aero_ModelSpec spec,
+                                                Aero_AnimationPlayback state,
+                                                double x, double y, double z,
+                                                float yaw, float brightness, float partialTick,
+                                                Aero_RenderOptions options,
+                                                Aero_ProceduralPose proceduralPose) {
+        if (!spec.isMesh()) {
+            throw new IllegalStateException("animated rendering requires a mesh spec");
+        }
+        if (state == null) throw new IllegalArgumentException("state must not be null");
+        renderMeshAnimatedPreculled(spec.getMeshModel(), state.getBundle(), state.getDef(), state,
+            x, y, z, yaw, brightness, partialTick, spec.getEntityTransform(), options,
+            proceduralPose);
+    }
+
+    private static void renderJsonPreculled(Aero_JsonModel model,
+                                            double x, double y, double z,
+                                            float yaw, float brightness,
+                                            Aero_EntityModelTransform transform) {
+        beginEntityTransform(x, y, z, yaw, transform);
+        try {
+            Aero_JsonModelRenderer.renderModel(model,
+                transform.offsetX, transform.offsetY, transform.offsetZ, 0f, brightness);
+        } finally {
+            GL11.glPopMatrix();
+        }
+    }
+
+    private static void renderMeshAtRestPreculled(Aero_MeshModel model,
+                                                  double x, double y, double z,
+                                                  float yaw, float brightness,
+                                                  Aero_EntityModelTransform transform,
+                                                  Aero_RenderOptions options) {
+        beginEntityTransform(x, y, z, yaw, transform);
+        try {
+            Aero_MeshRenderer.renderModelAtRestPreculled(model,
+                transform.offsetX, transform.offsetY, transform.offsetZ,
+                0f, brightness, options);
+        } finally {
+            GL11.glPopMatrix();
+        }
+    }
+
+    private static void renderMeshAnimatedPreculled(Aero_MeshModel model,
+                                                    Aero_AnimationBundle bundle,
+                                                    Aero_AnimationDefinition def,
+                                                    Aero_AnimationPlayback state,
+                                                    double x, double y, double z,
+                                                    float yaw, float brightness, float partialTick,
+                                                    Aero_EntityModelTransform transform,
+                                                    Aero_RenderOptions options,
+                                                    Aero_ProceduralPose proceduralPose) {
+        beginEntityTransform(x, y, z, yaw, transform);
+        try {
+            Aero_MeshRenderer.renderAnimatedPreculled(model, bundle, def, state,
                 transform.offsetX, transform.offsetY, transform.offsetZ,
                 brightness, partialTick, options, proceduralPose);
         } finally {

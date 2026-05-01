@@ -131,21 +131,6 @@ tasks.register('runClientNoChunkVis') {
     }
 }
 
-// Diagnostic: runClient with occlusion DDA disabled. Tests whether the
-// camera→BE oblique raycast is the source of cull flicker (sand dunes,
-// tree logs in the line could trip the threshold).
-tasks.register('runClientNoOcclusion') {
-    group = 'fabric'
-    description = 'Run client with -Daero.occlusioncull=false (occlusion flicker diagnostic).'
-    finalizedBy tasks.named('runClient')
-    outputs.upToDateWhen { false }
-    doLast {
-        def runClient = tasks.named('runClient').get()
-        runClient.jvmArgs('-Daero.occlusioncull=false')
-        println '[runClientNoOcclusion] aero.occlusioncull=false'
-    }
-}
-
 // Diagnostic: runClient with cone heuristic disabled.
 tasks.register('runClientNoCone') {
     group = 'fabric'
@@ -160,7 +145,7 @@ tasks.register('runClientNoCone') {
 }
 
 // Diagnostic: runClient with ALL aero culling off — baseline visibility.
-// If BEs still flicker with this, the bug isn't in our cull stack.
+// If BEs still mis-cull with this, the bug isn't in our cull stack.
 tasks.register('runClientNoAeroCull') {
     group = 'fabric'
     description = 'Run client with all aero culling disabled (baseline diagnostic).'
@@ -170,8 +155,7 @@ tasks.register('runClientNoAeroCull') {
         def runClient = tasks.named('runClient').get()
         runClient.jvmArgs(
             '-Daero.chunkvisibility=false',
-            '-Daero.frustumcull=false',
-            '-Daero.occlusioncull=false'
+            '-Daero.frustumcull=false'
         )
         println '[runClientNoAeroCull] all aero culls disabled'
     }

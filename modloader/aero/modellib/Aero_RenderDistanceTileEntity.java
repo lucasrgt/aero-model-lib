@@ -47,7 +47,10 @@ public class Aero_RenderDistanceTileEntity extends TileEntity {
         double cx = this.xCoord + 0.5;
         double cy = this.yCoord + 0.5;
         double cz = this.zCoord + 0.5;
-        EntityPlayer p = this.worldObj.getClosestPlayer(cx, cy, cz, Aero_AnimationTickLOD.DEFAULT_FAR_RADIUS);
+        EntityPlayer p = Aero_RenderDistance.getCachedLocalPlayer();
+        if (p == null || p.worldObj != this.worldObj) {
+            p = this.worldObj.getClosestPlayer(cx, cy, cz, Aero_AnimationTickLOD.DEFAULT_FAR_RADIUS);
+        }
         int stride;
         if (p == null) {
             stride = 0;

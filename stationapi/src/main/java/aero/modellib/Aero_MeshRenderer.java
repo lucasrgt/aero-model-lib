@@ -4,6 +4,8 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.world.World;
 import org.lwjgl.opengl.GL11;
 
+import java.util.IdentityHashMap;
+
 /**
  * AeroMesh Renderer (StationAPI/Yarn port). Same algorithm as the ModLoader
  * version, with Yarn-mapped Tessellator + World API.
@@ -22,7 +24,12 @@ public class Aero_MeshRenderer {
 
     private static final int MESH_ATTRIB_BITS =
         GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_CURRENT_BIT
-        | GL11.GL_COLOR_BUFFER_BIT;
+        | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_TRANSFORM_BIT;
+
+    private static final boolean BONE_PAGES_ENABLED =
+        !"false".equalsIgnoreCase(System.getProperty("aero.bonepages"));
+    private static final int BONE_PAGES_MIN_TRIS =
+        Math.max(0, Integer.getInteger("aero.bonepages.minTris", 24).intValue());
 
     // Reusable scratch buffers — render thread is single-threaded in Beta 1.7.3.
     private static float[] LIGHT_CACHE = new float[64];
@@ -31,6 +38,8 @@ public class Aero_MeshRenderer {
     private static final float[] SCRATCH_SCL = new float[3];
     private static final float[] SCRATCH_PIVOT = new float[3];
     private static final Aero_BoneRenderPose SCRATCH_POSE = new Aero_BoneRenderPose();
+    private static final IdentityHashMap<Aero_MeshModel, BatchPlanCache> BATCH_PLAN_CACHE =
+        new IdentityHashMap<Aero_MeshModel, BatchPlanCache>();
 
     // Pose pool indexed by clip.boneNames[i]. Pre-resolved once per frame
     // so the hierarchical render walk + any IK pre-pass can read poses by
@@ -108,6 +117,18 @@ public class Aero_MeshRenderer {
                                          Aero_RenderOptions options) {
         updateCameraForwardFromPlayer();
         if (!Aero_FrustumCull.isLikelyVisible(x, y, z)) return;
+        renderModelAtRestBody(model, x, y, z, rotation, brightness, options);
+    }
+
+    static void renderModelAtRestPreculled(Aero_MeshModel model, double x, double y, double z,
+                                           float rotation, float brightness,
+                                           Aero_RenderOptions options) {
+        renderModelAtRestBody(model, x, y, z, rotation, brightness, options);
+    }
+
+    private static void renderModelAtRestBody(Aero_MeshModel model, double x, double y, double z,
+                                              float rotation, float brightness,
+                                              Aero_RenderOptions options) {
         Aero_Profiler.start("aero.mesh.render");
         try {
             GL11.glPushMatrix();
@@ -158,16 +179,8 @@ public class Aero_MeshRenderer {
 
     private static boolean renderAtRestViaLists(Aero_MeshModel model, float brightness,
                                                 Aero_RenderOptions options) {
-        int[] ids = model.getAtRestListIds();
-        if (ids == null) {
-            if (model.atRestListsCompileFailed()) return false;
-            ids = compileAtRestLists(model);
-            if (ids == null) {
-                model.markAtRestListsCompileFailed();
-                return false;
-            }
-            model.setAtRestListIds(ids);
-        }
+        int[] ids = ensureAtRestListIds(model);
+        if (ids == null) return false;
         for (int g = 0; g < 4; g++) {
             int id = ids[g];
             if (id == 0) continue;
@@ -205,11 +218,10 @@ public class Aero_MeshRenderer {
      */
     public static void disposeModel(Aero_MeshModel model) {
         if (model == null) return;
+        Aero_BECellRenderer.disposeModel(model);
         int[] ids = model.extractAndClearAtRestListIds();
-        if (ids == null) return;
-        for (int g = 0; g < ids.length; g++) {
-            if (ids[g] != 0) GL11.glDeleteLists(ids[g], 1);
-        }
+        deletePageIds(ids);
+        deleteBonePageLists(model.extractAndClearBonePageLists());
     }
 
     private static int[] compileAtRestLists(Aero_MeshModel model) {
@@ -249,6 +261,359 @@ public class Aero_MeshRenderer {
             GL11.glTexCoord2f(t[3],  t[4]);  GL11.glVertex3f(t[0]*invSc,  t[1]*invSc,  t[2]*invSc);
             GL11.glTexCoord2f(t[8],  t[9]);  GL11.glVertex3f(t[5]*invSc,  t[6]*invSc,  t[7]*invSc);
             GL11.glTexCoord2f(t[13], t[14]); GL11.glVertex3f(t[10]*invSc, t[11]*invSc, t[12]*invSc);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bone-page display lists for rigid animated groups
+    // -----------------------------------------------------------------------
+
+    private static boolean renderAnimatedViaBonePages(Aero_MeshModel model,
+                                                       Aero_MeshModel.NamedGroup[] entries,
+                                                       Aero_MeshModel.BoneRef[] refs,
+                                                       Aero_BoneRenderPose[] pool,
+                                                       double x, double y, double z,
+                                                       float brightness,
+                                                       Aero_RenderOptions options,
+                                                       Aero_MorphState morphState) {
+        if (!BONE_PAGES_ENABLED) return false;
+        if (morphState != null && model.hasMorphTargets() && !morphState.isEmpty()) return false;
+
+        Aero_BonePageLists pages = getOrCompileBonePageLists(model, entries);
+        if (pages == null || !pages.hasAnyPages) return false;
+
+        Aero_Profiler.start("aero.bonepages.call");
+        try {
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            try {
+                GL11.glTranslated(x, y, z);
+                beginMeshState(options);
+                try {
+                    renderStaticPageOrFallback(tess, model, pages, brightness, options);
+                    for (int e = 0; e < entries.length; e++) {
+                        GL11.glPushMatrix();
+                        try {
+                            Aero_BoneRenderPose deepest = (pool != null && refs != null)
+                                ? applyPoseChain(refs[e], pool)
+                                : null;
+                            int[] groupPages = pages.bonePages != null && e < pages.bonePages.length
+                                ? pages.bonePages[e]
+                                : null;
+                            renderBonePageOrFallback(tess, groupPages, entries[e].tris,
+                                model.invScale, brightness, options, deepest);
+                        } finally {
+                            GL11.glPopMatrix();
+                        }
+                    }
+                } finally {
+                    endMeshState();
+                }
+            } finally {
+                GL11.glPopMatrix();
+            }
+        } finally {
+            Aero_Profiler.end("aero.bonepages.call");
+        }
+        return true;
+    }
+
+    static int[] ensureAtRestListIds(Aero_MeshModel model) {
+        int[] ids = model.getAtRestListIds();
+        if (ids != null) return ids;
+        if (model.atRestListsCompileFailed()) return null;
+        ids = compileAtRestLists(model);
+        if (ids == null) {
+            model.markAtRestListsCompileFailed();
+            return null;
+        }
+        model.setAtRestListIds(ids);
+        return ids;
+    }
+
+    private static boolean renderGraphViaBonePages(Aero_MeshModel model,
+                                                    Aero_AnimationGraph graph,
+                                                    Aero_AnimationBundle bundle,
+                                                    Aero_MeshModel.NamedGroup[] entries,
+                                                    double x, double y, double z,
+                                                    float brightness, float partialTick,
+                                                    Aero_RenderOptions options) {
+        if (!BONE_PAGES_ENABLED) return false;
+        Aero_BonePageLists pages = getOrCompileBonePageLists(model, entries);
+        if (pages == null || !pages.hasAnyPages) return false;
+
+        Aero_Profiler.start("aero.bonepages.call");
+        try {
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            try {
+                GL11.glTranslated(x, y, z);
+                beginMeshState(options);
+                try {
+                    renderStaticPageOrFallback(tess, model, pages, brightness, options);
+                    for (int e = 0; e < entries.length; e++) {
+                        Aero_MeshModel.NamedGroup ng = entries[e];
+                        SCRATCH_POSE.reset();
+                        bundle.getPivotInto(ng.name, SCRATCH_PIVOT);
+                        SCRATCH_POSE.setPivot(SCRATCH_PIVOT);
+                        graph.samplePose(ng.name, partialTick,
+                            SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL);
+                        SCRATCH_POSE.rotX = SCRATCH_ROT[0];
+                        SCRATCH_POSE.rotY = SCRATCH_ROT[1];
+                        SCRATCH_POSE.rotZ = SCRATCH_ROT[2];
+                        SCRATCH_POSE.offsetX = SCRATCH_POS[0] / 16f;
+                        SCRATCH_POSE.offsetY = SCRATCH_POS[1] / 16f;
+                        SCRATCH_POSE.offsetZ = SCRATCH_POS[2] / 16f;
+                        SCRATCH_POSE.scaleX = SCRATCH_SCL[0];
+                        SCRATCH_POSE.scaleY = SCRATCH_SCL[1];
+                        SCRATCH_POSE.scaleZ = SCRATCH_SCL[2];
+
+                        GL11.glPushMatrix();
+                        try {
+                            applyPose(SCRATCH_POSE);
+                            renderBonePageOrFallback(tess, pageFor(pages, e), ng.tris,
+                                model.invScale, brightness, options, SCRATCH_POSE);
+                        } finally {
+                            GL11.glPopMatrix();
+                        }
+                    }
+                } finally {
+                    endMeshState();
+                }
+            } finally {
+                GL11.glPopMatrix();
+            }
+        } finally {
+            Aero_Profiler.end("aero.bonepages.call");
+        }
+        return true;
+    }
+
+    private static boolean renderStackViaBonePages(Aero_MeshModel model,
+                                                    Aero_AnimationStack stack,
+                                                    Aero_MeshModel.NamedGroup[] entries,
+                                                    double x, double y, double z,
+                                                    float brightness, float partialTick,
+                                                    Aero_RenderOptions options,
+                                                    Aero_ProceduralPose proceduralPose) {
+        if (!BONE_PAGES_ENABLED) return false;
+        Aero_BonePageLists pages = getOrCompileBonePageLists(model, entries);
+        if (pages == null || !pages.hasAnyPages) return false;
+
+        Aero_Profiler.start("aero.bonepages.call");
+        try {
+            Tessellator tess = Tessellator.INSTANCE;
+            GL11.glPushMatrix();
+            try {
+                GL11.glTranslated(x, y, z);
+                beginMeshState(options);
+                try {
+                    renderStaticPageOrFallback(tess, model, pages, brightness, options);
+                    for (int e = 0; e < entries.length; e++) {
+                        Aero_MeshModel.NamedGroup ng = entries[e];
+                        Aero_AnimationPoseResolver.resolveStack(stack, ng.name, partialTick,
+                            SCRATCH_PIVOT, SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
+                        if (proceduralPose != null) proceduralPose.apply(ng.name, SCRATCH_POSE);
+
+                        GL11.glPushMatrix();
+                        try {
+                            applyPose(SCRATCH_POSE);
+                            renderBonePageOrFallback(tess, pageFor(pages, e), ng.tris,
+                                model.invScale, brightness, options, SCRATCH_POSE);
+                        } finally {
+                            GL11.glPopMatrix();
+                        }
+                    }
+                } finally {
+                    endMeshState();
+                }
+            } finally {
+                GL11.glPopMatrix();
+            }
+        } finally {
+            Aero_Profiler.end("aero.bonepages.call");
+        }
+        return true;
+    }
+
+    private static Aero_BonePageLists getOrCompileBonePageLists(Aero_MeshModel model,
+                                                                Aero_MeshModel.NamedGroup[] entries) {
+        Aero_BonePageLists pages = model.getBonePageLists();
+        if (pages != null) return pages;
+        if (model.bonePageListsCompileFailed()) return null;
+
+        Aero_Profiler.start("aero.bonepages.compile");
+        try {
+            pages = compileBonePageLists(model, entries);
+        } finally {
+            Aero_Profiler.end("aero.bonepages.compile");
+        }
+        if (pages == null) {
+            model.markBonePageListsCompileFailed();
+            return null;
+        }
+        model.setBonePageLists(pages);
+        return pages;
+    }
+
+    private static Aero_BonePageLists compileBonePageLists(Aero_MeshModel model,
+                                                           Aero_MeshModel.NamedGroup[] entries) {
+        int[] staticPages = null;
+        int[][] bonePages = new int[entries.length][];
+        boolean any = false;
+
+        if (eligibleForBonePage(model.groups)) {
+            staticPages = compileBucketPages(model.groups, model.invScale);
+            if (staticPages == null) return null;
+            any |= hasPages(staticPages);
+        }
+
+        for (int e = 0; e < entries.length; e++) {
+            if (!eligibleForBonePage(entries[e].tris)) continue;
+            bonePages[e] = compileBucketPages(entries[e].tris, model.invScale);
+            if (bonePages[e] == null) {
+                deletePageIds(staticPages);
+                deleteBonePageArrays(bonePages);
+                return null;
+            }
+            any |= hasPages(bonePages[e]);
+        }
+
+        return new Aero_BonePageLists(staticPages, bonePages, any);
+    }
+
+    private static int[] compileBucketPages(float[][][] groups, float invSc) {
+        int[] ids = new int[4];
+        for (int g = 0; g < 4; g++) {
+            float[][] tris = groups[g];
+            if (tris.length == 0) continue;
+
+            int id = GL11.glGenLists(1);
+            if (id == 0) {
+                deletePageIds(ids);
+                return null;
+            }
+            GL11.glNewList(id, GL11.GL_COMPILE);
+            GL11.glBegin(GL11.GL_TRIANGLES);
+            emitTrisIntoList(tris, invSc);
+            GL11.glEnd();
+            GL11.glEndList();
+            ids[g] = id;
+        }
+        return ids;
+    }
+
+    private static void renderStaticPageOrFallback(Tessellator tess, Aero_MeshModel model,
+                                                    Aero_BonePageLists pages,
+                                                    float brightness, Aero_RenderOptions options) {
+        if (hasPages(pages.staticPages)) {
+            callPageBuckets(pages.staticPages, brightness, options);
+        } else if (hasTriangles(model.groups)) {
+            drawGroups(tess, model.groups, model.invScale, brightness, options);
+        }
+    }
+
+    private static void renderBonePageOrFallback(Tessellator tess, int[] ids,
+                                                  float[][][] groups, float invSc,
+                                                  float brightness, Aero_RenderOptions options,
+                                                  Aero_BoneRenderPose pose) {
+        if (hasPages(ids)) {
+            boolean uv = pushUvMatrix(pose);
+            try {
+                callPageBuckets(ids, brightness, options);
+            } finally {
+                if (uv) popUvMatrix();
+            }
+            return;
+        }
+
+        float uOff   = pose != null ? pose.uOffset : 0f;
+        float vOff   = pose != null ? pose.vOffset : 0f;
+        float uScale = pose != null ? pose.uScale  : 1f;
+        float vScale = pose != null ? pose.vScale  : 1f;
+        drawGroups(tess, groups, invSc, brightness, options, uOff, vOff, uScale, vScale);
+    }
+
+    private static void callPageBuckets(int[] ids, float brightness, Aero_RenderOptions options) {
+        for (int g = 0; g < 4; g++) {
+            int id = ids[g];
+            if (id == 0) continue;
+            float bright = brightness * Aero_MeshModel.BRIGHTNESS_FACTORS[g];
+            GL11.glColor4f(bright * options.tintR, bright * options.tintG,
+                           bright * options.tintB, options.alpha);
+            GL11.glCallList(id);
+        }
+    }
+
+    private static boolean pushUvMatrix(Aero_BoneRenderPose pose) {
+        if (pose == null || pose.uvIsIdentity()) return false;
+        GL11.glMatrixMode(GL11.GL_TEXTURE);
+        GL11.glPushMatrix();
+        GL11.glTranslatef(pose.uOffset, pose.vOffset, 0f);
+        GL11.glScalef(pose.uScale, pose.vScale, 1f);
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        return true;
+    }
+
+    private static void popUvMatrix() {
+        GL11.glMatrixMode(GL11.GL_TEXTURE);
+        GL11.glPopMatrix();
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+    }
+
+    private static int[] pageFor(Aero_BonePageLists pages, int index) {
+        return pages.bonePages != null && index < pages.bonePages.length
+            ? pages.bonePages[index]
+            : null;
+    }
+
+    private static boolean eligibleForBonePage(float[][][] groups) {
+        int n = triangleCount(groups);
+        return n > 0 && n >= BONE_PAGES_MIN_TRIS;
+    }
+
+    private static int triangleCount(float[][][] groups) {
+        int n = 0;
+        for (int g = 0; g < 4; g++) n += groups[g].length;
+        return n;
+    }
+
+    private static boolean hasTriangles(float[][][] groups) {
+        for (int g = 0; g < 4; g++) {
+            if (groups[g].length > 0) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasPages(int[] ids) {
+        if (ids == null) return false;
+        for (int g = 0; g < ids.length; g++) {
+            if (ids[g] != 0) return true;
+        }
+        return false;
+    }
+
+    private static void deleteBonePageLists(Aero_BonePageLists pages) {
+        if (pages == null) return;
+        deletePageIds(pages.staticPages);
+        deleteBonePageArrays(pages.bonePages);
+    }
+
+    private static void deleteBonePageArrays(int[][] pages) {
+        if (pages == null) return;
+        for (int i = 0; i < pages.length; i++) {
+            deletePageIds(pages[i]);
+            pages[i] = null;
+        }
+    }
+
+    private static void deletePageIds(int[] ids) {
+        if (ids == null) return;
+        for (int g = 0; g < ids.length; g++) {
+            if (ids[g] != 0) {
+                GL11.glDeleteLists(ids[g], 1);
+                ids[g] = 0;
+            }
         }
     }
 
@@ -439,7 +804,35 @@ public class Aero_MeshRenderer {
                                                 Aero_ProceduralPose proceduralPose,
                                                 Aero_IkChain[] ikChains,
                                                 Aero_MorphState morphState) {
-        if (prepareAnimatedRender(model, x, y, z, brightness, options) != ANIMATED_RENDER_ACTIVE) return;
+        renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
+            partialTick, options, proceduralPose, ikChains, morphState, false);
+    }
+
+    static void renderAnimatedPreculled(Aero_MeshModel model,
+                                        Aero_AnimationBundle bundle,
+                                        Aero_AnimationDefinition def,
+                                        Aero_AnimationPlayback state,
+                                        double x, double y, double z,
+                                        float brightness, float partialTick,
+                                        Aero_RenderOptions options,
+                                        Aero_ProceduralPose proceduralPose) {
+        renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
+            partialTick, options, proceduralPose, null, null, true);
+    }
+
+    private static void renderAnimatedInternal(Aero_MeshModel model,
+                                                Aero_AnimationBundle bundle,
+                                                Aero_AnimationDefinition def,
+                                                Aero_AnimationPlayback state,
+                                                double x, double y, double z,
+                                                float brightness, float partialTick,
+                                                Aero_RenderOptions options,
+                                                Aero_ProceduralPose proceduralPose,
+                                                Aero_IkChain[] ikChains,
+                                                Aero_MorphState morphState,
+                                                boolean preculled) {
+        if (!preculled
+            && prepareAnimatedRender(model, x, y, z, brightness, options) != ANIMATED_RENDER_ACTIVE) return;
 
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
@@ -477,6 +870,11 @@ public class Aero_MeshRenderer {
                         }
                     }
                 }
+            }
+
+            if (renderAnimatedViaBonePages(model, entries, refs, pool, x, y, z,
+                    brightness, options, morphState)) {
+                return;
             }
 
             Tessellator tess = Tessellator.INSTANCE;
@@ -606,6 +1004,10 @@ public class Aero_MeshRenderer {
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            if (renderGraphViaBonePages(model, graph, bundle, entries, x, y, z,
+                    brightness, partialTick, options)) {
+                return;
+            }
             Tessellator tess = Tessellator.INSTANCE;
             GL11.glPushMatrix();
             try {
@@ -667,6 +1069,10 @@ public class Aero_MeshRenderer {
         Aero_Profiler.start("aero.mesh.renderAnimated");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            if (renderStackViaBonePages(model, stack, entries, x, y, z,
+                    brightness, partialTick, options, proceduralPose)) {
+                return;
+            }
 
             Tessellator tess = Tessellator.INSTANCE;
             GL11.glPushMatrix();
@@ -740,14 +1146,17 @@ public class Aero_MeshRenderer {
         Aero_Profiler.start("aero.mesh.renderAnimatedBatch");
         try {
             Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
+            BatchPlan renderPlan = batchPlanFor(model, null, batch.bundles[0], entries);
             // Per-instance, per-bone resolved poses. Lazy-resolve on first
             // need; null if instance has no named bones / nested skeleton.
             Aero_BoneRenderPose[][] perInstancePoses = ensureBatchPoseScratch(count, entries.length);
+            boolean[][] perInstancePoseActive = ensureBatchPoseActiveScratch(count, entries.length);
 
             // Pre-resolve poses for all instances. Falls back to the
             // unbatched path (returns false) if any instance has nested
             // ancestor chain.
-            boolean canBatch = resolveBatchPoses(model, batch, count, entries, perInstancePoses);
+            boolean canBatch = resolveBatchPoses(model, batch, count, entries,
+                perInstancePoses, perInstancePoseActive);
             if (!canBatch) {
                 drainAsUnbatched(batch, count);
                 return;
@@ -763,7 +1172,7 @@ public class Aero_MeshRenderer {
             try {
                 // Static (unnamed) groups — no per-instance bone transform,
                 // just translate. Single tess cycle for ALL instances.
-                if (hasStaticGeometry(model)) {
+                if (renderPlan.hasStaticGeometry) {
                     tess.start(GL11.GL_TRIANGLES);
                     // Dedup tess.color across (instance, bucket) — instances
                     // in the same chunk share lighting so consecutive bright
@@ -783,13 +1192,9 @@ public class Aero_MeshRenderer {
                 // Named bones — per-vertex CPU matrix transform composes
                 // pose + instance translate. Single tess cycle per bone
                 // for ALL instances.
-                for (int e = 0; e < entries.length; e++) {
+                for (int d = 0; d < renderPlan.drawableEntries.length; d++) {
+                    int e = renderPlan.drawableEntries[d];
                     Aero_MeshModel.NamedGroup ng = entries[e];
-                    boolean hasGeom = false;
-                    for (int g = 0; g < 4; g++) {
-                        if (ng.tris[g].length > 0) { hasGeom = true; break; }
-                    }
-                    if (!hasGeom) continue;
 
                     tess.start(GL11.GL_TRIANGLES);
                     // tess.color dedup — instances inside a batch share a
@@ -803,14 +1208,13 @@ public class Aero_MeshRenderer {
                         if (tris.length == 0) continue;
                         float bucketFactor = Aero_MeshModel.BRIGHTNESS_FACTORS[g];
                         for (int i = 0; i < count; i++) {
-                            Aero_BoneRenderPose pose = perInstancePoses[i][e];
                             float bright = batch.brightnesses[i] * bucketFactor;
                             if (bright != lastBright) {
                                 tess.color(bright * options.tintR, bright * options.tintG,
                                            bright * options.tintB, options.alpha);
                                 lastBright = bright;
                             }
-                            if (pose == null) {
+                            if (!perInstancePoseActive[i][e]) {
                                 // Named group with no animated bone in the
                                 // clip (e.g. static body parts of a model
                                 // whose only animated parts are sub-bones).
@@ -822,6 +1226,7 @@ public class Aero_MeshRenderer {
                                     model.invScale,
                                     batch.xs[i], batch.ys[i], batch.zs[i]);
                             } else {
+                                Aero_BoneRenderPose pose = perInstancePoses[i][e];
                                 emitBoneInstanceBatched(tess, tris, model.invScale, pose,
                                     batch.xs[i], batch.ys[i], batch.zs[i]);
                             }
@@ -844,6 +1249,7 @@ public class Aero_MeshRenderer {
      * snapshotted into the matching {@code BoneRef} index.
      */
     private static Aero_BoneRenderPose[][] BATCH_POSES = new Aero_BoneRenderPose[16][];
+    private static boolean[][] BATCH_POSE_ACTIVE = new boolean[16][];
 
     private static Aero_BoneRenderPose[][] ensureBatchPoseScratch(int instanceCount, int boneCount) {
         if (BATCH_POSES.length < instanceCount) {
@@ -861,6 +1267,22 @@ public class Aero_MeshRenderer {
         return BATCH_POSES;
     }
 
+    private static boolean[][] ensureBatchPoseActiveScratch(int instanceCount, int boneCount) {
+        if (BATCH_POSE_ACTIVE.length < instanceCount) {
+            boolean[][] grown = new boolean[Math.max(instanceCount, BATCH_POSE_ACTIVE.length * 2)][];
+            System.arraycopy(BATCH_POSE_ACTIVE, 0, grown, 0, BATCH_POSE_ACTIVE.length);
+            BATCH_POSE_ACTIVE = grown;
+        }
+        for (int i = 0; i < instanceCount; i++) {
+            if (BATCH_POSE_ACTIVE[i] == null || BATCH_POSE_ACTIVE[i].length < boneCount) {
+                BATCH_POSE_ACTIVE[i] = new boolean[Math.max(boneCount, 4)];
+            } else {
+                for (int b = 0; b < boneCount; b++) BATCH_POSE_ACTIVE[i][b] = false;
+            }
+        }
+        return BATCH_POSE_ACTIVE;
+    }
+
     /**
      * Resolves per-instance bone poses for the batch. Returns false if
      * any instance has a nested ancestor chain (multi-bone-deep), in
@@ -869,19 +1291,17 @@ public class Aero_MeshRenderer {
     private static boolean resolveBatchPoses(Aero_MeshModel model,
                                               Aero_AnimatedBatcher.Batch batch, int count,
                                               Aero_MeshModel.NamedGroup[] entries,
-                                              Aero_BoneRenderPose[][] perInstancePoses) {
+                                              Aero_BoneRenderPose[][] perInstancePoses,
+                                              boolean[][] perInstancePoseActive) {
         for (int i = 0; i < count; i++) {
             Aero_AnimationPlayback state = batch.states[i];
             Aero_AnimationBundle bundle = batch.bundles[i];
             Aero_AnimationClip clip = state.getCurrentClip();
+            BatchPlan plan = batchPlanFor(model, clip, bundle, entries);
+            if (!plan.batchableFlat) return false;
             if (clip == null) {
-                // No active clip — pose stays at identity (reset() on each scratch entry above).
+                // No active clip — render named groups at rest.
                 continue;
-            }
-            Aero_MeshModel.BoneRef[] refs = model.boneRefsFor(clip, bundle);
-            // Reject nested skeletons in v3.0 first cut.
-            for (int e = 0; e < entries.length; e++) {
-                if (refs[e].ancestorBoneIdx.length > 1) return false;
             }
             float time = state.getInterpolatedTime(batch.partialTicks[i]);
             Aero_BoneRenderPose[] pool = ensurePoolSize(clip.boneNames.length);
@@ -894,12 +1314,10 @@ public class Aero_MeshRenderer {
             }
             // Snapshot deepest (== self for flat skeletons) per bone group.
             for (int e = 0; e < entries.length; e++) {
-                Aero_MeshModel.BoneRef rf = refs[e];
-                if (rf.ancestorBoneIdx.length == 0) {
-                    perInstancePoses[i][e] = null;  // bone not in clip; no transform
-                } else {
-                    int idx = rf.ancestorBoneIdx[0];  // flat: only self
+                int idx = plan.entryBoneIdx[e];
+                if (idx >= 0) {
                     copyPose(pool[idx], perInstancePoses[i][e]);
+                    perInstancePoseActive[i][e] = true;
                 }
             }
         }
@@ -920,6 +1338,96 @@ public class Aero_MeshRenderer {
             if (model.groups[g].length > 0) return true;
         }
         return false;
+    }
+
+    private static BatchPlan batchPlanFor(Aero_MeshModel model,
+                                          Aero_AnimationClip clip,
+                                          Aero_AnimationBundle bundle,
+                                          Aero_MeshModel.NamedGroup[] entries) {
+        BatchPlanCache cache = BATCH_PLAN_CACHE.get(model);
+        if (cache == null) {
+            cache = new BatchPlanCache();
+            BATCH_PLAN_CACHE.put(model, cache);
+        }
+        return cache.get(model, clip, bundle, entries);
+    }
+
+    private static final class BatchPlanCache {
+        private static final int SIZE = 8;
+        private final Aero_AnimationClip[] clips = new Aero_AnimationClip[SIZE];
+        private final Aero_AnimationBundle[] bundles = new Aero_AnimationBundle[SIZE];
+        private final BatchPlan[] plans = new BatchPlan[SIZE];
+        private int nextSlot;
+
+        BatchPlan get(Aero_MeshModel model, Aero_AnimationClip clip,
+                      Aero_AnimationBundle bundle, Aero_MeshModel.NamedGroup[] entries) {
+            for (int i = 0; i < SIZE; i++) {
+                BatchPlan plan = plans[i];
+                if (plan != null && clips[i] == clip && bundles[i] == bundle) return plan;
+            }
+            BatchPlan plan = buildBatchPlan(model, clip, bundle, entries);
+            int slot = nextSlot;
+            clips[slot] = clip;
+            bundles[slot] = bundle;
+            plans[slot] = plan;
+            nextSlot = (slot + 1) & (SIZE - 1);
+            return plan;
+        }
+    }
+
+    private static BatchPlan buildBatchPlan(Aero_MeshModel model,
+                                            Aero_AnimationClip clip,
+                                            Aero_AnimationBundle bundle,
+                                            Aero_MeshModel.NamedGroup[] entries) {
+        int[] entryBoneIdx = new int[entries.length];
+        int[] drawableTmp = new int[entries.length];
+        int drawableCount = 0;
+        for (int e = 0; e < entries.length; e++) {
+            entryBoneIdx[e] = -1;
+            if (hasGeometry(entries[e])) drawableTmp[drawableCount++] = e;
+        }
+
+        boolean batchableFlat = true;
+        if (bundle != null) {
+            Aero_MeshModel.BoneRef[] refs = model.boneRefsFor(clip, bundle);
+            for (int e = 0; e < entries.length; e++) {
+                int len = refs[e].ancestorBoneIdx.length;
+                if (len > 1) {
+                    batchableFlat = false;
+                } else if (len == 1) {
+                    entryBoneIdx[e] = refs[e].ancestorBoneIdx[0];
+                }
+            }
+        } else if (clip != null) {
+            batchableFlat = false;
+        }
+
+        int[] drawableEntries = new int[drawableCount];
+        System.arraycopy(drawableTmp, 0, drawableEntries, 0, drawableCount);
+        return new BatchPlan(batchableFlat, entryBoneIdx, drawableEntries,
+            hasStaticGeometry(model));
+    }
+
+    private static boolean hasGeometry(Aero_MeshModel.NamedGroup group) {
+        for (int g = 0; g < 4; g++) {
+            if (group.tris[g].length > 0) return true;
+        }
+        return false;
+    }
+
+    private static final class BatchPlan {
+        final boolean batchableFlat;
+        final int[] entryBoneIdx;
+        final int[] drawableEntries;
+        final boolean hasStaticGeometry;
+
+        BatchPlan(boolean batchableFlat, int[] entryBoneIdx,
+                  int[] drawableEntries, boolean hasStaticGeometry) {
+            this.batchableFlat = batchableFlat;
+            this.entryBoneIdx = entryBoneIdx;
+            this.drawableEntries = drawableEntries;
+            this.hasStaticGeometry = hasStaticGeometry;
+        }
     }
 
     /**
@@ -1311,11 +1819,11 @@ public class Aero_MeshRenderer {
         return v < i ? i - 1 : i;
     }
 
-    private static void beginMeshState() {
+    static void beginMeshState() {
         beginMeshState(Aero_RenderOptions.DEFAULT);
     }
 
-    private static void beginMeshState(Aero_RenderOptions options) {
+    static void beginMeshState(Aero_RenderOptions options) {
         GL11.glPushAttrib(MESH_ATTRIB_BITS);
         if (options.cullFaces) {
             GL11.glEnable(GL11.GL_CULL_FACE);
@@ -1356,11 +1864,11 @@ public class Aero_MeshRenderer {
         }
     }
 
-    private static void endMeshState() {
+    static void endMeshState() {
         GL11.glPopAttrib();
     }
 
-    private static void applyRotation(float rotation) {
+    static void applyRotation(float rotation) {
         if (rotation != 0) {
             GL11.glTranslatef(0.5f, 0.5f, 0.5f);
             GL11.glRotatef(rotation, 0.0f, 1.0f, 0.0f);
