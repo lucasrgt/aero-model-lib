@@ -2,6 +2,7 @@ package aero.modellib;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Arrays;
 
 /**
  * Platform-neutral animation playback state.
@@ -22,6 +23,12 @@ public class Aero_AnimationPlayback {
 
     private Aero_AnimationClip cachedClip;
     private int cachedClipState = -1;
+    private Aero_AnimationClip cursorClip;
+    private int[] rotCursors;
+    private int[] posCursors;
+    private int[] sclCursors;
+    private int[] uvOffsetCursors;
+    private int[] uvScaleCursors;
 
     // Transition machinery — keeps the snapshotted pose from the previous
     // clip alive while the new clip's first {transitionTicks} ticks blend
@@ -188,6 +195,7 @@ public class Aero_AnimationPlayback {
         if (clipChanged) {
             playbackTime = 0f;
             prevPlaybackTime = 0f;
+            resetSampleCursors();
         }
     }
 
@@ -258,19 +266,22 @@ public class Aero_AnimationPlayback {
      */
     public boolean sampleRotBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
                                     float time, float partialTick, float[] out) {
-        boolean got = clip != null && boneIdx >= 0 && clip.sampleRotInto(boneIdx, time, out);
+        boolean got = clip != null && boneIdx >= 0
+            && clip.sampleRotInto(boneIdx, time, out, ensureRotCursors(clip));
         return blendWithSnapshot(snapshotRot, boneName, partialTick, got, out);
     }
 
     public boolean samplePosBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
                                     float time, float partialTick, float[] out) {
-        boolean got = clip != null && boneIdx >= 0 && clip.samplePosInto(boneIdx, time, out);
+        boolean got = clip != null && boneIdx >= 0
+            && clip.samplePosInto(boneIdx, time, out, ensurePosCursors(clip));
         return blendWithSnapshot(snapshotPos, boneName, partialTick, got, out);
     }
 
     public boolean sampleSclBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
                                     float time, float partialTick, float[] out) {
-        boolean got = clip != null && boneIdx >= 0 && clip.sampleSclInto(boneIdx, time, out);
+        boolean got = clip != null && boneIdx >= 0
+            && clip.sampleSclInto(boneIdx, time, out, ensureSclCursors(clip));
         // Scale rests at 1 (identity), not 0. A bone present in the OLD clip
         // but absent from the NEW one must fade its scale toward 1, not 0 —
         // otherwise the part collapses into the pivot during crossfade.
@@ -283,7 +294,8 @@ public class Aero_AnimationPlayback {
      */
     public boolean sampleUvOffsetBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
                                          float time, float partialTick, float[] out) {
-        boolean got = clip != null && boneIdx >= 0 && clip.sampleUvOffsetInto(boneIdx, time, out);
+        boolean got = clip != null && boneIdx >= 0
+            && clip.sampleUvOffsetInto(boneIdx, time, out, ensureUvOffsetCursors(clip));
         // UV offset rests at 0 (identity, no scroll).
         return blendWithSnapshot(snapshotUvOffset, boneName, partialTick, got, out, 0f);
     }
@@ -294,9 +306,79 @@ public class Aero_AnimationPlayback {
      */
     public boolean sampleUvScaleBlended(Aero_AnimationClip clip, int boneIdx, String boneName,
                                         float time, float partialTick, float[] out) {
-        boolean got = clip != null && boneIdx >= 0 && clip.sampleUvScaleInto(boneIdx, time, out);
+        boolean got = clip != null && boneIdx >= 0
+            && clip.sampleUvScaleInto(boneIdx, time, out, ensureUvScaleCursors(clip));
         // UV scale rests at 1 (identity).
         return blendWithSnapshot(snapshotUvScale, boneName, partialTick, got, out, 1f);
+    }
+
+    private int[] ensureRotCursors(Aero_AnimationClip clip) {
+        ensureCursorClip(clip);
+        if (rotCursors == null || rotCursors.length < clip.boneNames.length) {
+            rotCursors = newCursorArray(clip.boneNames.length);
+        }
+        return rotCursors;
+    }
+
+    private int[] ensurePosCursors(Aero_AnimationClip clip) {
+        ensureCursorClip(clip);
+        if (posCursors == null || posCursors.length < clip.boneNames.length) {
+            posCursors = newCursorArray(clip.boneNames.length);
+        }
+        return posCursors;
+    }
+
+    private int[] ensureSclCursors(Aero_AnimationClip clip) {
+        ensureCursorClip(clip);
+        if (sclCursors == null || sclCursors.length < clip.boneNames.length) {
+            sclCursors = newCursorArray(clip.boneNames.length);
+        }
+        return sclCursors;
+    }
+
+    private int[] ensureUvOffsetCursors(Aero_AnimationClip clip) {
+        ensureCursorClip(clip);
+        if (uvOffsetCursors == null || uvOffsetCursors.length < clip.boneNames.length) {
+            uvOffsetCursors = newCursorArray(clip.boneNames.length);
+        }
+        return uvOffsetCursors;
+    }
+
+    private int[] ensureUvScaleCursors(Aero_AnimationClip clip) {
+        ensureCursorClip(clip);
+        if (uvScaleCursors == null || uvScaleCursors.length < clip.boneNames.length) {
+            uvScaleCursors = newCursorArray(clip.boneNames.length);
+        }
+        return uvScaleCursors;
+    }
+
+    private void ensureCursorClip(Aero_AnimationClip clip) {
+        if (cursorClip == clip) return;
+        cursorClip = clip;
+        resetCursorArray(rotCursors);
+        resetCursorArray(posCursors);
+        resetCursorArray(sclCursors);
+        resetCursorArray(uvOffsetCursors);
+        resetCursorArray(uvScaleCursors);
+    }
+
+    private void resetSampleCursors() {
+        cursorClip = null;
+        resetCursorArray(rotCursors);
+        resetCursorArray(posCursors);
+        resetCursorArray(sclCursors);
+        resetCursorArray(uvOffsetCursors);
+        resetCursorArray(uvScaleCursors);
+    }
+
+    private static int[] newCursorArray(int length) {
+        int[] cursors = new int[length];
+        Arrays.fill(cursors, -1);
+        return cursors;
+    }
+
+    private static void resetCursorArray(int[] cursors) {
+        if (cursors != null) Arrays.fill(cursors, -1);
     }
 
     /**

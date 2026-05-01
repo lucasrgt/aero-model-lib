@@ -1,6 +1,7 @@
 package aero.modellib.mixin;
 
 import aero.modellib.Aero_AnimatedBatcher;
+import aero.modellib.Aero_BECellRenderer;
 import aero.modellib.Aero_SoundCoalesce;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
@@ -48,6 +49,7 @@ public abstract class WorldRendererBatchFlushMixin {
             float partialTick,
             CallbackInfo ci) {
         Aero_AnimatedBatcher.flush();
+        Aero_BECellRenderer.flush(cameraPos.x, cameraPos.y, cameraPos.z);
         // Sound coalesce drains here too — cameraPos is already in
         // world coords (from PlayerEntity.getCameraPos), so we pass it
         // straight to the coalescer for distance-to-camera selection.

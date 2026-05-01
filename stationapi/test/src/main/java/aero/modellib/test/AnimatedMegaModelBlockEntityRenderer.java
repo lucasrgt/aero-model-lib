@@ -1,8 +1,8 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_AnimatedBatcher;
+import aero.modellib.Aero_BECellRenderer;
 import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_MeshRenderer;
 import aero.modellib.Aero_ObjLoader;
 import aero.modellib.Aero_RenderDistance;
 import aero.modellib.Aero_RenderLod;
@@ -36,8 +36,8 @@ public class AnimatedMegaModelBlockEntityRenderer extends BlockEntityRenderer {
                 x, y, z, brightness, partialTick,
                 Aero_RenderOptions.DEFAULT);
         } else {
-            bindTexture(TEXTURE);
-            Aero_MeshRenderer.renderModelAtRest(MODEL, x, y, z, 0f, brightness);
+            Aero_BECellRenderer.queueAtRest(MODEL, TEXTURE, be,
+                x, y, z, 0f, brightness, Aero_RenderOptions.DEFAULT);
         }
     }
 }

@@ -4,9 +4,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
 
 /**
  * Per-frame collector for animated BlockEntity renders. Coalesces multiple
@@ -62,11 +63,51 @@ public final class Aero_AnimatedBatcher {
         !"false".equalsIgnoreCase(System.getProperty("aero.animatedbatch"));
 
     /**
+     * When true, {@link #flush()} sorts {@link #ACTIVE_BATCHES} by
+     * {@link Batch#texturePath} so batches sharing a texture drain back
+     * to back. Combined with the {@link #lastBoundPath} dedup in
+     * {@link #bindBatchTexture(Batch)}, this elides redundant
+     * {@code glBindTexture} calls between models that all reference the
+     * same atlas (the common case for tech-mod terrain-style textures).
+     * Toggle: {@code -Daero.batcher.sort=false}.
+     */
+    public static final boolean SORT_ENABLED =
+        !"false".equalsIgnoreCase(System.getProperty("aero.batcher.sort"));
+
+    /**
      * Per-frame batch storage. Keyed by model identity so different
      * blocks sharing a model coalesce, and the same model across
      * different downstream mods stays apart.
      */
     private static final IdentityHashMap<Aero_MeshModel, Batch> BATCHES = new IdentityHashMap<>();
+    private static final ArrayList<Batch> ACTIVE_BATCHES = new ArrayList<Batch>();
+
+    /**
+     * Comparator that orders batches by texture path, with nulls first
+     * (no-bind path runs before any path-bound batch). Nulls-first keeps
+     * the comparator total-ordered without throwing on the rare BER that
+     * doesn't set a texture path.
+     */
+    private static final Comparator<Batch> BY_TEXTURE_PATH =
+        new Comparator<Batch>() {
+            @Override
+            public int compare(Batch a, Batch b) {
+                String pa = a.texturePath;
+                String pb = b.texturePath;
+                if (pa == pb) return 0;            // identity (interned)
+                if (pa == null) return -1;
+                if (pb == null) return 1;
+                return pa.compareTo(pb);
+            }
+        };
+
+    /**
+     * Last texture path bound by {@link #bindBatchTexture(Batch)} during
+     * the current flush. Reset to {@code null} at the top of {@link #flush()}
+     * so the first bind always fires. With {@link #SORT_ENABLED} on, this
+     * dedup eliminates the rebind between adjacent same-texture batches.
+     */
+    private static String lastBoundPath = null;
 
     private Aero_AnimatedBatcher() {}
 
@@ -114,6 +155,7 @@ public final class Aero_AnimatedBatcher {
             batch = new Batch(model, texturePath);
             BATCHES.put(model, batch);
         }
+        if (batch.count == 0) ACTIVE_BATCHES.add(batch);
         batch.add(bundle, def, state, x, y, z, brightness, partialTick, options);
     }
 
@@ -135,7 +177,7 @@ public final class Aero_AnimatedBatcher {
      * default-textured mesh, which is the same outcome as a missed
      * bindTexture in the original BER code.
      */
-    private static void bindTexturePath(String path) {
+    static void bindTexturePath(String path) {
         if (path == null) return;
         Object game = FabricLoader.getInstance().getGameInstance();
         if (!(game instanceof Minecraft)) return;
@@ -152,9 +194,18 @@ public final class Aero_AnimatedBatcher {
         mc.textureManager.bindTexture(id);
     }
 
-    /** Internal — called by Aero_MeshRenderer.renderAnimatedBatch before emitting. */
+    /**
+     * Internal — called by Aero_MeshRenderer.renderAnimatedBatch before
+     * emitting. Skips the bind when the path matches the last one bound
+     * during the current flush, so adjacent same-texture batches (after
+     * the {@link #SORT_ENABLED} sort) cost zero {@code glBindTexture}.
+     */
     static void bindBatchTexture(Batch batch) {
-        bindTexturePath(batch.texturePath);
+        String path = batch.texturePath;
+        if (path == null) return;
+        if (path == lastBoundPath || path.equals(lastBoundPath)) return;
+        bindTexturePath(path);
+        lastBoundPath = path;
     }
 
     /**
@@ -163,15 +214,24 @@ public final class Aero_AnimatedBatcher {
      * render pass.
      */
     public static void flush() {
-        if (BATCHES.isEmpty()) return;
-        Iterator<Batch> it = BATCHES.values().iterator();
-        while (it.hasNext()) {
-            Batch b = it.next();
-            if (b.count > 0) {
-                Aero_MeshRenderer.renderAnimatedBatch(b);
-                b.clear();
-            }
+        if (ACTIVE_BATCHES.isEmpty()) return;
+        // Reset the bound-path tracker. Vanilla rendering between frames
+        // routinely changes glBindTexture, so the bound-id we cached last
+        // frame is stale. First bind of this flush must always fire.
+        lastBoundPath = null;
+        // Sort by texture path so batches sharing a texture drain
+        // adjacently, letting bindBatchTexture's lastBoundPath dedup
+        // skip redundant glBindTexture calls. Skipped when only one
+        // batch is queued (sort cost > savings) or the toggle is off.
+        if (SORT_ENABLED && ACTIVE_BATCHES.size() > 1) {
+            ACTIVE_BATCHES.sort(BY_TEXTURE_PATH);
         }
+        for (int i = 0; i < ACTIVE_BATCHES.size(); i++) {
+            Batch b = ACTIVE_BATCHES.get(i);
+            Aero_MeshRenderer.renderAnimatedBatch(b);
+            b.clear();
+        }
+        ACTIVE_BATCHES.clear();
         // Map kept populated; Batch instances reused next frame.
     }
 

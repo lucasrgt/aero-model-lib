@@ -48,19 +48,27 @@ public final class Aero_CCDSolver {
         int n = chainBoneIdx.length;
         if (n < 2) return 0; // single-bone chains have nothing to solve.
 
+        float[] chainWorldPositions = new float[n * 3];
+        float[] chainParentRotations = new float[n * 4];
         float[] effectorPos = new float[3];
         float[] bonePos = new float[3];
-        float[] scratchQuat = new float[4];
-        float[] localChainBoneIdx; // not needed actually
-
-        // For each bone in the chain (excluding end-effector itself), we
-        // need a sub-chain root → ... → bone to FK its world pivot.
-        // We slice the chain on the fly via offset+length args to FK.
+        float[] scratchVec = new float[3];
+        float[] qCorrection = new float[4];
+        float[] qParent = new float[4];
+        float[] qParentInv = new float[4];
+        float[] qLocalCorrection = new float[4];
+        float[] qCurrent = new float[4];
+        float[] qTemp = new float[4];
+        float[] qNew = new float[4];
+        float[] eulerOut = new float[3];
 
         for (int iter = 0; iter < MAX_ITER; iter++) {
-            // Compute current end-effector world position.
-            Aero_BoneFK.computePivotInto(chainBoneIdx, chainPivots, pool,
-                effectorPos, scratchQuat);
+            Aero_BoneFK.computeChainPivotsInto(chainBoneIdx, chainPivots, pool,
+                chainWorldPositions, chainParentRotations, qTemp);
+            int effectorBase = (n - 1) * 3;
+            effectorPos[0] = chainWorldPositions[effectorBase];
+            effectorPos[1] = chainWorldPositions[effectorBase + 1];
+            effectorPos[2] = chainWorldPositions[effectorBase + 2];
 
             // Distance check.
             float dx = targetWorld[0] - effectorPos[0];
@@ -72,15 +80,10 @@ public final class Aero_CCDSolver {
 
             // Walk backward from second-to-last → root, adjusting rotations.
             for (int b = n - 2; b >= 0; b--) {
-                // FK to get this bone's world pivot.
-                int[] subChainIdx = sliceIndices(chainBoneIdx, b + 1);
-                float[][] subChainPivots = slicePivots(chainPivots, b + 1);
-                Aero_BoneFK.computePivotInto(subChainIdx, subChainPivots, pool,
-                    bonePos, scratchQuat);
-
-                // Recompute effector each pass (changes as we rotate).
-                Aero_BoneFK.computePivotInto(chainBoneIdx, chainPivots, pool,
-                    effectorPos, scratchQuat);
+                int boneBase = b * 3;
+                bonePos[0] = chainWorldPositions[boneBase];
+                bonePos[1] = chainWorldPositions[boneBase + 1];
+                bonePos[2] = chainWorldPositions[boneBase + 2];
 
                 // Vector from this bone to current end-effector.
                 float ex = effectorPos[0] - bonePos[0];
@@ -113,36 +116,41 @@ public final class Aero_CCDSolver {
                 float angle = (float) Math.acos(dot);
 
                 // Build quaternion for the correction rotation.
-                float[] qCorrection = new float[4];
                 Aero_Quaternion.fromAxisAngle(ax, ay, az, angle, qCorrection);
 
-                // Multiply with current bone's quat: q_new = q_correction * q_current.
+                // Convert world correction into this bone's local parent frame,
+                // then multiply with current bone's quat: q_new = q_local * q_current.
+                int parentBase = b * 4;
+                qParent[0] = chainParentRotations[parentBase];
+                qParent[1] = chainParentRotations[parentBase + 1];
+                qParent[2] = chainParentRotations[parentBase + 2];
+                qParent[3] = chainParentRotations[parentBase + 3];
+                qParentInv[0] = qParent[0];
+                qParentInv[1] = -qParent[1];
+                qParentInv[2] = -qParent[2];
+                qParentInv[3] = -qParent[3];
+                Aero_Quaternion.multiply(qCorrection, qParent, qTemp);
+                Aero_Quaternion.multiply(qParentInv, qTemp, qLocalCorrection);
+
                 Aero_BoneRenderPose pose = pool[chainBoneIdx[b]];
-                float[] qCurrent = new float[4];
                 Aero_Quaternion.fromEulerDegrees(pose.rotX, pose.rotY, pose.rotZ, qCurrent);
-                float[] qNew = new float[4];
-                Aero_Quaternion.multiply(qCorrection, qCurrent, qNew);
+                Aero_Quaternion.multiply(qLocalCorrection, qCurrent, qNew);
 
                 // Convert back to euler and write to pose.
-                float[] eulerOut = new float[3];
                 Aero_Quaternion.toEulerDegrees(qNew, eulerOut);
                 pose.rotX = eulerOut[0];
                 pose.rotY = eulerOut[1];
                 pose.rotZ = eulerOut[2];
+
+                scratchVec[0] = effectorPos[0] - bonePos[0];
+                scratchVec[1] = effectorPos[1] - bonePos[1];
+                scratchVec[2] = effectorPos[2] - bonePos[2];
+                Aero_Quaternion.rotateVec(qCorrection, scratchVec, scratchVec);
+                effectorPos[0] = bonePos[0] + scratchVec[0];
+                effectorPos[1] = bonePos[1] + scratchVec[1];
+                effectorPos[2] = bonePos[2] + scratchVec[2];
             }
         }
         return MAX_ITER;
-    }
-
-    private static int[] sliceIndices(int[] full, int len) {
-        int[] out = new int[len];
-        System.arraycopy(full, 0, out, 0, len);
-        return out;
-    }
-
-    private static float[][] slicePivots(float[][] full, int len) {
-        float[][] out = new float[len][];
-        System.arraycopy(full, 0, out, 0, len);
-        return out;
     }
 }

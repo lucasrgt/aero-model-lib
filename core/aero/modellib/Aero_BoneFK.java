@@ -86,4 +86,81 @@ public final class Aero_BoneFK {
         }
         return true;
     }
+
+    /**
+     * Computes every chain pivot in one root-to-leaf pass. {@code outWorldPositions}
+     * is packed as xyz triples; {@code outParentRotations} is packed as
+     * wxyz quaternion tuples, matching {@link Aero_Quaternion}.
+     */
+    static boolean computeChainPivotsInto(int[] chainBoneIdx,
+                                          float[][] chainPivots,
+                                          Aero_BoneRenderPose[] pool,
+                                          float[] outWorldPositions,
+                                          float[] outParentRotations,
+                                          float[] scratchLocalQuat) {
+        int n = chainBoneIdx.length;
+        if (n == 0) return false;
+
+        float parentW = 1f, parentX = 0f, parentY = 0f, parentZ = 0f;
+        float parentTx = 0f, parentTy = 0f, parentTz = 0f;
+
+        for (int i = 0; i < n; i++) {
+            int rotBase = i * 4;
+            outParentRotations[rotBase] = parentW;
+            outParentRotations[rotBase + 1] = parentX;
+            outParentRotations[rotBase + 2] = parentY;
+            outParentRotations[rotBase + 3] = parentZ;
+
+            Aero_BoneRenderPose pose = pool[chainBoneIdx[i]];
+            float[] pivot = chainPivots[i];
+            float px = pivot[0], py = pivot[1], pz = pivot[2];
+
+            float vx = px + pose.offsetX;
+            float vy = py + pose.offsetY;
+            float vz = pz + pose.offsetZ;
+            float tx = 2f * (parentY * vz - parentZ * vy);
+            float ty = 2f * (parentZ * vx - parentX * vz);
+            float tz = 2f * (parentX * vy - parentY * vx);
+            int posBase = i * 3;
+            outWorldPositions[posBase] =
+                vx + parentW * tx + (parentY * tz - parentZ * ty) + parentTx;
+            outWorldPositions[posBase + 1] =
+                vy + parentW * ty + (parentZ * tx - parentX * tz) + parentTy;
+            outWorldPositions[posBase + 2] =
+                vz + parentW * tz + (parentX * ty - parentY * tx) + parentTz;
+
+            Aero_Quaternion.fromEulerDegrees(pose.rotX, pose.rotY, pose.rotZ, scratchLocalQuat);
+            float localW = scratchLocalQuat[0];
+            float localX = scratchLocalQuat[1];
+            float localY = scratchLocalQuat[2];
+            float localZ = scratchLocalQuat[3];
+
+            tx = 2f * (localY * pz - localZ * py);
+            ty = 2f * (localZ * px - localX * pz);
+            tz = 2f * (localX * py - localY * px);
+            float rpx = px + localW * tx + (localY * tz - localZ * ty);
+            float rpy = py + localW * ty + (localZ * tx - localX * tz);
+            float rpz = pz + localW * tz + (localX * ty - localY * tx);
+
+            vx = px + pose.offsetX - rpx;
+            vy = py + pose.offsetY - rpy;
+            vz = pz + pose.offsetZ - rpz;
+            tx = 2f * (parentY * vz - parentZ * vy);
+            ty = 2f * (parentZ * vx - parentX * vz);
+            tz = 2f * (parentX * vy - parentY * vx);
+            parentTx += vx + parentW * tx + (parentY * tz - parentZ * ty);
+            parentTy += vy + parentW * ty + (parentZ * tx - parentX * tz);
+            parentTz += vz + parentW * tz + (parentX * ty - parentY * tx);
+
+            float nextW = parentW * localW - parentX * localX - parentY * localY - parentZ * localZ;
+            float nextX = parentW * localX + parentX * localW + parentY * localZ - parentZ * localY;
+            float nextY = parentW * localY - parentX * localZ + parentY * localW + parentZ * localX;
+            float nextZ = parentW * localZ + parentX * localY - parentY * localX + parentZ * localW;
+            parentW = nextW;
+            parentX = nextX;
+            parentY = nextY;
+            parentZ = nextZ;
+        }
+        return true;
+    }
 }

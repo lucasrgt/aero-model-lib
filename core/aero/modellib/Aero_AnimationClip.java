@@ -91,12 +91,24 @@ public final class Aero_AnimationClip {
         return sampleChannel(boneIdx, time, out, Channel.ROTATION);
     }
 
+    boolean sampleRotInto(int boneIdx, float time, float[] out, int[] cursor) {
+        return sampleChannel(boneIdx, time, out, Channel.ROTATION, cursor);
+    }
+
     public boolean samplePosInto(int boneIdx, float time, float[] out) {
         return sampleChannel(boneIdx, time, out, Channel.POSITION);
     }
 
+    boolean samplePosInto(int boneIdx, float time, float[] out, int[] cursor) {
+        return sampleChannel(boneIdx, time, out, Channel.POSITION, cursor);
+    }
+
     public boolean sampleSclInto(int boneIdx, float time, float[] out) {
         return sampleChannel(boneIdx, time, out, Channel.SCALE);
+    }
+
+    boolean sampleSclInto(int boneIdx, float time, float[] out, int[] cursor) {
+        return sampleChannel(boneIdx, time, out, Channel.SCALE, cursor);
     }
 
     /**
@@ -109,6 +121,10 @@ public final class Aero_AnimationClip {
         return sampleChannel(boneIdx, time, out, Channel.UV_OFFSET);
     }
 
+    boolean sampleUvOffsetInto(int boneIdx, float time, float[] out, int[] cursor) {
+        return sampleChannel(boneIdx, time, out, Channel.UV_OFFSET, cursor);
+    }
+
     /**
      * Samples the per-bone UV scale (multiplies the vertex's u/v before the
      * offset is added). Defaults to (1, 1) when the bone has no uv_scale
@@ -118,10 +134,19 @@ public final class Aero_AnimationClip {
         return sampleChannel(boneIdx, time, out, Channel.UV_SCALE);
     }
 
+    boolean sampleUvScaleInto(int boneIdx, float time, float[] out, int[] cursor) {
+        return sampleChannel(boneIdx, time, out, Channel.UV_SCALE, cursor);
+    }
+
     private boolean sampleChannel(int boneIdx, float time, float[] out, Channel channel) {
+        return sampleChannel(boneIdx, time, out, channel, null);
+    }
+
+    private boolean sampleChannel(int boneIdx, float time, float[] out,
+                                  Channel channel, int[] cursor) {
         if (boneIdx < 0 || boneIdx >= bones.length) return false;
         ChannelTrack track = bones[boneIdx].track(channel);
-        return track != null && track.sampleInto(time, out);
+        return track != null && track.sampleInto(time, out, cursor, boneIdx);
     }
 
     private static Map buildBoneIndex(String[] boneNames) {
@@ -210,6 +235,15 @@ public final class Aero_AnimationClip {
         // sampleInto stays alloc-free in the hot path.
         private final float[] slerpScratch;
 
+        // Pre-baked LUT covering [times[0], times[n-1]]. Populated when
+        // Aero_AnimationLUTConfig.ENABLED is true and the channel has at
+        // least 2 keyframes spanning a positive duration. When set, runtime
+        // sampling collapses to a 1 mul + 1 index + 3 lerps — see
+        // sampleLut. When null the canonical sampleRaw path runs.
+        private float[][] lut;
+        private float lutTimeMin;
+        private float lutTimeRange;
+
         ChannelTrack(String clipName, String boneName, String channelKind,
                      float[] times, float[][] values, Aero_Easing[] easings) {
             String ctx = "clip '" + clipName + "' bone '" + boneName + "' " + channelKind;
@@ -283,21 +317,79 @@ public final class Aero_AnimationClip {
                 this.slerpScratch = null;
                 this.useSlerpSegment = null;
             }
+
+            // LUT bake (opt-in). Calls sampleRaw at evenly-spaced times
+            // across [times[0], times[n-1]] and snapshots the final post-
+            // easing post-slerp output so runtime sampling becomes O(1).
+            if (Aero_AnimationLUTConfig.ENABLED && times.length >= 2) {
+                bakeLut(Aero_AnimationLUTConfig.SAMPLES);
+            }
+        }
+
+        private void bakeLut(int samples) {
+            int n = times.length;
+            float t0 = times[0];
+            float t1 = times[n - 1];
+            float range = t1 - t0;
+            if (range <= 0f) return;          // degenerate — keep lut null
+            float[][] table = new float[samples][3];
+            float[] scratch = new float[3];
+            int last = samples - 1;
+            for (int i = 0; i < samples; i++) {
+                float t = t0 + (range * i) / last;
+                sampleRaw(t, scratch, null, -1);
+                table[i][0] = scratch[0];
+                table[i][1] = scratch[1];
+                table[i][2] = scratch[2];
+            }
+            this.lut = table;
+            this.lutTimeMin = t0;
+            this.lutTimeRange = range;
         }
 
         boolean sampleInto(float time, float[] out) {
+            return sampleInto(time, out, null, -1);
+        }
+
+        boolean sampleInto(float time, float[] out, int[] cursor, int cursorIndex) {
+            if (lut != null) return sampleLut(time, out);
+            return sampleRaw(time, out, cursor, cursorIndex);
+        }
+
+        private boolean sampleLut(float time, float[] out) {
+            int last = lut.length - 1;
+            if (lutTimeRange <= 0f || time <= lutTimeMin) {
+                float[] a = lut[0];
+                out[0] = a[0]; out[1] = a[1]; out[2] = a[2];
+                return true;
+            }
+            if (time >= lutTimeMin + lutTimeRange) {
+                float[] a = lut[last];
+                out[0] = a[0]; out[1] = a[1]; out[2] = a[2];
+                return true;
+            }
+            float idx = ((time - lutTimeMin) / lutTimeRange) * last;
+            int lo = (int) idx;
+            if (lo >= last) lo = last - 1;
+            int hi = lo + 1;
+            float blend = idx - lo;
+            float[] a = lut[lo];
+            float[] b = lut[hi];
+            out[0] = a[0] + (b[0] - a[0]) * blend;
+            out[1] = a[1] + (b[1] - a[1]) * blend;
+            out[2] = a[2] + (b[2] - a[2]) * blend;
+            return true;
+        }
+
+        private boolean sampleRaw(float time, float[] out, int[] cursor, int cursorIndex) {
             int n = times.length;
             if (n == 0) return false;
             if (n == 1) { copy3(values[0], out); return true; }
             if (time <= times[0]) { copy3(values[0], out); return true; }
             if (time >= times[n - 1]) { copy3(values[n - 1], out); return true; }
 
-            int lo = 0;
-            int hi = n - 1;
-            while (hi - lo > 1) {
-                int mid = (lo + hi) >>> 1;
-                if (times[mid] <= time) lo = mid; else hi = mid;
-            }
+            int lo = findSegment(time, cursor, cursorIndex, n);
+            int hi = lo + 1;
 
             Aero_Easing easing = easings[hi];
             if (easing == Aero_Easing.STEP) {
@@ -344,6 +436,33 @@ public final class Aero_AnimationClip {
             out[1] = a[1] + (b[1] - a[1]) * eased;
             out[2] = a[2] + (b[2] - a[2]) * eased;
             return true;
+        }
+
+        private int findSegment(float time, int[] cursor, int cursorIndex, int n) {
+            if (cursor != null && cursorIndex >= 0 && cursorIndex < cursor.length) {
+                int lo = cursor[cursorIndex];
+                if (lo >= 0 && lo < n - 1) {
+                    if (time >= times[lo] && time < times[lo + 1]) return lo;
+                    if (time >= times[lo + 1]) {
+                        while (lo < n - 2 && time >= times[lo + 1]) lo++;
+                        if (time >= times[lo] && time < times[lo + 1]) {
+                            cursor[cursorIndex] = lo;
+                            return lo;
+                        }
+                    }
+                }
+            }
+
+            int lo = 0;
+            int hi = n - 1;
+            while (hi - lo > 1) {
+                int mid = (lo + hi) >>> 1;
+                if (times[mid] <= time) lo = mid; else hi = mid;
+            }
+            if (cursor != null && cursorIndex >= 0 && cursorIndex < cursor.length) {
+                cursor[cursorIndex] = lo;
+            }
+            return lo;
         }
     }
 

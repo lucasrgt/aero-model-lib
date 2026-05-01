@@ -52,12 +52,15 @@ public final class Aero_RenderDistance {
     public static void beginRenderFrame() {
         cachedViewDistance = readViewDistance();
         refreshCameraForwardFromPlayer();
+        Aero_AnimationRenderBudget.beginFrame();
+        Aero_BECellIndex.beginFrame();
         Aero_Frustum6Plane.invalidateFrame();
         // Failsafe drain: if WorldRendererBatchFlushMixin failed to apply
         // (signature drift, etc), any leftover queued instances from the
         // previous frame are flushed here. In the happy path, the queue
         // is already empty.
         Aero_AnimatedBatcher.flush();
+        Aero_BECellRenderer.flushCachedCamera();
         // Snapshot chunk visibility from vanilla's WorldRenderer.chunks[]
         // (one frame stale; see Aero_ChunkVisibility javadoc). Falls back
         // to "no cull" if the accessor mixin failed to apply.
@@ -120,6 +123,9 @@ public final class Aero_RenderDistance {
             x, y, z, viewDistance, visualRadiusBlocks, maxRenderDistanceBlocks)) {
             return false;
         }
+        if (Aero_SmallObjectCull.isTooSmall(x*x + y*y + z*z, visualRadiusBlocks)) {
+            return false;
+        }
         if (!Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks)) {
             return false;
         }
@@ -141,13 +147,17 @@ public final class Aero_RenderDistance {
             x, y, z, currentViewDistance(), visualRadiusBlocks,
             animatedDistanceBlocks, maxRenderDistanceBlocks);
         if (!lod.shouldRender()) return lod;
+        if (Aero_SmallObjectCull.isTooSmall(x*x + y*y + z*z, visualRadiusBlocks)) {
+            return Aero_RenderLod.CULLED;
+        }
         if (!Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks)) {
             return Aero_RenderLod.CULLED;
         }
         if (!passes6PlaneRelative(x, y, z, visualRadiusBlocks)) {
             return Aero_RenderLod.CULLED;
         }
-        return lod;
+        return Aero_AnimationRenderBudget.apply(lod, x, y, z, visualRadiusBlocks,
+            budgetHysteresisKey(x, y, z));
     }
 
     /**
@@ -166,6 +176,24 @@ public final class Aero_RenderDistance {
         double cz = cachedCameraZ + z;
         return Aero_Frustum6Plane.isVisibleAABB(cx - r, cy - r, cz - r,
                                                  cx + r, cy + r, cz + r);
+    }
+
+    private static Object budgetHysteresisKey(double x, double y, double z) {
+        if (!cachedCameraValid) return null;
+        int blockX = floorToInt(cachedCameraX + x);
+        int blockY = floorToInt(cachedCameraY + y);
+        int blockZ = floorToInt(cachedCameraZ + z);
+        return Long.valueOf(packBudgetKey(blockX, blockY, blockZ));
+    }
+
+    private static int floorToInt(double value) {
+        return (int) Math.floor(value);
+    }
+
+    private static long packBudgetKey(int blockX, int blockY, int blockZ) {
+        return ((long) blockX & 0x3FFFFFL) << 42
+            | ((long) blockY & 0xFFFFFL) << 22
+            | ((long) blockZ & 0x3FFFFFL);
     }
 
     public static Aero_RenderLod lodRelative(Aero_ModelSpec spec,
@@ -193,6 +221,22 @@ public final class Aero_RenderDistance {
      */
     public static PlayerEntity getCachedLocalPlayer() {
         return cachedLocalPlayer;
+    }
+
+    static boolean hasCachedCamera() {
+        return cachedCameraValid;
+    }
+
+    static double cachedCameraX() {
+        return cachedCameraX;
+    }
+
+    static double cachedCameraY() {
+        return cachedCameraY;
+    }
+
+    static double cachedCameraZ() {
+        return cachedCameraZ;
     }
 
     private static void refreshCameraForwardFromPlayer() {
@@ -237,6 +281,8 @@ public final class Aero_RenderDistance {
                 cachedDisplayHeight = mc.displayHeight;
             }
             Aero_FrustumCull.setConeHalfAngleDegrees(cachedConeHalfDeg);
+            Aero_SmallObjectCull.updateFromDisplayHeight(mc.displayHeight);
+            Aero_AnimationRenderBudget.updateFromDisplayHeight(mc.displayHeight);
         }
     }
 
@@ -269,6 +315,11 @@ public final class Aero_RenderDistance {
         if (!Aero_ChunkVisibility.isBlockChunkVisible(blockEntity.x, blockEntity.z)) {
             return Double.POSITIVE_INFINITY;
         }
+        // Small-object cull: BE projects to fewer than threshold pixels →
+        // mathematically below resolving power, drop without further checks.
+        if (Aero_SmallObjectCull.isTooSmall(dx*dx + dy*dy + dz*dz, visualRadiusBlocks)) {
+            return Double.POSITIVE_INFINITY;
+        }
         // Cone (cheap behind-camera reject).
         if (!Aero_FrustumCull.isLikelyVisibleWithRadius(dx, dy, dz, visualRadiusBlocks)) {
             return Double.POSITIVE_INFINITY;
@@ -284,24 +335,6 @@ public final class Aero_RenderDistance {
                                                    cx + r, cy + r, cz + r)) {
                 return Double.POSITIVE_INFINITY;
             }
-        }
-        // Coarse occlusion — the v3.0 killer feature for the underground
-        // case. Walks a voxel-stepping line from camera world pos to the
-        // BE block, counting opaque blocks crossed. Returns Infinity for
-        // entities solidly behind terrain.
-        // Subclasses of Aero_RenderDistanceBlockEntity get a per-BE cache
-        // (every 4th call recomputes); other BlockEntity subclasses fall
-        // back to the uncached path.
-        boolean occluded;
-        if (blockEntity instanceof Aero_RenderDistanceBlockEntity) {
-            occluded = ((Aero_RenderDistanceBlockEntity) blockEntity)
-                .isOccludedCached(dx, dy, dz);
-        } else {
-            occluded = Aero_OcclusionCull.isOccluded(blockEntity.world, dx, dy, dz,
-                                                     blockEntity.x, blockEntity.y, blockEntity.z);
-        }
-        if (occluded) {
-            return Double.POSITIVE_INFINITY;
         }
         return Aero_RenderDistanceCulling.normalizedDistanceForVanillaDispatcher(
             Aero_RenderDistanceCulling.squaredDistance(dx, dy, dz),
