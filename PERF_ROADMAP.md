@@ -1,355 +1,370 @@
-# Roadmap de performance — modellib
+# Roadmap de performance - AeroModelLib
 
-Checklist de trabalho para fechar dois grupos de pendências:
+Snapshot para investigação de gargalos. Este arquivo separa o que já está
+implementado na lib, o que ainda depende de adoção nos mods consumidores, e o
+que precisa de benchmark/JFR antes de virar prioridade.
 
-1. **A→A** — itens hoje **parcialmente cobertos** que vamos promover a cobertura completa.
-2. **B→A** — itens hoje **viáveis mas não implementados** que vamos implementar.
+Última limpeza de status: 2026-05-01.
 
-Plataforma alvo (constraint duro, recapitulação):
-- Beta 1.7.3 + StationAPI/Babric, runtime alvo é o stationapi (modloader herda via `core/`)
-- LWJGL 2 / GL 1.x fixed-function (sem shaders programáveis, sem MRT, sem instancing nativo, sem compute, sem GL 4.x indirect)
-- Tessellator vanilla + display lists são os dois canais reais de submissão
-- Chunk vertex buffer do vanilla é acessível via mixin (já provado em `BlockRenderManagerChunkBakeMixin`)
+## Legenda
 
-Critérios gerais de pronto (aplicam-se a todo item):
-- [ ] Toggle `-Daero.<feat>=false` para opt-out (mantém compat com mods que não querem)
-- [ ] Linha em `CHANGELOG.md` na próxima release com descrição + repro
-- [ ] Verificado no `runClientBenchmark -Pbench=60 -Daero.stresstest=true` (sem regressão acima de ±3 FPS na cena base)
-- [ ] Sem regressão nos 210 unit tests (`bash scripts/test_unit.sh` no consumer mais próximo)
+- **CONCLUÍDO:** código entregue, build/testes locais passando, toggle/fallback
+  quando aplicável.
+- **INFRA CONCLUÍDA / ADOÇÃO PARCIAL:** a lib já tem o mecanismo, mas mods
+  consumidores ainda precisam implementar a interface ou chamar a API.
+- **ABERTO:** não implementado.
+- **DEFERIDO:** ideia mantida, mas não é bom próximo passo sem outro
+  pré-requisito ou evidência de benchmark.
+- **BENCH PENDENTE:** falta medir em cena real/JFR. Não significa que o código
+  não existe.
 
-Convenções de prioridade:
-- **P0** — quick win com ROI claro, < 1 dia
-- **P1** — ROI claro mas exige design ou mixin novo
-- **P2** — defer até consumer reclamar / cena justificar
+## Validação atual
 
----
+Validado nesta leva:
+- `modloader/tests/run.ps1`: 214 testes passando.
+- `stationapi`: `compileJava remapJar` passando.
+- `stationapi/test`: `compileJava` passando.
 
-## Grupo A→A — promover parciais a completos
+Ainda pendente antes de declarar ganho real em produção:
+- Rodar benchmark visual/stress com muitos BEs, preferencialmente comparando
+  antes/depois por JFR.
+- Conferir adoção em mods consumidores reais, especialmente Beta Energistics.
 
-### A1. Visibility cells / PVS via `inFrustum` por chunk — **P1**
-**Hoje:** modellib reusa o `FrustumData` que vanilla calcula uma vez por frame; o teste é per-BE.
-**Falta:** capturar a flag `inFrustum` que `WorldRenderer.cullChunks` grava em cada `WorldRenderer` (chunk slice 16³) e usar como **broad-phase** antes do per-BE 6-plane. BE em chunk não-visível pula o teste de plano.
-**Arquivos prováveis:**
-- `stationapi/src/main/java/aero/modellib/mixin/WorldRendererChunksAccessor.java` (já existe, ampliar)
-- novo mixin TAIL em `WorldRenderer.cullChunks` para snapshot do mapa `chunkX,chunkY,chunkZ → inFrustum`
-- `Aero_Frustum6Plane` — short-circuit se a cell do BE está marcada não-visível
-**Dep:** nenhuma.
-**Critério de pronto:**
-- [ ] Snapshot estável do mapa de chunks visíveis por frame
-- [ ] Short-circuit no `blockEntityDistanceFrom` antes do 6-plane
-- [ ] JFR mostra queda em `Aero_Frustum6Plane.intersects` proporcional aos chunks descartados
+## Restrições de plataforma
 
-### A2. Brightness baking em mais buckets / interpolado — **P2**
-**Hoje:** `renderModelAtRest` cacheia 4 display lists por modelo, uma por bucket de brightness.
-**Falta:** transição visível em borda de bucket (4 níveis é grosseiro). Opções: 8 buckets (dobra VRAM de display lists, ~8 KB por modelo), ou 4 buckets + `glColor4f` interpolado entre dois mais próximos no draw.
-**Arquivos prováveis:**
-- `stationapi/src/main/java/aero/modellib/Aero_MeshRenderer.java`
-**Dep:** nenhuma.
-**Critério de pronto:**
-- [ ] Bucket count configurável `-Daero.brightness.buckets=N` (default 4 mantém compat)
-- [ ] Interpolação opcional `-Daero.brightness.lerp=true`
-- [ ] Sem regressão de FPS visível no benchmark base
-
-### A3. Animated batcher cross-model (sort por textura) — **CONCLUÍDO**
-**Entregue:** sort de `ACTIVE_BATCHES` por `texturePath` antes do drain (skip quando só 1 batch). `bindBatchTexture` ganhou dedup via `lastBoundPath` — adjacent same-texture batches custam zero `glBindTexture`. `lastBoundPath` reseta no início de `flush()` porque vanilla muda bind entre frames.
-**Critério de pronto:**
-- [x] Drain ordenado por `texturePath` ascendente (nulls-first comparator)
-- [x] `bindBatchTexture` skip quando path == lastBoundPath
-- [x] Toggle `-Daero.batcher.sort=false`
-- [ ] Métrica de texture binds (deferred — Aero_Profiler não tracka glBindTexture; provar com JFR/RenderDoc quando alguém investigar)
-
-### A4. Animation curve LUT bake — **CONCLUÍDO**
-**Entregue:** `Aero_AnimationLUTConfig` (env vars `aero.anim.lut=true` default-OFF + `aero.anim.lut.samples=N` default 64). `ChannelTrack` ganhou `lut[][]`, `lutTimeMin`, `lutTimeRange`. Construtor chama `bakeLut(SAMPLES)` quando ENABLED — chama `sampleRaw` em N tempos uniformes em `[times[0], times[n-1]]` e snapshota o output final pós-easing/slerp/decode. `sampleInto` virou dispatcher: LUT presente → `sampleLut` O(1) com lerp adjacente; senão fall-through para `sampleRaw` (renomeado do body original).
-**Critério de pronto:**
-- [x] LUT opt-in via `-Daero.anim.lut=true` (default off)
-- [x] Tolerável: 210 unit tests passam **tanto** com LUT off quanto com LUT on (parity verificada)
-- [x] Lookup runtime: 1 mul + 1 cast + 1 index + 3 lerps (vs. binary search + easing fn + slerp + atan2/asin/atan2)
-- [ ] JFR confirmando colapso em stress (deferred — quando alguém investigar com benchmark)
-
-### A5. Render queue: ordenação interna do pass animated — **P1**
-**Hoje:** ordem de submissão é a ordem de inserção no batcher.
-**Falta:** dentro de um mesmo `textureId` (após A3), ordenar por **estado GL completo** (alpha/blend/depth) para minimizar `glEnable/glDisable`. Composite-key sort.
-**Arquivos prováveis:** mesmos de A3.
-**Dep:** A3.
-**Critério de pronto:**
-- [ ] Composite-key sort ativo
-- [ ] Métrica de `glEnable/glDisable` por frame (Aero_Profiler) cai
-- [ ] Toggle compartilhado com A3
-
-### A6. Spatial partitioning fino: BEs indexados por chunk — **P2**
-**Hoje:** chunks vanilla são particionamento implícito; cada BE ainda passa per-frame pelos cull layers.
-**Falta:** índice `chunkKey → List<BE>` mantido pelo modellib (subscribe a load/unload de chunk via mixin). Junto com A1, um chunk fora do frustum descarta a lista inteira sem iterar.
-**Arquivos prováveis:**
-- novo `Aero_BlockEntityIndex.java` em stationapi/
-- mixin em `World.setBlockEntity` / `Chunk.removeBlockEntity` para manter índice
-**Dep:** A1 (sem `inFrustum` por chunk, o índice não acelera nada).
-**Critério de pronto:**
-- [ ] Índice consistente com `World.blockEntities` em todo frame
-- [ ] Em cena com 500+ BEs, JFR mostra `BlockEntityRenderDispatcher.render` não iterando lista vanilla
-- [ ] Toggle `-Daero.beindex=false`
+- Minecraft Beta 1.7.3 + StationAPI/Babric.
+- LWJGL 2 / OpenGL 1.x fixed-function.
+- Sem shaders programáveis, instancing moderno, compute, MRT ou indirect draw.
+- Canais reais de submissão: Tessellator vanilla e display lists.
+- Qualquer técnica nova precisa ter fallback conservador e opt-out por flag.
 
 ---
 
-## Grupo B→A — implementar viáveis
+## Resumo Para Próxima Análise
 
-### B1. OBJ load: vertex welding — **DEFERIDO (mesclar com B2)**
-**Premise check falhou.** O parser flatten triângulos como `float[15]` totalmente expandidos e o renderer usa `Tessellator → glDrawArrays` (sem index buffer), então welding na list `verts` durante parse **não reduz upload nem afeta display list cache**. O único valor real do B1 é ser pré-requisito de B2 (hidden face removal, que precisa de canonical vertex IDs pra detectar adjacência por aresta). Item mantido como sub-task interno do B2 quando este for atacado.
+O próximo gargalo provável não é mais "como emitir um modelo animado isolado",
+porque BPDL, animated batcher e cell pages já cobrem boa parte disso. O foco
+agora deve ser descobrir, com benchmark/JFR, qual destes custos sobrou no topo:
 
-### B2. OBJ load: hidden face removal — **P1**
-**Falta:** faces totalmente internas (entre dois sólidos do mesmo modelo, ambos lados oclusos) nunca aparecem; ainda são submetidas. Detect via teste de adjacência por aresta no load.
-**Arquivos:** mesmo de B1.
-**Dep:** B1 (welding precisa rodar antes para detectar adjacência).
-**Critério de pronto:**
-- [ ] Opt-in `-Daero.obj.cullhidden=true` (default off — alguns modelos esperam ver dentro)
-- [ ] Teste mostra redução de faces > 0 em mega-model
-- [ ] Sem visual diff em modelos onde câmera não entra
-
-### B3. Mipmap em texturas de modelo — **DEFERIDO (P1, escopo subestimado)**
-**Premise check falhou.** Modellib não carrega texturas próprias — só faz `mc.textureManager.bindTexture(path)` via vanilla TextureManager (`Aero_AnimatedBatcher.bindTexturePath`). Pra mipmap precisaria mixin no TextureManager (afeta TODAS texturas vanilla, quebra estética pixelada) ou criar um `Aero_TextureLoader` paralelo via LWJGL direto. Ambos os caminhos são P1+, não P0. Re-listar quando atacarmos a infraestrutura de texturas.
-
-### B4. Alpha clipping mode em `Aero_RenderOptions` — **CONCLUÍDO**
-**Entregue:** API `RenderOptions.alphaClip(threshold)` + factory `Aero_RenderOptions.alphaClipped(threshold)`. Default `0f` = disabled (preserva comportamento). `>0f` ativa `glAlphaFunc(GL_GREATER, threshold)` + `glEnable(GL_ALPHA_TEST)`. Stack com `blend(...)` quando ambos são setados (clip antes do blend, útil pra foliage com bordas suaves). `MESH_ATTRIB_BITS` ganhou `GL_COLOR_BUFFER_BIT` pra restaurar `glAlphaFunc` no `glPopAttrib` e não vazar threshold pra renderização vanilla seguinte.
-**Critério de pronto:**
-- [x] API `RenderOptions.alphaClip(threshold)` distinta de `alpha(...)` e `blend(...)`
-- [x] Implementado em ambos os runtimes (stationapi + modloader)
-- [x] 210 unit tests passam (sem regressão em `Aero_RenderOptions` shared)
-- [ ] Showcase usando clip (deferred — quando aparecer caso real, hoje ninguém precisa)
-
-### B5. Small-object culling — **CONCLUÍDO**
-**Entregue:** `Aero_SmallObjectCull` (core/) com matemática `2 * focal / threshold` cached por display height. Per-BE: 1 mul + 1 compare. Wired em `Aero_RenderDistance.shouldRenderRelative`, `lodRelative`, `blockEntityDistanceFrom` — todos após o distance check, antes do cone. Math-defined (sem falso-positivo, ao contrário das heurísticas geométricas).
-**Critério de pronto:**
-- [x] Check inserido após distance, antes do cone
-- [x] Toggle `-Daero.smallobj=false` + threshold `-Daero.smallobj.px=N`
-- [x] 210 unit tests passam
-- [ ] JFR queda em cenas com horizonte denso (deferred — confirmar quando alguém criar showcase com 100+ small BEs)
-
-### B6. Skeletal LOD intermediário — **P2**
-**Falta:** hoje LOD é binário (anima vs. at-rest). Tier intermediário "anima só ossos com `depth ≤ N` na hierarquia, resto rest" ≈ 70% custo por 30% detalhe.
-**Arquivos:**
-- `core/aero/modellib/Aero_AnimationTickLOD.java` (novo tier)
-- `Aero_AnimationPoseResolver` (skip ossos abaixo do depth threshold)
-**Dep:** nenhuma.
-**Critério de pronto:**
-- [ ] Tier `RIG_SHALLOW` adicionado entre `RIG_FULL` e `STATIC`
-- [ ] Distância de switch configurável
-- [ ] Visual diff aceitável em mega-model com 5+ níveis hierárquicos
-
-### B7. Mesh data layout: quantização opcional — **P2**
-**Falta:** `Aero_MeshModel` mantém `float[]` cru pra positions/uvs/normals. Quantização (short com escala) corta RAM 50%. Display list não vê — é só economia de heap.
-**Arquivos:** `core/aero/modellib/Aero_MeshModel.java`, `Aero_ObjLoader.java`.
-**Dep:** B1 (welding deve rodar antes; quantização só na representação serializada).
-**Critério de pronto:**
-- [ ] Opt-in `-Daero.mesh.quantize=true`
-- [ ] Erro de posição < 1/4096 (16-bit fixed point com bbox normalization)
-- [ ] Teste unit: round-trip quantize/dequantize preserva geometria visualmente
-
-### B8. Async chunk meshing (caminho 4.0) — **P1 (escopo grande)**
-**Falta:** vanilla chunk meshing é single-threaded síncrono. JFR confirma 47% do tempo de world-entry em `PalettedContainer.get` + HashMap traversals do meshing. **Maior single win pendente.**
-**Riscos:** muda contrato vanilla; exige cooperação StationAPI; cache hazards (read enquanto chunk sendo modificado).
-**Arquivos:**
-- mixin novo em `WorldRenderer.compileChunks` (ou equivalente StationAPI)
-- pool de threads pequeno (2-4) com fila de chunks dirty
-- merge result no main thread no end-of-frame
-**Dep:** validar com calmilamsy / StationAPI primeiro (ver `grumpy-calmilamsy` skill).
-**Critério de pronto:**
-- [ ] Pool desligado por default; `-Daero.chunkmesh.async=true` opt-in
-- [ ] World-entry time cai mensurável (medir com `Aero_Profiler` em mod-side)
-- [ ] Sem race em chunks atravessando boundary
-
-### B9. Cache no caller (PalettedContainer chunk-scope) — **P1**
-**Falta:** v3.0 adicionou então reverteu cache @Inject HEAD/RETURN no `PalettedContainer.get` por overhead × volume. Solução correta: cache em `WorldRenderer.compileChunks` HEAD — escope o cache à vida de um build de chunk, paga overhead 1× por chunk em vez de 1× por get.
-**Arquivos:** novo `WorldRendererChunkBuildCacheMixin`.
-**Dep:** B8 (se chunk meshing for async, cache vai por thread).
-**Critério de pronto:**
-- [ ] Cache ativo só durante `compileChunks`
-- [ ] FPS steady-state sem regressão (≤ ±2 FPS vs. baseline 3.0)
-- [ ] World-entry time cai em chunks novos
-
-### B10. Motion-based animation simplification — **P2**
-**Falta:** BE/entity se movendo rápido não permite o olho discriminar pose precisa. Skip de tick adicional quando velocidade > threshold.
-**Arquivos:** `core/aero/modellib/Aero_AnimationTickLOD.java`.
-**Dep:** nenhuma.
-**Critério de pronto:**
-- [ ] Threshold de velocidade configurável
-- [ ] Comportamento default conservador (só skip em > 8 m/s, ~Speed II)
-- [ ] Teste manual: minecart em rail mostra animação ainda crível
-
-### B11. Billboard distante para showcase — **P2**
-**Falta:** além do swap animated→at-rest, swap final at-rest→sprite quando distância > 2× LOD máximo. Sprite gerado uma vez via `glReadPixels` da display list em FBO de side-render no load (se possível em Beta — caso contrário pre-rendered offline).
-**Arquivos:** novo `Aero_MeshBillboard.java` + integração em `Aero_RenderDistanceCulling`.
-**Dep:** investigar se Beta + StationAPI expõem FBO offscreen. Se não → pre-bake pelo aero-machine-maker.
-**Critério de pronto:**
-- [ ] Sprite render path ativo além do range
-- [ ] Visual: silhueta razoável vs. modelo completo
-- [ ] Toggle `-Daero.billboard=false`
-
-### B12. LODs reais de modelo (decimation pipeline) — **P2 escopo grande**
-**Falta:** hoje LOD = "menos animação". LOD = "menos vértices" exige pipeline: gerar `model.lod1.obj` / `lod2.obj` (ou auto-decimate via quadric error metric no load).
-**Arquivos:** novo `Aero_MeshDecimator.java` em core/, integração em `Aero_ObjLoader`.
-**Dep:** decidir via tooling (offline) ou runtime (CPU cost). Recomendado offline → `tools/aero-machine-maker` exporta pre-decimated.
-**Critério de pronto:**
-- [ ] LOD0/LOD1/LOD2 carregados quando presentes
-- [ ] Switch baseado em distância
-- [ ] Sem fallback degradado quando LOD ausente (continua usando base como hoje)
+1. Adoção incompleta de `Aero_CellPageRenderableBE` nos mods reais.
+2. Iteração vanilla por todos os BEs antes do skip por `distanceFrom`.
+3. Troca de estado GL dentro do animated batcher.
+4. Triângulos desnecessários em OBJ grande.
+5. Chunk meshing / `PalettedContainer.get` em entrada de mundo ou chunk novo.
 
 ---
 
-## Grupo C — BE Cell Pages / escala massiva em tela
+## Grupo A - Render Queue, Culling e Estado GL
 
-Objetivo: cenas que caem de ~800 FPS para 150–200 FPS por volume de
-BlockEntities devem parar de pagar custo por BE individual. O caminho é
-orçamento + células + páginas at-rest, preservando animação real só onde ela
-importa.
+### A1. Chunk visibility / PVS por `inFrustum` - **CONCLUÍDO, BENCH PENDENTE**
 
-### C0. Animation render budget — **CONCLUÍDO**
-**Entregue:** `Aero_AnimationRenderBudget` reseta no início do render frame
-StationAPI e rebaixa overflow `ANIMATED → STATIC`, mantendo o objeto visível
-via display-list at-rest/BPDL. Flags:
+**Entregue:** `Aero_ChunkVisibility` tira snapshot de
+`WorldRenderer.chunks[]` via `WorldRendererChunksAccessor`, usa `inFrustum` e
+o resultado de hardware occlusion query quando disponível, e faz
+`Aero_RenderDistance.blockEntityDistanceFrom(...)` retornar `Infinity` para
+BEs em chunk não visível.
+
+**Notas importantes:**
+- O snapshot roda no começo do frame e lê o estado do frame anterior. Isso é
+  intencional para evitar mixin frágil em `WorldRenderer.cullChunks`.
+- A chave colapsa Y e usa `(chunkX, chunkZ)`, adequado ao mundo Beta 16x128x16
+  dividido em chunk-builders 16x16x16.
+
+**Toggle:** `-Daero.chunkvisibility=false`.
+
+**Falta medir:**
+- JFR confirmando queda proporcional em `Aero_Frustum6Plane` / dispatcher BE
+  quando a câmera olha para regiões com muitos chunks fora do frustum.
+
+### A2. Brightness buckets configuráveis/interpolados - **ABERTO P2**
+
+**Hoje:** display lists at-rest usam 4 buckets de brightness via
+`Aero_MeshModel.BRIGHTNESS_FACTORS`.
+
+**Possíveis caminhos:**
+- 8 buckets: transição visual melhor, mais listas em driver/VRAM.
+- 4 buckets + interpolação de cor no draw: menor memória, mais chamadas/cor.
+
+**Critério para atacar:** só se o Pro ou teste visual encontrar banding de luz
+como problema real.
+
+### A3. Animated batcher sort por textura - **CONCLUÍDO**
+
+**Entregue:** `Aero_AnimatedBatcher` ordena batches por `texturePath` quando
+há mais de um batch e deduplica binds adjacentes com `lastBoundPath`.
+
+**Toggle:** `-Daero.batcher.sort=false`.
+
+**Falta medir:** métrica direta de `glBindTexture`; hoje a prova forte ainda
+depende de JFR/RenderDoc ou instrumentação futura.
+
+### A4. Animation curve LUT bake - **CONCLUÍDO, OPT-IN**
+
+**Entregue:** `Aero_AnimationLUTConfig` e LUT por canal quando
+`-Daero.anim.lut=true`. Mantém fallback para sampling original.
+
+**Flags:**
+- `-Daero.anim.lut=true`
+- `-Daero.anim.lut.samples=N` (default `64`)
+
+**Falta medir:** JFR em stress real para confirmar o quanto o custo de easing /
+binary search / slerp caiu.
+
+### A5. Composite-key sort do animated batcher - **ABERTO P1**
+
+**Hoje:** o batcher ordena por textura, mas não por estado GL completo.
+
+**Falta:** ordenar também por chave composta de estado:
+`texturePath + blend + depthTest + cullFaces + alphaClip + tint/alpha`.
+
+**Por que pode importar:** reduz `glEnable/glDisable`, `glBlendFunc`,
+`glAlphaFunc` e mudanças de estado quando muitos modelos animados têm opções
+diferentes.
+
+**Critério para atacar:** JFR/trace mostrando troca de estado GL como custo
+relevante depois de cell pages.
+
+### A6. Índice global para não iterar BE vanilla - **PARCIAL / REFORMULADO**
+
+**Entregue parcialmente:** `Aero_BECellIndex` mantém BEs opt-in agrupados por
+célula 8³ e mundo, com dirty flags de state/orientation/canCellPage.
+
+**O que C5 já resolveu:** BEs que herdam `Aero_RenderDistanceBlockEntity` e
+implementam `Aero_CellPageRenderableBE` podem ser enfileirados no
+`distanceFrom(...)` e pular o renderer individual.
+
+**O que ainda NÃO está resolvido:** vanilla ainda itera a lista de BEs e chama
+`distanceFrom(...)`. Não há ainda um dispatcher próprio que itere só células
+visíveis sem passar pela lista vanilla.
+
+**Próximo passo só se JFR justificar:**
+- mixin no dispatcher/lista de BEs para pular em lote, ou
+- render pass próprio por célula e supressão segura do dispatcher vanilla para
+  BEs Aero-managed.
+
+---
+
+## Grupo B - Mesh, OBJ e Chunk Meshing
+
+### B1. OBJ vertex welding - **DEFERIDO, SUBTAREFA DE B2**
+
+**Premissa:** welding sozinho não reduz upload, porque a malha interna é
+triângulo flatten em `float[]` e o renderer não usa index buffer.
+
+**Valor real:** pré-requisito para detectar faces internas em B2.
+
+### B2. OBJ hidden face removal - **ABERTO P1**
+
+**Falta:** remover faces totalmente internas de modelos OBJ compostos por
+blocos/caixas adjacentes.
+
+**Cuidado:** opt-in obrigatório. Alguns modelos esperam que a câmera veja
+interior ou backfaces.
+
+**Flag proposta:** `-Daero.obj.cullhidden=true` default off.
+
+**Critério para atacar:** modelo grande com redução de faces mensurável e sem
+diff visual em câmera externa.
+
+### B3. Mipmap em texturas de modelo - **DEFERIDO**
+
+**Motivo:** a modellib não possui loader de textura próprio; ela chama o
+`TextureManager` vanilla via path. Mipmap exigiria mixin global no
+TextureManager ou loader paralelo LWJGL, ambos com risco visual alto em textura
+pixel-art.
+
+### B4. Alpha clipping em `Aero_RenderOptions` - **CONCLUÍDO**
+
+**Entregue:** `alphaClip(threshold)`, `Aero_RenderOptions.alphaClipped(...)` e
+estado GL restaurado em ambos os runtimes.
+
+### B5. Small-object culling - **CONCLUÍDO**
+
+**Entregue:** `Aero_SmallObjectCull` integrado em `shouldRenderRelative`,
+`lodRelative` e `blockEntityDistanceFrom`.
+
+**Flags:**
+- `-Daero.smallobj=false`
+- `-Daero.smallobj.px=N`
+
+### B6. Skeletal LOD intermediário - **ABERTO P2**
+
+**Ideia:** tier entre ANIMATED e STATIC que anima só ossos acima de certa
+profundidade na hierarquia.
+
+**Critério para atacar:** modelos com hierarquia profunda onde BPDL ainda deixa
+pose/chain cost alto.
+
+### B7. Mesh quantization - **ABERTO P2**
+
+**Ideia:** guardar posições/UV/normais em representação quantizada para reduzir
+heap. Não acelera display list diretamente; é otimização de memória.
+
+### B8. Async chunk meshing - **ABERTO P1 GRANDE**
+
+**Problema alvo:** entrada de mundo/chunk novo, não exatamente render steady
+state da modellib.
+
+**Risco:** contrato vanilla/StationAPI e sincronização de mundo/chunks.
+
+**Flag proposta:** `-Daero.chunkmesh.async=true` default off.
+
+### B9. Cache chunk-scope no caller de `PalettedContainer.get` - **ABERTO P1**
+
+**Ideia correta:** cache com vida limitada ao build de chunk, ativado no caller
+de `WorldRenderer.compileChunks`, não em cada `PalettedContainer.get`.
+
+**Depende de:** desenho final de B8 se o meshing virar async.
+
+### B10. Motion-based animation simplification - **ABERTO P2**
+
+**Ideia:** reduzir tick/pose quando entidade/BE móvel está rápido demais para o
+olho perceber pose precisa.
+
+### B11. Billboard distante - **ABERTO P2**
+
+**Ideia:** trocar at-rest distante por sprite/silhueta quando distância passa
+do range útil do modelo real.
+
+**Cuidado:** FBO/offscreen em Beta precisa ser investigado; alternativa é
+pre-bake offline via tooling.
+
+### B12. LODs reais de modelo / decimation - **ABERTO P2 GRANDE**
+
+**Ideia:** carregar `model.lod1.obj`, `model.lod2.obj` ou gerar decimation
+offline. Melhor como pipeline/tooling do que em runtime.
+
+---
+
+## Grupo C - BE Cell Pages / Escala Massiva em Tela
+
+Objetivo: quando uma cena cai de ~800 FPS para 150-200 FPS por volume de
+BlockEntities, reduzir trabalho por BE individual. A lib agora tem orçamento
+de animação, páginas por célula e skip do renderer individual para BEs opt-in.
+
+### C0. Animation render budget - **CONCLUÍDO**
+
+**Entregue:** `Aero_AnimationRenderBudget` rebaixa overflow
+`ANIMATED -> STATIC`, mantendo o objeto visível.
+
+**Flags:**
 - `-Daero.animBudget=false`
-- `-Daero.maxAnimatedBE=N` (default `128`, `-1` = ilimitado)
+- `-Daero.maxAnimatedBE=N` (default `128`, `-1` ilimitado)
 
-**Critério de pronto:**
-- [x] Reset por frame no `GameRendererMixin → Aero_RenderDistance.beginRenderFrame`
-- [x] Integração no `Aero_RenderDistance.lodRelative`
-- [x] Overflow renderiza como STATIC em vez de sumir
-- [ ] Métrica visual/JFR em stress com 300+ BEs olhando direto para a fábrica
+**Detalhe importante:** decisões por chave são memoizadas no frame para não
+consumir budget duas vezes quando `distanceFrom(...)` e renderer perguntam LOD.
 
-### C1. Prioridade de animação por importância — **CONCLUÍDO**
-**Entregue:** admissão do C0 ficou importance-aware: calcula tamanho projetado
-aproximado em pixels, reserva espaço extra para objetos muito próximos/grandes
-e rejeita objetos pequenos/longe antes de consumirem o orçamento inteiro.
-Também segura por poucos frames objetos que acabaram de entrar como animated,
-evitando alternância animated/static na borda do orçamento. Flags:
-- `-Daero.animBudget.criticalPx=N` (default `64`)
-- `-Daero.animBudget.midPx=N` (default `32`)
-- `-Daero.animBudget.lowPx=N` (default `16`)
-- `-Daero.animBudget.nearBlocks=N` (default `12`)
-- `-Daero.animBudget.criticalExtra=N` (default `max(8, maxAnimatedBE/4)`)
-- `-Daero.animBudget.hysteresisFrames=N` (default `6`)
-- `-Daero.animBudget.hysteresisExtra=N` (default `max(4, maxAnimatedBE/8)`)
+### C1. Prioridade de animação por importância - **CONCLUÍDO**
 
-**Nota:** prioridade perfeita ainda fica para o coletor global/células, porque
-o dispatcher vanilla continua determinando a ordem de chegada. Este item fecha
-o controle local do budget.
-**Critério de pronto:**
-- [x] Score por tamanho projetado / distância
-- [x] Reserva opcional para BEs muito próximos
-- [x] Histerese para evitar alternar animado/static a cada frame
+**Entregue:** prioridade por tamanho projetado/distância, reserva crítica para
+objetos próximos/grandes e histerese para evitar flicker animated/static.
 
-### C2. BECellIndex por chunk/célula — **PARCIAL**
-**Entregue:** `Aero_CellRenderableBE` no core e `Aero_BECellIndex` no runtime
-StationAPI. A base `Aero_RenderDistanceBlockEntity` registra automaticamente
-no `tick()`, no `distanceFrom(...)` e em `shouldTickAnimation()`, remove em
-`markRemoved()` e reanexa em `cancelRemoval()`. O índice agrupa por mundo +
-célula 8³ (`-Daero.becell.size=N`), marca células dirty quando
-estado/orientação/eligibilidade muda e expõe snapshot só das células cujo
-chunk passa em `Aero_ChunkVisibility`.
+**Flags principais:**
+- `-Daero.animBudget.criticalPx=N`
+- `-Daero.animBudget.midPx=N`
+- `-Daero.animBudget.lowPx=N`
+- `-Daero.animBudget.nearBlocks=N`
+- `-Daero.animBudget.criticalExtra=N`
+- `-Daero.animBudget.hysteresisFrames=N`
+- `-Daero.animBudget.hysteresisExtra=N`
 
-**Falta:** integração com o renderer central e hooks para BEs que não herdam
-`Aero_RenderDistanceBlockEntity`. O sweep periódico continua como failsafe
-para entradas cujo `world` sumiu/mudou.
-**Critério de pronto:**
-- [x] Interface `Aero_CellRenderableBE`
-- [x] Registro/desregistro seguro em load/unload
-- [x] Dirty flags para modelo/textura/orientação/light/state
-- [x] Iteração só de células cujo chunk passa em `Aero_ChunkVisibility`
+### C2. BECellIndex por célula - **INFRA CONCLUÍDA / ADOÇÃO PARCIAL**
 
-### C3. Cell at-rest pages — **PARCIAL**
-**Entregue:** `Aero_BECellRenderer.queueAtRest(...)` para renderers StationAPI.
-O flush no fim de `WorldRenderer.renderEntities` agrupa instâncias at-rest por
-mundo/célula/render-key, compila display lists por célula que chamam as
-display lists at-rest do modelo com transform local, e mantém fallback direto
-para grupos pequenos, blend/translucência, camera cache ausente ou falha em
-`glGenLists`. Flags:
+**Entregue:** `Aero_CellRenderableBE` e `Aero_BECellIndex` agrupam BEs opt-in
+por mundo+célula, com dirty flags e snapshot de células visíveis.
+
+**Adoção atual:** automática para classes que herdam
+`Aero_RenderDistanceBlockEntity`. BEs que não herdam essa base ainda precisam
+chamar track/untrack ou ganhar hooks específicos.
+
+**Falta para consumidores reais:** migrar BEs relevantes do Beta Energistics e
+outros mods para a base/contrato.
+
+### C3. Cell at-rest pages - **INFRA CONCLUÍDA / ADOÇÃO PARCIAL**
+
+**Entregue:** `Aero_BECellRenderer.queueAtRest(...)` e
+`Aero_CellPageRenderableBE`. O flush compila display lists por célula que
+chamam as display lists at-rest do modelo com transform local.
+
+**Flags:**
 - `-Daero.becell.pages=false`
 - `-Daero.becell.minInstances=N` (default `2`)
 - `-Daero.becell.pageTtlFrames=N` (default `600`)
-- `-Daero.becell.rebuildsPerFrame=N` (default `8`, `-1` = ilimitado)
+- `-Daero.becell.rebuildsPerFrame=N` (default `8`, `-1` ilimitado)
 
-**Falta:** migrar todos os BERs consumidores para o `queueAtRest` /
-`Aero_CellPageRenderableBE`.
-**Critério de pronto:**
-- [x] Page cache do `Aero_BECellRenderer` com buckets por texture/options/light/orientation
-- [x] Rebuild amortizado `-Daero.becell.rebuildsPerFrame=N`
-- [x] Fallback quando `glGenLists` falha
-- [x] Dispose em unload/reload
+**Fallbacks:** grupo pequeno, blend/translucência, falha de `glGenLists`,
+modelo não paginável ou flag desligada voltam para render direto/individual.
 
-### C4. Central cell flush — **CONCLUÍDO**
-**Entregue:** flush no fim do entity pass, ao lado do `Aero_AnimatedBatcher`,
-para desenhar páginas de célula em batches ordenados por texture/model/célula.
-O mesmo flush é chamado como failsafe no começo do próximo frame caso o mixin
-não aplique. O `Aero_Profiler` mede `aero.becell.flush`,
-`aero.becell.compile`, `aero.becell.call` e `aero.becell.direct`.
-**Critério de pronto:**
-- [x] `Aero_BECellRenderer.flush(...)`
-- [x] Sort por texture/render options
-- [x] Métricas no `Aero_Profiler` e contadores debug (`pageCalls`, `pageRebuilds`, `directFallbacks`)
+**Falta para consumidores reais:** implementar `Aero_CellPageRenderableBE` nos
+BEs que podem aparecer como at-rest/LOD-overflow.
 
-### C5. Pular render individual dos BEs cell-managed — **CONCLUÍDO**
-**Entregue:** contrato `Aero_CellPageRenderableBE` para BEs StationAPI que
-expõem modelo/textura/brightness/LOD estático. A base
-`Aero_RenderDistanceBlockEntity.distanceFrom(...)` resolve LOD antes do
-dispatcher; quando o resultado é STATIC, enfileira a cell page e retorna
-`Infinity`, evitando chamar o BER individual. Se páginas estão desativadas,
-o modelo é translúcido, o BE não pode ser paginado, ou a fila falha, o caminho
-volta ao renderer individual. Toggle: `-Daero.becell.skipIndividual=false`.
-**Critério de pronto:**
-- [x] Opt-in por interface/flag
-- [x] Fallback seguro sem mixin obrigatório
-- [x] Sem sumiço visual quando a célula está dirty ou ainda não compilou
+### C4. Central cell flush - **CONCLUÍDO**
+
+**Entregue:** `Aero_BECellRenderer.flush(...)` no fim de
+`WorldRenderer.renderEntities`, junto ao `Aero_AnimatedBatcher`, com failsafe
+no começo do próximo frame.
+
+**Profiler:** `aero.becell.flush`, `aero.becell.compile`,
+`aero.becell.call`, `aero.becell.direct`.
+
+### C5. Skip do renderer individual para BEs cell-managed - **CONCLUÍDO**
+
+**Entregue:** `Aero_RenderDistanceBlockEntity.distanceFrom(...)` resolve LOD;
+quando o BE implementa `Aero_CellPageRenderableBE` e cai em STATIC, a base
+enfileira a cell page e retorna `Infinity` para vanilla, evitando o BER
+individual.
+
+**Toggle:** `-Daero.becell.skipIndividual=false`.
+
+**Limite atual:** ainda existe custo de iteração vanilla e chamada
+`distanceFrom(...)`. O que sai é o custo do renderer individual e da emissão
+por BE quando o BE é paginável.
 
 ---
 
-## Plano de execução
+## Grupo D - Bone Pages / Animação Rígida
 
-**Próxima onda (P0, batch curto):**
-1. ~~B1 — vertex welding~~ → DEFERIDO (mesclado em B2 quando atacarmos)
-2. ~~B3 — mipmap em texturas standalone~~ → DEFERIDO (escopo P1, infra de textura)
-3. ~~B4 — alpha clipping mode~~ → **CONCLUÍDO**
-4. ~~B5 — small-object culling~~ → **CONCLUÍDO**
-5. ~~A3 — animated batcher sort por textura~~ → **CONCLUÍDO**
+### D1. Bone-page display lists - **CONCLUÍDO**
 
-**Onda P0 fechada.** Próxima onda (P1):
-6. ~~A1 — chunk `inFrustum` cache~~ → JÁ ENTREGUE pela 3.x (`Aero_ChunkVisibility`)
-7. A6 — BE index por chunk
-8. ~~A4 — animation curve LUT~~ → **CONCLUÍDO**
-9. A5 — composite-key sort no batcher ← **PRÓXIMO**
-10. B2 — hidden face removal (engloba B1)
-11. B9 — cache no caller (PalettedContainer chunk-scope)
+**Entregue:** BPDL para grupos rígidos/named groups. A geometria de grupos
+elegíveis vira display list por bone/bucket; render animado aplica matriz do
+bone e chama `glCallList`. UV animation usa matriz de textura fixed-function.
 
-**Onda seguinte (P1, batch médio):**
-6. A1 — chunk `inFrustum` cache
-7. A6 — BE index por chunk (depende de A1)
-8. A4 — animation curve LUT
-9. A5 — composite-key sort no batcher
-10. B2 — hidden face removal
-11. B9 — cache no caller (PalettedContainer chunk-scope)
+**Flags:**
+- `-Daero.bonepages=false`
+- `-Daero.bonepages.minTris=N` (default `24`)
 
-**Onda final (P2 / escopo grande):**
-12. A2 — brightness buckets configuráveis
-13. B6 — skeletal LOD intermediário
-14. B7 — mesh quantization
-15. B10 — motion-based simplification
-16. B11 — billboard distante
-17. B12 — LODs reais (decimation pipeline)
-18. B8 — async chunk meshing (4.0, marco maior)
-19. C1–C5 — BE Cell Pages completas
+**Fallbacks:** morph ativo, grupo pequeno, falha de list, ou geometria não
+elegível voltam ao Tessellator.
+
+**Profiler:** `aero.bonepages.compile`, `aero.bonepages.call`.
 
 ---
 
-## Como vamos iterar
+## Próxima Onda Recomendada
 
-Por iteração:
-1. Pegar o próximo item da onda atual (ordem acima)
-2. Verificar premissas (arquivos e contratos ainda existem)
-3. Implementar com toggle opt-out
-4. Rodar `bash scripts/test_unit.sh` no consumer mais próximo (modellib stationapi/test)
-5. Rodar `runClientBenchmark -Pbench=60 -Daero.stresstest=true` antes/depois — diff de JFR
-6. Marcar checkboxes neste arquivo, atualizar `CHANGELOG.md` na próxima release
-7. Próximo item
+Antes de implementar técnica nova, medir:
 
-Se uma premissa falhar (ex.: chunk-mesh API mudou na StationAPI), o item move pra "Bloqueados" abaixo com motivo.
+1. Rodar stress/JFR com muitos BEs reais, incluindo Beta Energistics.
+2. Comparar flags:
+   - baseline atual
+   - `-Daero.becell.skipIndividual=false`
+   - `-Daero.becell.pages=false`
+   - `-Daero.bonepages=false`
+   - `-Daero.maxAnimatedBE=-1`
+3. Confirmar se o topo do JFR é renderer individual, `distanceFrom`,
+   `Aero_AnimatedBatcher`, estado GL, OBJ tri count ou chunk meshing.
+
+Próximas implementações prováveis, em ordem conservadora:
+
+1. Migrar BEs reais do Beta Energistics para `Aero_CellPageRenderableBE`.
+2. A5 - composite-key sort do animated batcher, se estado GL aparecer no topo.
+3. B2 - hidden face removal, se triângulo/modelo OBJ aparecer no topo.
+4. B9 - cache chunk-scope, se entrada de mundo/chunk build aparecer no topo.
+5. A6 - dispatcher/cell iteration mais invasivo, se a iteração vanilla por BE
+   continuar cara mesmo depois do skip individual.
 
 ## Bloqueados
 
-(vazio)
+Nenhum bloqueio confirmado no momento. Itens grandes dependem de benchmark para
+evitar otimizar o gargalo errado.
