@@ -265,30 +265,37 @@ para grupos pequenos, blend/translucência, camera cache ausente ou falha em
 - `-Daero.becell.minInstances=N` (default `2`)
 - `-Daero.becell.pageTtlFrames=N` (default `600`)
 
-**Falta:** migrar todos os BERs consumidores para o `queueAtRest`, adicionar
-rebuild amortizado real e ligar métricas ao `Aero_Profiler`.
+**Falta:** migrar todos os BERs consumidores para o `queueAtRest` /
+`Aero_CellPageRenderableBE` e adicionar rebuild amortizado real.
 **Critério de pronto:**
 - [x] Page cache do `Aero_BECellRenderer` com buckets por texture/options/light/orientation
 - [ ] Rebuild amortizado `-Daero.becell.rebuildsPerFrame=N`
 - [x] Fallback quando `glGenLists` falha
 - [x] Dispose em unload/reload
 
-### C4. Central cell flush — **P1 grande**
-**Falta:** flush no fim do entity pass, ao lado do `Aero_AnimatedBatcher`, para
-desenhar páginas de célula em batches de textura/estado.
+### C4. Central cell flush — **CONCLUÍDO**
+**Entregue:** flush no fim do entity pass, ao lado do `Aero_AnimatedBatcher`,
+para desenhar páginas de célula em batches ordenados por texture/model/célula.
+O mesmo flush é chamado como failsafe no começo do próximo frame caso o mixin
+não aplique. O `Aero_Profiler` mede `aero.becell.flush`,
+`aero.becell.compile`, `aero.becell.call` e `aero.becell.direct`.
 **Critério de pronto:**
-- [ ] `Aero_BECellRenderer.flush(partialTick)`
-- [ ] Sort por texture/render options
-- [ ] Métricas `aero.becell.pageCalls`, `pageRebuilds`, `instancesAtRest`
+- [x] `Aero_BECellRenderer.flush(...)`
+- [x] Sort por texture/render options
+- [x] Métricas no `Aero_Profiler` e contadores debug (`pageCalls`, `pageRebuilds`, `directFallbacks`)
 
-### C5. Pular render individual dos BEs cell-managed — **P1/P2 invasivo**
-**Falta:** mixin/contrato para o dispatcher não chamar renderer individual de
-BEs que a célula já desenha, eliminando o custo por BE em vez de apenas
-rebaixar animação.
+### C5. Pular render individual dos BEs cell-managed — **CONCLUÍDO**
+**Entregue:** contrato `Aero_CellPageRenderableBE` para BEs StationAPI que
+expõem modelo/textura/brightness/LOD estático. A base
+`Aero_RenderDistanceBlockEntity.distanceFrom(...)` resolve LOD antes do
+dispatcher; quando o resultado é STATIC, enfileira a cell page e retorna
+`Infinity`, evitando chamar o BER individual. Se páginas estão desativadas,
+o modelo é translúcido, o BE não pode ser paginado, ou a fila falha, o caminho
+volta ao renderer individual. Toggle: `-Daero.becell.skipIndividual=false`.
 **Critério de pronto:**
-- [ ] Opt-in por interface/flag
-- [ ] Fallback seguro se o mixin falhar
-- [ ] Sem sumiço visual quando a célula está dirty ou ainda não compilou
+- [x] Opt-in por interface/flag
+- [x] Fallback seguro sem mixin obrigatório
+- [x] Sem sumiço visual quando a célula está dirty ou ainda não compilou
 
 ---
 

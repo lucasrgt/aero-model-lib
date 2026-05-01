@@ -5,6 +5,8 @@ import aero.modellib.Aero_AnimationDefinition;
 import aero.modellib.Aero_AnimationEventListener;
 import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
+import aero.modellib.Aero_CellPageRenderableBE;
+import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
 
 /**
@@ -19,7 +21,7 @@ import aero.modellib.Aero_RenderDistanceBlockEntity;
  * server log so testers can verify the listener is firing without needing
  * sound/particle infrastructure on the consumer side.
  */
-public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity {
+public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity implements Aero_CellPageRenderableBE {
 
     public static final int STATE_IDLE = 0;
     public static final int STATE_SPIN = 1;
@@ -107,6 +109,36 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
     @Override
     protected double getAeroRenderRadius() {
         return 4.0d;
+    }
+
+    @Override
+    public Aero_MeshModel aeroCellModel() {
+        return AnimatedMegaModelBlockEntityRenderer.MODEL;
+    }
+
+    @Override
+    public String aeroCellTexturePath() {
+        return AnimatedMegaModelBlockEntityRenderer.TEXTURE;
+    }
+
+    @Override
+    public float aeroCellBrightness() {
+        return AeroLight.brightnessAbove(world, x, y, z);
+    }
+
+    @Override
+    public double aeroCellVisualRadius() {
+        return 4.0d;
+    }
+
+    @Override
+    public double aeroCellAnimatedDistance() {
+        return AeroTestMod.demoAnimatedLodDistance();
+    }
+
+    @Override
+    public double aeroCellMaxRenderDistance() {
+        return getAeroMaxRenderDistance();
     }
 
     @Override

@@ -63,4 +63,20 @@ public class AnimationRenderBudgetTest {
                 80d, 0d, 0d, 2d, key));
         assertEquals(1, Aero_AnimationRenderBudget.hysteresisAcceptedThisFrame());
     }
+
+    @Test
+    public void keyedDecisionIsReusedWithinFrame() {
+        Object key = new Object();
+        Aero_AnimationRenderBudget.updateFromDisplayHeight(1080);
+        Aero_AnimationRenderBudget.beginFrame();
+
+        assertEquals(Aero_RenderLod.ANIMATED,
+            Aero_AnimationRenderBudget.apply(Aero_RenderLod.ANIMATED,
+                4d, 0d, 0d, 2d, key));
+        assertEquals(Aero_RenderLod.ANIMATED,
+            Aero_AnimationRenderBudget.apply(Aero_RenderLod.ANIMATED,
+                4d, 0d, 0d, 2d, key));
+
+        assertEquals(1, Aero_AnimationRenderBudget.acceptedThisFrame());
+    }
 }

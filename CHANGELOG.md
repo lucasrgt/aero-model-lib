@@ -44,6 +44,16 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
   list failure. Toggle with `-Daero.becell.pages=false`; tune with
   `-Daero.becell.minInstances=N` and `-Daero.becell.pageTtlFrames=N`.
 
+- **Managed BE Cell Pages before individual renderer dispatch.** StationAPI
+  BEs can implement `Aero_CellPageRenderableBE` to expose model, texture,
+  brightness, radius, animation distance and render options to the distance
+  gate. When LOD resolves to STATIC, `Aero_RenderDistanceBlockEntity` queues
+  the BE into the cell page and returns out-of-range to vanilla, so the
+  individual BER is skipped. Animated LOD still flows through the renderer
+  and existing `Aero_AnimatedBatcher`. Toggle the skip path with
+  `-Daero.becell.skipIndividual=false`. Cell page timings now appear in
+  `Aero_Profiler` as `aero.becell.flush`, `compile`, `call`, and `direct`.
+
 - **Smart LOD Y-bias is enabled by default.** `Aero_RenderDistanceCulling`
   now computes LOD and `shouldRenderRelative(...)` distance with vertical
   distance weighted by `-Daero.ybias=N` (default `2.0`). Set

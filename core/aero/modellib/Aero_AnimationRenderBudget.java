@@ -31,6 +31,8 @@ public final class Aero_AnimationRenderBudget {
 
     private static final HashMap<Object, Integer> HELD_UNTIL_FRAME =
         new HashMap<Object, Integer>();
+    private static final HashMap<Object, Aero_RenderLod> DECISION_BY_KEY =
+        new HashMap<Object, Aero_RenderLod>();
 
     private static double focalPx;
     private static int cachedDisplayHeight = -1;
@@ -51,6 +53,7 @@ public final class Aero_AnimationRenderBudget {
         criticalAcceptedThisFrame = 0;
         hysteresisAcceptedThisFrame = 0;
         priorityRejectedThisFrame = 0;
+        DECISION_BY_KEY.clear();
         if ((frameIndex & 31) == 0) {
             expireHolds();
         }
@@ -93,30 +96,44 @@ public final class Aero_AnimationRenderBudget {
     public static Aero_RenderLod apply(Aero_RenderLod lod, double x, double y, double z,
                                        double visualRadiusBlocks, Object hysteresisKey) {
         if (lod != Aero_RenderLod.ANIMATED) return lod;
-        if (!ENABLED || MAX_ANIMATED < 0) return lod;
+        Aero_RenderLod cached = cachedDecision(hysteresisKey);
+        if (cached != null) return cached;
+        if (!ENABLED || MAX_ANIMATED < 0) return rememberDecision(hysteresisKey, lod);
         double distSq = x * x + y * y + z * z;
         double projectedPx = projectedDiameterPx(distSq, visualRadiusBlocks);
         if (isHeld(hysteresisKey) && acceptedThisFrame < hysteresisLimit()) {
             accept(hysteresisKey, true, false);
-            return lod;
+            return rememberDecision(hysteresisKey, lod);
         }
         if (isCritical(distSq, projectedPx) && acceptedThisFrame < criticalLimit()) {
             accept(hysteresisKey, false, true);
-            return lod;
+            return rememberDecision(hysteresisKey, lod);
         }
 
         if (shouldPriorityReject(projectedPx)) {
             rejectedThisFrame++;
             priorityRejectedThisFrame++;
-            return Aero_RenderLod.STATIC;
+            return rememberDecision(hysteresisKey, Aero_RenderLod.STATIC);
         }
 
         if (acceptedThisFrame < MAX_ANIMATED) {
             accept(hysteresisKey, false, false);
-            return lod;
+            return rememberDecision(hysteresisKey, lod);
         }
         rejectedThisFrame++;
-        return Aero_RenderLod.STATIC;
+        return rememberDecision(hysteresisKey, Aero_RenderLod.STATIC);
+    }
+
+    private static Aero_RenderLod cachedDecision(Object key) {
+        if (key == null || DECISION_BY_KEY.isEmpty()) return null;
+        return DECISION_BY_KEY.get(key);
+    }
+
+    private static Aero_RenderLod rememberDecision(Object key, Aero_RenderLod lod) {
+        if (key != null) {
+            DECISION_BY_KEY.put(key, lod);
+        }
+        return lod;
     }
 
     private static boolean isCritical(double distSq, double projectedPx) {
