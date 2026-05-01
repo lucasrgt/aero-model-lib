@@ -27,6 +27,8 @@ public final class Aero_BECellRenderer {
         clampInt(Integer.getInteger("aero.becell.minInstances", 2).intValue(), 1, 4096);
     private static final int PAGE_TTL_FRAMES =
         clampInt(Integer.getInteger("aero.becell.pageTtlFrames", 600).intValue(), 60, 100000);
+    private static final int REBUILDS_PER_FRAME =
+        Integer.getInteger("aero.becell.rebuildsPerFrame", 8).intValue();
 
     private static final HashMap<PageKey, QueuedPage> ACTIVE =
         new HashMap<PageKey, QueuedPage>();
@@ -211,6 +213,10 @@ public final class Aero_BECellRenderer {
         if (cached == null
             || cached.count != page.count
             || cached.membershipHash != membershipHash) {
+            if (!canRebuildAnotherPageThisFrame()) {
+                drawDirect(page, cameraX, cameraY, cameraZ);
+                return;
+            }
             CachedPage rebuilt = compilePage(page, modelIds, membershipHash);
             if (rebuilt == null) {
                 drawDirect(page, cameraX, cameraY, cameraZ);
@@ -223,6 +229,10 @@ public final class Aero_BECellRenderer {
         }
 
         drawCached(page.key, cached, cameraX, cameraY, cameraZ);
+    }
+
+    private static boolean canRebuildAnotherPageThisFrame() {
+        return REBUILDS_PER_FRAME < 0 || pageRebuildsThisFrame < REBUILDS_PER_FRAME;
     }
 
     private static CachedPage compilePage(QueuedPage page, int[] modelIds, int membershipHash) {
