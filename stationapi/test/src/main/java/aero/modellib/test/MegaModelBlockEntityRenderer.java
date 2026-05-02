@@ -1,9 +1,10 @@
 package aero.modellib.test;
 
+import aero.modellib.Aero_BECellRenderer;
 import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_MeshRenderer;
 import aero.modellib.Aero_ObjLoader;
 import aero.modellib.Aero_RenderDistance;
+import aero.modellib.Aero_RenderOptions;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 
@@ -14,12 +15,13 @@ import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 public class MegaModelBlockEntityRenderer extends BlockEntityRenderer {
 
     public static final Aero_MeshModel MODEL = Aero_ObjLoader.load("/models/MegaCrusher.obj");
+    public static final String TEXTURE = "/models/retronism_megacrusher.png";
 
     @Override
     public void render(BlockEntity be, double x, double y, double z, float partialTick) {
         if (!Aero_RenderDistance.shouldRenderRelative(x, y, z, 4.0d)) return;
-        bindTexture("/models/retronism_megacrusher.png");
         float brightness = AeroLight.brightnessAbove(be.world, be.x, be.y, be.z);
-        Aero_MeshRenderer.renderModelAtRest(MODEL, x, y, z, 0f, brightness);
+        Aero_BECellRenderer.queueAtRest(MODEL, TEXTURE, be,
+            x, y, z, 0f, brightness, Aero_RenderOptions.DEFAULT);
     }
 }

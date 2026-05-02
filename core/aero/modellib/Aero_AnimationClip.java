@@ -25,6 +25,7 @@ public final class Aero_AnimationClip {
     final KeyframeEvent[] events;
 
     private final Map boneIndexByName;
+    private final boolean hasUvAnimation;
 
     public static Builder builder(String name) {
         return new Builder(name);
@@ -45,11 +46,14 @@ public final class Aero_AnimationClip {
         this.bones = new BoneTrack[builder.bones.size()];
         this.boneNames = new String[bones.length];
 
+        boolean uv = false;
         for (int i = 0; i < bones.length; i++) {
             BoneBuilder b = (BoneBuilder) builder.bones.get(i);
             bones[i] = b.build();
             boneNames[i] = bones[i].name;
+            uv |= bones[i].uvOffset != null || bones[i].uvScale != null;
         }
+        this.hasUvAnimation = uv;
         this.boneIndexByName = buildBoneIndex(boneNames);
 
         Collections.sort(builder.events, new Comparator() {
@@ -64,6 +68,11 @@ public final class Aero_AnimationClip {
 
     public boolean hasEvents() {
         return events.length > 0;
+    }
+
+    /** True when any bone in this clip animates UV offset or UV scale. */
+    public boolean hasUvAnimation() {
+        return hasUvAnimation;
     }
 
     // Single-entry reference-equality cache for indexOfBone. The hot

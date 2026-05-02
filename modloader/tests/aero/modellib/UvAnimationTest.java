@@ -150,7 +150,26 @@ public class UvAnimationTest {
             "{" + VER + "\"animations\":{\"idle\":{\"loop\":\"loop\",\"length\":1,"
                 + "\"bones\":{\"body\":{\"rotation\":"
                 + "{\"0\":{\"value\":[0,0,0],\"interp\":\"linear\"}}}}}}}");
-        assertNotNull(bundle.getClip("idle"));
+        Aero_AnimationClip clip = bundle.getClip("idle");
+        assertNotNull(clip);
+        assertFalse("non-UV clips should keep optimized render paths eligible",
+            clip.hasUvAnimation());
+    }
+
+    @Test
+    public void clipReportsUvAnimationWhenAnyUvChannelExists() {
+        Aero_AnimationClip clip = Aero_AnimationClip.builder("scroll")
+            .length(1f)
+            .bone("belt")
+            .uvOffset(
+                new float[]{0f, 1f},
+                new float[][]{{0f, 0f, 0f}, {1f, 0f, 0f}},
+                new Aero_Easing[]{Aero_Easing.LINEAR, Aero_Easing.LINEAR})
+            .endBone()
+            .build();
+
+        assertTrue("UV clips must bypass batch/page fast paths",
+            clip.hasUvAnimation());
     }
 
     // ----- BoneRenderPose -----

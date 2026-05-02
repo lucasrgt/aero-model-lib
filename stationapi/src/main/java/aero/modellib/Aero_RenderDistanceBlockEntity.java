@@ -12,6 +12,11 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
 
     /** Monotonic counter for phase-stable tick LOD; incremented on every call. */
     private int aeroTickAge = 0;
+    private Object aeroCellTrackedWorld;
+    private int aeroCellTrackedX;
+    private int aeroCellTrackedY;
+    private int aeroCellTrackedZ;
+    private boolean aeroCellTracked;
 
     protected double getAeroRenderRadius() {
         return 0.0d;
@@ -24,33 +29,39 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
     @Override
     public void tick() {
         super.tick();
-        Aero_BECellIndex.track(this);
+        aeroTrackCellFull();
     }
 
     @Override
     public void markRemoved() {
         Aero_BECellIndex.untrack(this);
+        aeroClearCellTrack();
         super.markRemoved();
     }
 
     @Override
     public void cancelRemoval() {
         super.cancelRemoval();
-        Aero_BECellIndex.track(this);
+        aeroTrackCellFull();
     }
 
     @Override
     public double distanceFrom(double x, double y, double z) {
-        Aero_BECellIndex.track(this);
+        aeroTrackCellIfMoved();
         if (this instanceof Aero_CellPageRenderableBE) {
-            if (!Aero_ChunkVisibility.isBlockChunkVisible(this.x, this.z)) {
+            Aero_CellPageRenderableBE renderable = (Aero_CellPageRenderableBE) this;
+            if (!Aero_ChunkVisibility.isBlockChunkVisible(this.x, this.z,
+                    renderable.aeroCellVisualRadius())) {
                 return Double.POSITIVE_INFINITY;
             }
-            Aero_CellPageRenderableBE renderable = (Aero_CellPageRenderableBE) this;
-            double dx = this.x - x;
-            double dy = this.y - y;
-            double dz = this.z - z;
-            Aero_RenderLod lod = Aero_RenderDistance.lodRelative(dx, dy, dz,
+            double dx = this.x + 0.5d - x;
+            double dy = this.y + 0.5d - y;
+            double dz = this.z + 0.5d - z;
+            // distanceFrom runs before the individual renderer is dispatched.
+            // Keep animation-budget admission in the renderer so a budget
+            // downgrade can still draw the BE through its normal at-rest path
+            // instead of suppressing the renderer and freezing nearby models.
+            Aero_RenderLod lod = Aero_RenderDistance.lodRelativeNoAnimationBudget(dx, dy, dz,
                 renderable.aeroCellVisualRadius(),
                 renderable.aeroCellAnimatedDistance(),
                 renderable.aeroCellMaxRenderDistance());
@@ -116,7 +127,7 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
      */
     public boolean shouldTickAnimation(double velocityBlocksPerTick) {
         if (this.world == null) return false;
-        Aero_BECellIndex.track(this);
+        aeroTrackCellIfMoved();
         double cx = this.x + 0.5;
         double cy = this.y + 0.5;
         double cz = this.z + 0.5;
@@ -139,8 +150,47 @@ public class Aero_RenderDistanceBlockEntity extends BlockEntity implements Aero_
             stride = Aero_AnimationTickLOD.tickStrideWithMotion(
                 dx*dx + dy*dy + dz*dz, velocityBlocksPerTick);
         }
-        boolean tick = Aero_AnimationTickLOD.shouldTick(stride, aeroTickAge);
+        boolean tick = Aero_AnimationTickBudget.shouldTick(stride, aeroTickAge,
+            this.x, this.y, this.z);
         aeroTickAge++;
         return tick;
+    }
+
+    private void aeroTrackCellFull() {
+        Aero_BECellIndex.track(this);
+        if (this.world == null) {
+            aeroClearCellTrack();
+            return;
+        }
+        aeroCellTrackedWorld = this.world;
+        aeroCellTrackedX = this.x;
+        aeroCellTrackedY = this.y;
+        aeroCellTrackedZ = this.z;
+        aeroCellTracked = true;
+    }
+
+    private void aeroTrackCellIfMoved() {
+        if (this.world == null) {
+            if (aeroCellTracked) {
+                Aero_BECellIndex.untrack(this);
+                aeroClearCellTrack();
+            }
+            return;
+        }
+        if (!aeroCellTracked
+            || aeroCellTrackedWorld != this.world
+            || aeroCellTrackedX != this.x
+            || aeroCellTrackedY != this.y
+            || aeroCellTrackedZ != this.z) {
+            aeroTrackCellFull();
+        }
+    }
+
+    private void aeroClearCellTrack() {
+        aeroCellTrackedWorld = null;
+        aeroCellTrackedX = 0;
+        aeroCellTrackedY = 0;
+        aeroCellTrackedZ = 0;
+        aeroCellTracked = false;
     }
 }

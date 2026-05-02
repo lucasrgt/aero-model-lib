@@ -1,6 +1,7 @@
 package aero.modellib;
 
 import net.minecraft.client.render.chunk.ChunkBuilder;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 /**
@@ -50,6 +51,13 @@ public final class Aero_ChunkVisibility {
 
     public static final boolean ENABLED =
         !"false".equalsIgnoreCase(System.getProperty("aero.chunkvisibility"));
+    public static final boolean HONOR_OCCLUSION_QUERY =
+        "true".equalsIgnoreCase(System.getProperty("aero.chunkvisibility.hoq"));
+
+    private static final int HOLD_FRAMES =
+        intProperty("aero.chunkvisibility.holdFrames", 6, 0, 120);
+    private static final double RADIUS_PADDING_BLOCKS =
+        doubleProperty("aero.chunkvisibility.radiusPad", 2.0d, 0.0d, 32.0d);
 
     /**
      * Visible chunk set keyed by packed {@code (chunkX, chunkZ)}. Reused
@@ -58,6 +66,7 @@ public final class Aero_ChunkVisibility {
      * the rebuild rarely needs to grow.
      */
     private static final LongOpenHashSet VISIBLE = new LongOpenHashSet(2048);
+    private static final Long2IntOpenHashMap RECENT_UNTIL = new Long2IntOpenHashMap(4096);
 
     /**
      * Whether the snapshot has been populated for the current frame.
@@ -75,6 +84,11 @@ public final class Aero_ChunkVisibility {
     private static int lastQueryChunkZ;
     private static boolean lastQueryResult;
     private static boolean lastQueryValid;
+    private static int frameIndex;
+
+    static {
+        RECENT_UNTIL.defaultReturnValue(Integer.MIN_VALUE);
+    }
 
     private Aero_ChunkVisibility() {}
 
@@ -87,9 +101,11 @@ public final class Aero_ChunkVisibility {
      * (chunkX, chunkZ).
      */
     public static void snapshot(ChunkBuilder[] chunks) {
+        frameIndex++;
         if (!ENABLED) {
             snapshotValid = false;
             lastQueryValid = false;
+            RECENT_UNTIL.clear();
             return;
         }
         VISIBLE.clear();
@@ -111,15 +127,21 @@ public final class Aero_ChunkVisibility {
             // no flicker because GPU samples are stable per-frame, no
             // false-cull because we only act on a confirmed "0 samples"
             // result.
-            if (cb.occlusionQueryReady && !cb.unoccluded) continue;
+            if (HONOR_OCCLUSION_QUERY && cb.occlusionQueryReady && !cb.unoccluded) continue;
             // ChunkBuilder.x/y/z is the BLOCK-coord origin of this chunk
             // builder. Beta chunks are 16x16x16 in render terms (the
             // chunk-builder grid; world chunks are 16×128×16 split into
             // 8 builder slices). We collapse Y — BE columns share x/z.
             long key = packChunkKey(cb.x >> 4, cb.z >> 4);
             VISIBLE.add(key);
+            if (HOLD_FRAMES > 0) {
+                RECENT_UNTIL.put(key, frameIndex + HOLD_FRAMES);
+            }
         }
         snapshotValid = true;
+        if ((frameIndex & 63) == 0) {
+            sweepRecentChunks();
+        }
     }
 
     /**
@@ -138,7 +160,8 @@ public final class Aero_ChunkVisibility {
             && chunkZ == lastQueryChunkZ) {
             return lastQueryResult;
         }
-        boolean result = VISIBLE.contains(packChunkKey(chunkX, chunkZ));
+        long key = packChunkKey(chunkX, chunkZ);
+        boolean result = VISIBLE.contains(key) || isRecentlyVisible(key);
         lastQueryChunkX = chunkX;
         lastQueryChunkZ = chunkZ;
         lastQueryResult = result;
@@ -155,6 +178,47 @@ public final class Aero_ChunkVisibility {
         return isChunkVisible(beX >> 4, beZ >> 4);
     }
 
+    /**
+     * BE visibility with a horizontal radius. This avoids false-culling large
+     * models whose origin chunk left vanilla's chunk frustum while part of
+     * their mesh is still visible in a neighboring chunk.
+     */
+    public static boolean isBlockChunkVisible(int beX, int beZ,
+                                              double visualRadiusBlocks) {
+        if (!ENABLED || !snapshotValid) return true;
+        double radius = visualRadiusBlocks > 0.0d ? visualRadiusBlocks : 0.5d;
+        radius += RADIUS_PADDING_BLOCKS;
+        if (radius <= 0.0d) return isBlockChunkVisible(beX, beZ);
+
+        double centerX = beX + 0.5d;
+        double centerZ = beZ + 0.5d;
+        int minChunkX = floorToChunk(centerX - radius);
+        int maxChunkX = floorToChunk(centerX + radius);
+        int minChunkZ = floorToChunk(centerZ - radius);
+        int maxChunkZ = floorToChunk(centerZ + radius);
+        for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+            for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+                if (isChunkVisible(cx, cz)) return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isBlockAreaChunkVisible(int minBlockX, int minBlockZ,
+                                                  int maxBlockX, int maxBlockZ) {
+        if (!ENABLED || !snapshotValid) return true;
+        int minChunkX = floorToChunk(minBlockX);
+        int maxChunkX = floorToChunk(maxBlockX);
+        int minChunkZ = floorToChunk(minBlockZ);
+        int maxChunkZ = floorToChunk(maxBlockZ);
+        for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+            for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+                if (isChunkVisible(cx, cz)) return true;
+            }
+        }
+        return false;
+    }
+
     /** Packs (chunkX, chunkZ) into a 64-bit key. */
     private static long packChunkKey(int chunkX, int chunkZ) {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
@@ -163,5 +227,61 @@ public final class Aero_ChunkVisibility {
     /** Used by tests / debug to expose the snapshot size. */
     public static int visibleChunkCount() {
         return snapshotValid ? VISIBLE.size() : -1;
+    }
+
+    public static int recentChunkCount() {
+        return RECENT_UNTIL.size();
+    }
+
+    private static boolean isRecentlyVisible(long key) {
+        return HOLD_FRAMES > 0 && RECENT_UNTIL.get(key) >= frameIndex;
+    }
+
+    private static void sweepRecentChunks() {
+        if (RECENT_UNTIL.isEmpty()) return;
+        long[] keys = RECENT_UNTIL.keySet().toLongArray();
+        for (int i = 0; i < keys.length; i++) {
+            long key = keys[i];
+            if (RECENT_UNTIL.get(key) < frameIndex) {
+                RECENT_UNTIL.remove(key);
+            }
+        }
+    }
+
+    private static int floorToChunk(double blockCoord) {
+        return floorToInt(blockCoord) >> 4;
+    }
+
+    private static int floorToInt(double value) {
+        int i = (int) value;
+        return value < (double) i ? i - 1 : i;
+    }
+
+    private static int intProperty(String name, int fallback, int min, int max) {
+        String raw = System.getProperty(name);
+        if (raw == null) return fallback;
+        try {
+            int parsed = Integer.parseInt(raw.trim());
+            if (parsed < min) return min;
+            if (parsed > max) return max;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static double doubleProperty(String name, double fallback,
+                                         double min, double max) {
+        String raw = System.getProperty(name);
+        if (raw == null) return fallback;
+        try {
+            double parsed = Double.parseDouble(raw.trim());
+            if (Double.isNaN(parsed) || Double.isInfinite(parsed)) return fallback;
+            if (parsed < min) return min;
+            if (parsed > max) return max;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 }

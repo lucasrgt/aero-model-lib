@@ -23,6 +23,7 @@ public class MotorBlockEntity extends Aero_RenderDistanceBlockEntity implements 
         new Aero_AnimationDefinition().state(STATE_PULSE, "pulse");
 
     public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+    private boolean phaseSeeded;
 
     @Override
     protected double getAeroRenderRadius() {
@@ -64,6 +65,10 @@ public class MotorBlockEntity extends Aero_RenderDistanceBlockEntity implements 
         super.tick();
         if (!shouldTickAnimation()) return;
         animState.setState(STATE_PULSE);
+        if (!phaseSeeded) {
+            AeroTestMod.seedMegaLoopPhase(animState, STATE_PULSE, x, y, z);
+            phaseSeeded = true;
+        }
         animState.tick();
     }
 }

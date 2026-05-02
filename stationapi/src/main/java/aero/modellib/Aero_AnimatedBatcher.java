@@ -1,8 +1,5 @@
 package aero.modellib;
 
-import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.Minecraft;
-
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -74,11 +71,37 @@ public final class Aero_AnimatedBatcher {
         !"false".equalsIgnoreCase(System.getProperty("aero.batcher.sort"));
 
     /**
+     * Allows UV-scrolling/UV-scaling clips to stay in the CPU batched path.
+     * The batch renderer applies UV offsets/scales directly to Tessellator
+     * coordinates, preserving the precise path's semantics without touching
+     * the OpenGL texture matrix.
+     *
+     * <p>Toggle: {@code -Daero.animatedbatch.uv=false}.
+     */
+    public static final boolean UV_BATCH_ENABLED =
+        !"false".equalsIgnoreCase(System.getProperty("aero.animatedbatch.uv"));
+
+    /**
+     * Optional smoothing valve for very large animated batches. The normal
+     * batch path submits one large Tessellator stream per bone; that maximizes
+     * throughput, but on old GL drivers a sudden 100+ instance stream can move
+     * the stall to Display.update. When this threshold is >= 0, large batches
+     * drain through the normal per-instance renderer, which can use bone-page
+     * display lists and spreads the work into smaller GL calls.
+     *
+     * <p>Default off. Stress tests can enable with e.g.
+     * {@code -Daero.animatedbatch.bonePageDrainMin=64}.
+     */
+    private static final int BONE_PAGE_DRAIN_MIN =
+        intProperty("aero.animatedbatch.bonePageDrainMin", -1, -1, 100000);
+
+    /**
      * Per-frame batch storage. Keyed by model identity plus texture/render
      * options, so different visual states never share the same tess cycle.
      */
     private static final HashMap<BatchKey, Batch> BATCHES = new HashMap<BatchKey, Batch>();
     private static final ArrayList<Batch> ACTIVE_BATCHES = new ArrayList<Batch>();
+    private static final BatchLookupKey LOOKUP_KEY = new BatchLookupKey();
 
     /**
      * Comparator that orders by texture, options, then model identity.
@@ -99,6 +122,11 @@ public final class Aero_AnimatedBatcher {
      * dedup eliminates the rebind between adjacent same-texture batches.
      */
     private static String lastBoundPath = null;
+    private static int queuedThisFrame;
+    private static int flushedInstancesThisFrame;
+    private static int flushedBatchesThisFrame;
+    private static int bonePageDrainedInstancesThisFrame;
+    private static int immediateRendersThisFrame;
 
     private Aero_AnimatedBatcher() {}
 
@@ -133,31 +161,35 @@ public final class Aero_AnimatedBatcher {
                                      float brightness,
                                      float partialTick,
                                      Aero_RenderOptions options) {
+        Aero_AnimationClip clip = state != null ? state.getCurrentClip() : null;
+        if (clip != null && clip.hasUvAnimation() && !UV_BATCH_ENABLED) {
+            immediateRendersThisFrame++;
+            bindTexturePath(texturePath);
+            Aero_MeshRenderer.renderAnimatedPrecise(model, bundle, def, state,
+                x, y, z, brightness, partialTick, options);
+            return;
+        }
         if (!ENABLED) {
-            // Fallback: caller already bound the texture before calling
-            // us, so we can render directly. (Keeps the BER's bindTexture
-            // call in the right phase.)
+            // Fallback: renderers using the batcher often no longer bind
+            // their texture before queuing. Bind here so the debug/opt-out
+            // path is visually identical to the queued flush path.
+            immediateRendersThisFrame++;
+            bindTexturePath(texturePath);
             Aero_MeshRenderer.renderAnimated(model, bundle, def, state,
                 x, y, z, brightness, partialTick, options);
             return;
         }
         Aero_RenderOptions opts = options != null ? options : Aero_RenderOptions.DEFAULT;
-        BatchKey key = new BatchKey(model, texturePath, opts);
-        Batch batch = BATCHES.get(key);
+        Batch batch = BATCHES.get(LOOKUP_KEY.set(model, texturePath, opts));
         if (batch == null) {
+            BatchKey key = new BatchKey(model, texturePath, opts);
             batch = new Batch(key);
             BATCHES.put(key, batch);
         }
         if (batch.count == 0) ACTIVE_BATCHES.add(batch);
         batch.add(bundle, def, state, x, y, z, brightness, partialTick, opts);
+        queuedThisFrame++;
     }
-
-    /**
-     * Caches path → texture-id lookups so the batcher's per-batch
-     * bindTexture call doesn't pay the HashMap hit each flush.
-     * Populated lazily on first lookup.
-     */
-    private static final HashMap<String, Integer> TEXTURE_ID_CACHE = new HashMap<String, Integer>();
 
     /**
      * Binds the texture at {@code path} via Minecraft's TextureManager.
@@ -171,20 +203,7 @@ public final class Aero_AnimatedBatcher {
      * bindTexture in the original BER code.
      */
     static void bindTexturePath(String path) {
-        if (path == null) return;
-        Object game = FabricLoader.getInstance().getGameInstance();
-        if (!(game instanceof Minecraft)) return;
-        Minecraft mc = (Minecraft) game;
-        if (mc.textureManager == null) return;
-        Integer cached = TEXTURE_ID_CACHE.get(path);
-        int id;
-        if (cached == null) {
-            id = mc.textureManager.getTextureId(path);
-            TEXTURE_ID_CACHE.put(path, Integer.valueOf(id));
-        } else {
-            id = cached.intValue();
-        }
-        mc.textureManager.bindTexture(id);
+        Aero_TextureBinder.bind(path);
     }
 
     /**
@@ -220,7 +239,14 @@ public final class Aero_AnimatedBatcher {
         }
         for (int i = 0; i < ACTIVE_BATCHES.size(); i++) {
             Batch b = ACTIVE_BATCHES.get(i);
-            Aero_MeshRenderer.renderAnimatedBatch(b);
+            flushedInstancesThisFrame += b.count;
+            flushedBatchesThisFrame++;
+            if (shouldDrainViaBonePages(b)) {
+                bonePageDrainedInstancesThisFrame += b.count;
+                Aero_MeshRenderer.renderAnimatedBatchUnbatched(b);
+            } else {
+                Aero_MeshRenderer.renderAnimatedBatch(b);
+            }
             b.clear();
         }
         ACTIVE_BATCHES.clear();
@@ -303,6 +329,51 @@ public final class Aero_AnimatedBatcher {
             brightnesses = Arrays.copyOf(brightnesses, n);
             partialTicks = Arrays.copyOf(partialTicks, n);
             options = Arrays.copyOf(options, n);
+        }
+    }
+
+    static void beginFrameCounters() {
+        queuedThisFrame = 0;
+        flushedInstancesThisFrame = 0;
+        flushedBatchesThisFrame = 0;
+        bonePageDrainedInstancesThisFrame = 0;
+        immediateRendersThisFrame = 0;
+    }
+
+    public static int queuedThisFrame() {
+        return queuedThisFrame;
+    }
+
+    public static int flushedInstancesThisFrame() {
+        return flushedInstancesThisFrame;
+    }
+
+    public static int flushedBatchesThisFrame() {
+        return flushedBatchesThisFrame;
+    }
+
+    public static int bonePageDrainedInstancesThisFrame() {
+        return bonePageDrainedInstancesThisFrame;
+    }
+
+    public static int immediateRendersThisFrame() {
+        return immediateRendersThisFrame;
+    }
+
+    private static boolean shouldDrainViaBonePages(Batch batch) {
+        return BONE_PAGE_DRAIN_MIN >= 0 && batch.count >= BONE_PAGE_DRAIN_MIN;
+    }
+
+    private static int intProperty(String name, int fallback, int min, int max) {
+        String raw = System.getProperty(name);
+        if (raw == null) return fallback;
+        try {
+            int parsed = Integer.parseInt(raw.trim());
+            if (parsed < min) return min;
+            if (parsed > max) return max;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 
@@ -402,6 +473,68 @@ public final class Aero_AnimatedBatcher {
 
         private static int intCompare(int a, int b) {
             return a < b ? -1 : (a == b ? 0 : 1);
+        }
+    }
+
+    private static final class BatchLookupKey {
+        Aero_MeshModel model;
+        String texturePath;
+        int textureHash;
+        int tintRBits;
+        int tintGBits;
+        int tintBBits;
+        int alphaBits;
+        int alphaClipBits;
+        Aero_MeshBlendMode blend;
+        boolean depthTest;
+        boolean cullFaces;
+        int hash;
+
+        BatchLookupKey set(Aero_MeshModel model, String texturePath,
+                           Aero_RenderOptions options) {
+            this.model = model;
+            this.texturePath = texturePath;
+            this.textureHash = texturePath != null ? texturePath.hashCode() : 0;
+            this.tintRBits = Float.floatToIntBits(options.tintR);
+            this.tintGBits = Float.floatToIntBits(options.tintG);
+            this.tintBBits = Float.floatToIntBits(options.tintB);
+            this.alphaBits = Float.floatToIntBits(options.alpha);
+            this.alphaClipBits = Float.floatToIntBits(options.alphaClip);
+            this.blend = options.blend;
+            this.depthTest = options.depthTest;
+            this.cullFaces = options.cullFaces;
+
+            int result = System.identityHashCode(model);
+            result = 31 * result + textureHash;
+            result = 31 * result + tintRBits;
+            result = 31 * result + tintGBits;
+            result = 31 * result + tintBBits;
+            result = 31 * result + alphaBits;
+            result = 31 * result + alphaClipBits;
+            result = 31 * result + blend.hashCode();
+            result = 31 * result + (depthTest ? 1 : 0);
+            result = 31 * result + (cullFaces ? 1 : 0);
+            this.hash = result;
+            return this;
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof BatchKey)) return false;
+            BatchKey other = (BatchKey) obj;
+            if (model != other.model) return false;
+            if (tintRBits != other.tintRBits || tintGBits != other.tintGBits
+                || tintBBits != other.tintBBits || alphaBits != other.alphaBits
+                || alphaClipBits != other.alphaClipBits) return false;
+            if (blend != other.blend || depthTest != other.depthTest
+                || cullFaces != other.cullFaces) return false;
+            if (texturePath == other.texturePath) return true;
+            return texturePath != null && texturePath.equals(other.texturePath);
         }
     }
 }

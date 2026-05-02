@@ -47,6 +47,10 @@ public class Aero_MeshRenderer {
     private static final IdentityHashMap<Aero_MeshModel, BatchPlanCache> BATCH_PLAN_CACHE =
         new IdentityHashMap<Aero_MeshModel, BatchPlanCache>();
 
+    private static int atRestRendersThisFrame;
+    private static int atRestListCallsThisFrame;
+    private static int atRestTessFallbacksThisFrame;
+
     // Pose pool indexed by clip.boneNames[i]. Pre-resolved once per frame
     // so the hierarchical render walk + any IK pre-pass can read poses by
     // ancestor index without re-resolving per child.
@@ -135,6 +139,7 @@ public class Aero_MeshRenderer {
     private static void renderModelAtRestBody(Aero_MeshModel model, double x, double y, double z,
                                               float rotation, float brightness,
                                               Aero_RenderOptions options) {
+        atRestRendersThisFrame++;
         Aero_Profiler.start("aero.mesh.render");
         try {
             GL11.glPushMatrix();
@@ -144,6 +149,7 @@ public class Aero_MeshRenderer {
                 beginMeshState(options);
                 try {
                     if (!renderAtRestViaLists(model, brightness, options)) {
+                        atRestTessFallbacksThisFrame++;
                         Tessellator tess = Tessellator.INSTANCE;
                         drawGroups(tess, model.groups, model.invScale, brightness, options);
                         Aero_MeshModel.NamedGroup[] entries = model.getNamedGroupArray();
@@ -194,8 +200,27 @@ public class Aero_MeshRenderer {
             GL11.glColor4f(bright * options.tintR, bright * options.tintG,
                            bright * options.tintB, options.alpha);
             GL11.glCallList(id);
+            atRestListCallsThisFrame++;
         }
         return true;
+    }
+
+    static void beginFrameCounters() {
+        atRestRendersThisFrame = 0;
+        atRestListCallsThisFrame = 0;
+        atRestTessFallbacksThisFrame = 0;
+    }
+
+    public static int atRestRendersThisFrame() {
+        return atRestRendersThisFrame;
+    }
+
+    public static int atRestListCallsThisFrame() {
+        return atRestListCallsThisFrame;
+    }
+
+    public static int atRestTessFallbacksThisFrame() {
+        return atRestTessFallbacksThisFrame;
     }
 
     /**
@@ -241,10 +266,10 @@ public class Aero_MeshRenderer {
             }
             if (!hasContent) { ids[g] = 0; continue; }
 
-            int id = GL11.glGenLists(1);
+            int id = Aero_DisplayListBudget.glGenList();
             if (id == 0) {
                 for (int j = 0; j < g; j++) {
-                    if (ids[j] != 0) GL11.glDeleteLists(ids[j], 1);
+                    Aero_DisplayListBudget.glDeleteList(ids[j]);
                 }
                 return null;
             }
@@ -299,13 +324,16 @@ public class Aero_MeshRenderer {
                 try {
                     renderStaticPageOrFallback(tess, model, pages, brightness, options);
                     for (int e = 0; e < entries.length; e++) {
+                        int[] groupPages = pages.bonePages != null && e < pages.bonePages.length
+                            ? pages.bonePages[e]
+                            : null;
+                        if (!hasPages(groupPages) && !hasTriangles(entries[e].tris)) {
+                            continue;
+                        }
                         GL11.glPushMatrix();
                         try {
                             Aero_BoneRenderPose deepest = (pool != null && refs != null)
                                 ? applyPoseChain(refs[e], pool, poseDepthLimit)
-                                : null;
-                            int[] groupPages = pages.bonePages != null && e < pages.bonePages.length
-                                ? pages.bonePages[e]
                                 : null;
                             renderBonePageOrFallback(tess, groupPages, entries[e].tris,
                                 model.invScale, brightness, options, deepest);
@@ -338,6 +366,19 @@ public class Aero_MeshRenderer {
         return ids;
     }
 
+    /**
+     * Render-thread cache warmup hook used by {@link Aero_Prewarm}. It is a
+     * no-op on failed/empty models and uses the same lazy compilers as normal
+     * rendering, so visual output remains unchanged.
+     */
+    public static void prewarmModel(Aero_MeshModel model) {
+        if (model == null) return;
+        ensureAtRestListIds(model);
+        if (BONE_PAGES_ENABLED && !model.bonePageListsCompileFailed()) {
+            getOrCompileBonePageLists(model, model.getNamedGroupArray());
+        }
+    }
+
     private static boolean renderGraphViaBonePages(Aero_MeshModel model,
                                                     Aero_AnimationGraph graph,
                                                     Aero_AnimationBundle bundle,
@@ -360,6 +401,10 @@ public class Aero_MeshRenderer {
                     renderStaticPageOrFallback(tess, model, pages, brightness, options);
                     for (int e = 0; e < entries.length; e++) {
                         Aero_MeshModel.NamedGroup ng = entries[e];
+                        int[] groupPages = pageFor(pages, e);
+                        if (!hasPages(groupPages) && !hasTriangles(ng.tris)) {
+                            continue;
+                        }
                         SCRATCH_POSE.reset();
                         bundle.getPivotInto(ng.name, SCRATCH_PIVOT);
                         SCRATCH_POSE.setPivot(SCRATCH_PIVOT);
@@ -378,7 +423,7 @@ public class Aero_MeshRenderer {
                         GL11.glPushMatrix();
                         try {
                             applyPose(SCRATCH_POSE);
-                            renderBonePageOrFallback(tess, pageFor(pages, e), ng.tris,
+                            renderBonePageOrFallback(tess, groupPages, ng.tris,
                                 model.invScale, brightness, options, SCRATCH_POSE);
                         } finally {
                             GL11.glPopMatrix();
@@ -418,6 +463,10 @@ public class Aero_MeshRenderer {
                     renderStaticPageOrFallback(tess, model, pages, brightness, options);
                     for (int e = 0; e < entries.length; e++) {
                         Aero_MeshModel.NamedGroup ng = entries[e];
+                        int[] groupPages = pageFor(pages, e);
+                        if (!hasPages(groupPages) && !hasTriangles(ng.tris)) {
+                            continue;
+                        }
                         Aero_AnimationPoseResolver.resolveStack(stack, ng.name, partialTick,
                             SCRATCH_PIVOT, SCRATCH_ROT, SCRATCH_POS, SCRATCH_SCL, SCRATCH_POSE);
                         if (proceduralPose != null) proceduralPose.apply(ng.name, SCRATCH_POSE);
@@ -425,7 +474,7 @@ public class Aero_MeshRenderer {
                         GL11.glPushMatrix();
                         try {
                             applyPose(SCRATCH_POSE);
-                            renderBonePageOrFallback(tess, pageFor(pages, e), ng.tris,
+                            renderBonePageOrFallback(tess, groupPages, ng.tris,
                                 model.invScale, brightness, options, SCRATCH_POSE);
                         } finally {
                             GL11.glPopMatrix();
@@ -495,7 +544,7 @@ public class Aero_MeshRenderer {
             float[][] tris = groups[g];
             if (tris.length == 0) continue;
 
-            int id = GL11.glGenLists(1);
+            int id = Aero_DisplayListBudget.glGenList();
             if (id == 0) {
                 deletePageIds(ids);
                 return null;
@@ -524,7 +573,11 @@ public class Aero_MeshRenderer {
                                                   float[][][] groups, float invSc,
                                                   float brightness, Aero_RenderOptions options,
                                                   Aero_BoneRenderPose pose) {
-        if (hasPages(ids)) {
+        // UV animation is exact in the Tessellator path. Avoid routing it
+        // through display-list texture matrices; old GL 1.1 state around MC's
+        // texture units can make UV-only effects look frozen or bleed atlas
+        // state on some StationAPI stacks.
+        if (hasPages(ids) && (pose == null || pose.uvIsIdentity())) {
             boolean uv = pushUvMatrix(pose);
             try {
                 callPageBuckets(ids, brightness, options);
@@ -618,7 +671,7 @@ public class Aero_MeshRenderer {
         if (ids == null) return;
         for (int g = 0; g < ids.length; g++) {
             if (ids[g] != 0) {
-                GL11.glDeleteLists(ids[g], 1);
+                Aero_DisplayListBudget.glDeleteList(ids[g]);
                 ids[g] = 0;
             }
         }
@@ -754,6 +807,34 @@ public class Aero_MeshRenderer {
     }
 
     /**
+     * Exact animated path for clips whose visual output depends on per-vertex
+     * UVs. This intentionally bypasses animated display-list pages while still
+     * keeping the normal culling/LOD gate. Use it for uv_offset/uv_scale clips
+     * such as scrolling belts or runes.
+     */
+    public static void renderAnimatedPrecise(Aero_MeshModel model,
+                                             Aero_AnimationBundle bundle,
+                                             Aero_AnimationDefinition def,
+                                             Aero_AnimationState state,
+                                             double x, double y, double z,
+                                             float brightness, float partialTick,
+                                             Aero_RenderOptions options) {
+        renderAnimatedPrecise(model, bundle, def, (Aero_AnimationPlayback) state,
+            x, y, z, brightness, partialTick, options);
+    }
+
+    public static void renderAnimatedPrecise(Aero_MeshModel model,
+                                             Aero_AnimationBundle bundle,
+                                             Aero_AnimationDefinition def,
+                                             Aero_AnimationPlayback state,
+                                             double x, double y, double z,
+                                             float brightness, float partialTick,
+                                             Aero_RenderOptions options) {
+        renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
+            partialTick, options, null, null, null, false, true);
+    }
+
+    /**
      * Bundle/def/state overload with procedural pose + IK chain hooks.
      */
     public static void renderAnimated(Aero_MeshModel model,
@@ -812,7 +893,7 @@ public class Aero_MeshRenderer {
                                                 Aero_IkChain[] ikChains,
                                                 Aero_MorphState morphState) {
         renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
-            partialTick, options, proceduralPose, ikChains, morphState, false);
+            partialTick, options, proceduralPose, ikChains, morphState, false, false);
     }
 
     static void renderAnimatedPreculled(Aero_MeshModel model,
@@ -824,7 +905,7 @@ public class Aero_MeshRenderer {
                                         Aero_RenderOptions options,
                                         Aero_ProceduralPose proceduralPose) {
         renderAnimatedInternal(model, bundle, def, state, x, y, z, brightness,
-            partialTick, options, proceduralPose, null, null, true);
+            partialTick, options, proceduralPose, null, null, true, false);
     }
 
     private static void renderAnimatedInternal(Aero_MeshModel model,
@@ -837,7 +918,8 @@ public class Aero_MeshRenderer {
                                                 Aero_ProceduralPose proceduralPose,
                                                 Aero_IkChain[] ikChains,
                                                 Aero_MorphState morphState,
-                                                boolean preculled) {
+                                                boolean preculled,
+                                                boolean forcePrecise) {
         if (!preculled
             && prepareAnimatedRender(model, x, y, z, brightness, options) != ANIMATED_RENDER_ACTIVE) return;
 
@@ -881,7 +963,9 @@ public class Aero_MeshRenderer {
 
             int poseDepthLimit = skeletalPoseDepthLimit(x, y, z,
                 proceduralPose, ikChains, morphState);
-            if (renderAnimatedViaBonePages(model, entries, refs, pool, x, y, z,
+            if (!forcePrecise
+                && (clip == null || !clip.hasUvAnimation())
+                && renderAnimatedViaBonePages(model, entries, refs, pool, x, y, z,
                     brightness, options, morphState, poseDepthLimit)) {
                 return;
             }
@@ -1251,6 +1335,11 @@ public class Aero_MeshRenderer {
         }
     }
 
+    static void renderAnimatedBatchUnbatched(Aero_AnimatedBatcher.Batch batch) {
+        if (batch == null || batch.count == 0) return;
+        drainAsUnbatched(batch, batch.count);
+    }
+
     /**
      * Per-call scratch grown on demand. Holds {@code [instanceCount][boneCount]}
      * resolved poses for the duration of one batched render. The poses
@@ -1326,6 +1415,14 @@ public class Aero_MeshRenderer {
                 int idx = plan.entryBoneIdx[e];
                 if (idx >= 0) {
                     copyPose(pool[idx], perInstancePoses[i][e]);
+                    if (!Aero_AnimatedBatcher.UV_BATCH_ENABLED
+                        && !perInstancePoses[i][e].uvIsIdentity()) {
+                        // UV-scrolling/UV-scaling geometry relies on exact
+                        // per-vertex texture coordinates. Fall back to the
+                        // unbatched renderer, whose Tessellator path handles
+                        // those channels correctly.
+                        return false;
+                    }
                     perInstancePoseActive[i][e] = true;
                 }
             }
@@ -1472,6 +1569,17 @@ public class Aero_MeshRenderer {
     private static void emitBoneInstanceBatched(Tessellator tess, float[][] tris, float invSc,
                                                  Aero_BoneRenderPose pose,
                                                  double instX, double instY, double instZ) {
+        boolean rotIdentity = pose.rotX == 0f && pose.rotY == 0f && pose.rotZ == 0f;
+        boolean scaleIdentity = pose.scaleX == 1f && pose.scaleY == 1f && pose.scaleZ == 1f;
+        if (rotIdentity) {
+            if (scaleIdentity) {
+                emitBoneInstanceBatchedTranslateUv(tess, tris, invSc, pose, instX, instY, instZ);
+            } else {
+                emitBoneInstanceBatchedScaleTranslateUv(tess, tris, invSc, pose, instX, instY, instZ);
+            }
+            return;
+        }
+
         // Pre-compute trig once per (instance, bone). The same matrix
         // applies to every vertex of this bone for this instance.
         final float DEG_TO_RAD = (float) (Math.PI / 180.0);
@@ -1486,14 +1594,17 @@ public class Aero_MeshRenderer {
         float postX  = pose.pivotX + pose.offsetX;
         float postY  = pose.pivotY + pose.offsetY;
         float postZ  = pose.pivotZ + pose.offsetZ;
+        boolean uvIdentity = pose.uvIsIdentity();
+        float uOffset = pose.uOffset, vOffset = pose.vOffset;
+        float uScale = pose.uScale, vScale = pose.vScale;
 
         for (int t = 0; t < tris.length; t++) {
             float[] tri = tris[t];
             // Apply pose × (vertex × invScale) for each of the 3 vertices.
             // Same transform sequence as Aero_MeshRenderer.applyPose() but
             // composed in CPU: T(-pivot) → S → Rx → Ry → Rz → T(pivot+offset).
-            for (int v = 0; v < 3; v++) {
-                int off = v * 5;
+            for (int vertex = 0; vertex < 3; vertex++) {
+                int off = vertex * 5;
                 float lx = tri[off]     * invSc - pivotX;
                 float ly = tri[off + 1] * invSc - pivotY;
                 float lz = tri[off + 2] * invSc - pivotZ;
@@ -1510,8 +1621,82 @@ public class Aero_MeshRenderer {
                 nx = lx * cosZ - ly * sinZ;
                 ny = lx * sinZ + ly * cosZ;
                 lx = nx; ly = ny;
+                float u = tri[off + 3];
+                float v = tri[off + 4];
+                if (!uvIdentity) {
+                    u = u * uScale + uOffset;
+                    v = v * vScale + vOffset;
+                }
                 tess.vertex(instX + lx + postX, instY + ly + postY, instZ + lz + postZ,
-                            tri[off + 3], tri[off + 4]);
+                            u, v);
+            }
+        }
+    }
+
+    /**
+     * Fast path for UV-only/translation-only bones. With identity
+     * rotation+scale the pivot cancels out, so each vertex is just model
+     * position plus instance translation plus pose offset.
+     */
+    private static void emitBoneInstanceBatchedTranslateUv(Tessellator tess, float[][] tris,
+                                                           float invSc,
+                                                           Aero_BoneRenderPose pose,
+                                                           double instX, double instY, double instZ) {
+        double baseX = instX + pose.offsetX;
+        double baseY = instY + pose.offsetY;
+        double baseZ = instZ + pose.offsetZ;
+        boolean uvIdentity = pose.uvIsIdentity();
+        float uOffset = pose.uOffset, vOffset = pose.vOffset;
+        float uScale = pose.uScale, vScale = pose.vScale;
+
+        for (int t = 0; t < tris.length; t++) {
+            float[] tri = tris[t];
+            if (uvIdentity) {
+                tess.vertex(baseX + tri[0]*invSc,  baseY + tri[1]*invSc,  baseZ + tri[2]*invSc,  tri[3],  tri[4]);
+                tess.vertex(baseX + tri[5]*invSc,  baseY + tri[6]*invSc,  baseZ + tri[7]*invSc,  tri[8],  tri[9]);
+                tess.vertex(baseX + tri[10]*invSc, baseY + tri[11]*invSc, baseZ + tri[12]*invSc, tri[13], tri[14]);
+            } else {
+                tess.vertex(baseX + tri[0]*invSc,  baseY + tri[1]*invSc,  baseZ + tri[2]*invSc,
+                    tri[3] * uScale + uOffset,  tri[4] * vScale + vOffset);
+                tess.vertex(baseX + tri[5]*invSc,  baseY + tri[6]*invSc,  baseZ + tri[7]*invSc,
+                    tri[8] * uScale + uOffset,  tri[9] * vScale + vOffset);
+                tess.vertex(baseX + tri[10]*invSc, baseY + tri[11]*invSc, baseZ + tri[12]*invSc,
+                    tri[13] * uScale + uOffset, tri[14] * vScale + vOffset);
+            }
+        }
+    }
+
+    /**
+     * Fast path for scale/translation bones. Avoids all trig and rotation
+     * math while keeping the same pivoted scale order as applyPose().
+     */
+    private static void emitBoneInstanceBatchedScaleTranslateUv(Tessellator tess, float[][] tris,
+                                                                float invSc,
+                                                                Aero_BoneRenderPose pose,
+                                                                double instX, double instY, double instZ) {
+        float scaleX = pose.scaleX, scaleY = pose.scaleY, scaleZ = pose.scaleZ;
+        float pivotX = pose.pivotX, pivotY = pose.pivotY, pivotZ = pose.pivotZ;
+        float postX = pose.pivotX + pose.offsetX;
+        float postY = pose.pivotY + pose.offsetY;
+        float postZ = pose.pivotZ + pose.offsetZ;
+        boolean uvIdentity = pose.uvIsIdentity();
+        float uOffset = pose.uOffset, vOffset = pose.vOffset;
+        float uScale = pose.uScale, vScale = pose.vScale;
+
+        for (int t = 0; t < tris.length; t++) {
+            float[] tri = tris[t];
+            for (int vertex = 0; vertex < 3; vertex++) {
+                int off = vertex * 5;
+                float lx = (tri[off]     * invSc - pivotX) * scaleX + postX;
+                float ly = (tri[off + 1] * invSc - pivotY) * scaleY + postY;
+                float lz = (tri[off + 2] * invSc - pivotZ) * scaleZ + postZ;
+                float u = tri[off + 3];
+                float v = tri[off + 4];
+                if (!uvIdentity) {
+                    u = u * uScale + uOffset;
+                    v = v * vScale + vOffset;
+                }
+                tess.vertex(instX + lx, instY + ly, instZ + lz, u, v);
             }
         }
     }
@@ -1539,10 +1724,21 @@ public class Aero_MeshRenderer {
      * batched (multi-bone skeleton, etc).
      */
     private static void drainAsUnbatched(Aero_AnimatedBatcher.Batch batch, int count) {
+        Aero_AnimatedBatcher.bindBatchTexture(batch);
         for (int i = 0; i < count; i++) {
-            renderAnimated(batch.model, batch.bundles[i], batch.defs[i], batch.states[i],
-                batch.xs[i], batch.ys[i], batch.zs[i],
-                batch.brightnesses[i], batch.partialTicks[i], batch.options[i]);
+            Aero_AnimationClip clip = batch.states[i] != null
+                ? batch.states[i].getCurrentClip()
+                : null;
+            if (clip != null && clip.hasUvAnimation()) {
+                renderAnimatedInternal(batch.model, batch.bundles[i], batch.defs[i], batch.states[i],
+                    batch.xs[i], batch.ys[i], batch.zs[i],
+                    batch.brightnesses[i], batch.partialTicks[i], batch.options[i],
+                    null, null, null, false, true);
+            } else {
+                renderAnimated(batch.model, batch.bundles[i], batch.defs[i], batch.states[i],
+                    batch.xs[i], batch.ys[i], batch.zs[i],
+                    batch.brightnesses[i], batch.partialTicks[i], batch.options[i]);
+            }
         }
     }
 
@@ -1628,21 +1824,44 @@ public class Aero_MeshRenderer {
         return grown;
     }
 
+    // Render-thread-only scratch reused by runIkChains. Avoids three
+    // allocations per IK chain per frame on entities with rigging
+    // (e.g. turret blocks). The solver consumes inputs synchronously and
+    // does not retain references after returning, so these are safe to
+    // recycle across chains within a single render call.
+    //
+    // boneIdx and pivots are sized to the current chain length: same-size
+    // chains in the same scene reuse the buffer; a chain-length change
+    // realloc once and steady state goes back to zero allocs. The solver
+    // reads {@code chainBoneIdx.length} as the chain length, so the
+    // buffer must be exactly chain-sized — grow-only would feed the
+    // solver stale tail entries.
+    private static final float[] SCRATCH_IK_TARGET = new float[3];
+    private static int[] SCRATCH_IK_BONE_IDX;
+    private static float[][] SCRATCH_IK_PIVOTS;
+
     private static void runIkChains(Aero_IkChain[] chains,
                                      Aero_AnimationClip clip,
                                      Aero_AnimationBundle bundle,
                                      Aero_BoneRenderPose[] pool) {
-        float[] target = new float[3];
+        float[] target = SCRATCH_IK_TARGET;
         for (int c = 0; c < chains.length; c++) {
             Aero_IkChain chain = chains[c];
             if (chain == null) continue;
             String[] names = chain.getBoneChain();
             if (names == null || names.length < 2) continue;
 
-            int[] boneIdx = new int[names.length];
-            float[][] pivots = new float[names.length][];
+            int len = names.length;
+            int[] boneIdx = (SCRATCH_IK_BONE_IDX != null
+                    && SCRATCH_IK_BONE_IDX.length == len)
+                ? SCRATCH_IK_BONE_IDX
+                : (SCRATCH_IK_BONE_IDX = new int[len]);
+            float[][] pivots = (SCRATCH_IK_PIVOTS != null
+                    && SCRATCH_IK_PIVOTS.length == len)
+                ? SCRATCH_IK_PIVOTS
+                : (SCRATCH_IK_PIVOTS = new float[len][]);
             boolean valid = true;
-            for (int i = 0; i < names.length; i++) {
+            for (int i = 0; i < len; i++) {
                 int idx = clip.indexOfBone(names[i]);
                 if (idx < 0) { valid = false; break; }
                 boneIdx[i] = idx;

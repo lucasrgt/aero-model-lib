@@ -79,4 +79,20 @@ public class AnimationRenderBudgetTest {
 
         assertEquals(1, Aero_AnimationRenderBudget.acceptedThisFrame());
     }
+
+    @Test
+    public void primitiveKeyedDecisionIsReusedWithinFrame() {
+        long key = 0x1234ABCDL;
+        Aero_AnimationRenderBudget.updateFromDisplayHeight(1080);
+        Aero_AnimationRenderBudget.beginFrame();
+
+        assertEquals(Aero_RenderLod.ANIMATED,
+            Aero_AnimationRenderBudget.apply(Aero_RenderLod.ANIMATED,
+                4d, 0d, 0d, 2d, key));
+        assertEquals(Aero_RenderLod.ANIMATED,
+            Aero_AnimationRenderBudget.apply(Aero_RenderLod.ANIMATED,
+                4d, 0d, 0d, 2d, key));
+
+        assertEquals(1, Aero_AnimationRenderBudget.acceptedThisFrame());
+    }
 }

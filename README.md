@@ -586,6 +586,45 @@ for animated parts — those names become the bone identifiers in the
 
 ---
 
+## Performance tuning (optional, for smooth frame-times)
+
+The library's render path runs at 200-300+ FPS on the MEGA stress test
+(16 floors × 4 × 3×3 animated stacks). What can still hitch the frame
+graph in real Beta 1.7.3 sessions is **the surrounding ecosystem** —
+vanilla chunk-compile bursts, world-gen GC churn during chunk loads,
+and JIT C2 stage-2 compilations landing on hot methods. These are
+outside modellib's control, but a JVM with friendlier defaults turns
+the recurring 30-60 ms hitches into sub-millisecond pauses.
+
+If you're shipping a mod where smooth frame-times matter (recordings,
+demos, factory bases with hundreds of moving parts), recommend players
+launch with:
+
+```
+-Xms2G -Xmx4G
+-XX:+UnlockExperimentalVMOptions
+-XX:+UseZGC
+-XX:TieredStopAtLevel=1
+```
+
+Trade-off: ~5% peak throughput drop in exchange for sub-millisecond GC
+pauses (ZGC) and bounded JIT compilation costs (C1-only stops at the
+quick compiler instead of waiting on C2's hundreds-of-ms stage). Java
+17+ is required — older JVMs do not ship ZGC.
+
+**Don't impose this on users with G1-tuned modpacks.** The flags are a
+recommendation for spike-sensitive scenarios, not a hard requirement.
+Without them the library still hits its peak FPS — only the spike
+profile changes.
+
+The library will pre-warm chunk-bake registry entries during the first
+render frames after world load (`Aero_MeshChunkBaker.prewarmAll()` is
+called automatically from `Aero_RenderDistance.beginRenderFrame()`),
+moving the per-block "first chunk-compile" lazy-bake cost out of the
+hot frame. No consumer changes are required for this.
+
+---
+
 ## Documentation
 
 [DOC.md](DOC.md) covers the full API reference, architecture diagrams,

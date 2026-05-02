@@ -104,6 +104,36 @@ public final class Aero_MeshChunkBaker {
     }
 
     /**
+     * Idempotent best-effort eager bake of every registered entry. Safe to
+     * call repeatedly: entries already baked are skipped, entries whose
+     * {@link UvBoundsProvider} is not yet ready (atlas not stitched) are
+     * left for a later attempt without poisoning them. Once all entries are
+     * either successfully baked or have hit a non-recoverable bake failure,
+     * returns {@code true} so the caller can stop polling.
+     *
+     * <p>This avoids the "primeiro avistamento" frame-spike: lazy baking
+     * happens inside {@code BlockRenderManager.render} during a chunk
+     * rebuild, where the {@code float[4][][]} + {@code float[15]}-per-tri
+     * allocations land mid-frame on the same stack as the vanilla
+     * Tessellator buffers. Pre-warming once on the render thread (after
+     * the atlas is ready) moves that allocation cost out of the chunk
+     * compile path.
+     *
+     * @return true once every registered entry is either baked or failed.
+     */
+    public static boolean prewarmAll() {
+        boolean allDone = true;
+        for (int i = 0; i < REGISTRY.length; i++) {
+            BakedEntry entry = REGISTRY[i];
+            if (entry == null) continue;
+            if (!entry.prewarmBake()) {
+                allDone = false;
+            }
+        }
+        return allDone;
+    }
+
+    /**
      * Emits a registered block's geometry into the currently-active chunk
      * Tessellator. Called from the BlockRenderManager mixin during chunk
      * rebuild — the session is already in {@code GL_QUADS} mode, so we
@@ -175,6 +205,43 @@ public final class Aero_MeshChunkBaker {
                 bakeFailed = true;
                 System.err.println("[aero-model-lib] chunk-bake failed: " + t);
                 return null;
+            }
+        }
+
+        /**
+         * Pre-warm variant for {@link Aero_MeshChunkBaker#prewarmAll()}: the
+         * "atlas not yet stitched" case (UV provider returns null) is NOT
+         * treated as a permanent failure — the entry stays unbaked so a
+         * later prewarm pass can succeed once the atlas is ready. Real
+         * bake failures still poison the entry the same way as
+         * {@link #bakedTris()} so retries don't loop forever.
+         *
+         * @return true if the entry is in a terminal state (baked or
+         *         permanently failed), false if a retry is warranted.
+         */
+        boolean prewarmBake() {
+            if (cachedTris != null || bakeFailed) return true;
+            float[] uv;
+            try {
+                uv = uvBounds.resolveUvBounds();
+            } catch (Throwable t) {
+                bakeFailed = true;
+                System.err.println("[aero-model-lib] chunk-bake UV resolve failed: " + t);
+                return true;
+            }
+            if (uv == null || uv.length != 4) {
+                // Atlas not yet stitched (or provider returns malformed
+                // bounds). Defer — the normal lazy path will surface a
+                // hard error later if this never resolves.
+                return false;
+            }
+            try {
+                cachedTris = bake();
+                return true;
+            } catch (Throwable t) {
+                bakeFailed = true;
+                System.err.println("[aero-model-lib] chunk-bake failed: " + t);
+                return true;
             }
         }
 

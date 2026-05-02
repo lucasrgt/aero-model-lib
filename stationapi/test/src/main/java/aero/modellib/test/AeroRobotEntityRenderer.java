@@ -3,6 +3,7 @@ package aero.modellib.test;
 import aero.modellib.Aero_EntityModelRenderer;
 import aero.modellib.Aero_ModelSpec;
 import aero.modellib.Aero_RenderOptions;
+import aero.modellib.Aero_TextureBinder;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.entity.Entity;
 import org.lwjgl.opengl.GL11;
@@ -33,7 +34,7 @@ public class AeroRobotEntityRenderer extends EntityRenderer {
     public void render(Entity entity, double x, double y, double z,
                        float yaw, float partialTick) {
         AeroRobotEntity bot = (AeroRobotEntity) entity;
-        bindTexture(MODEL.getTexturePath());
+        Aero_TextureBinder.bind(MODEL.getTexturePath());
 
         // Lerp the tint white → red as the robot heats up. Drop the green
         // and blue channels rather than boosting red so we never go over 1.0

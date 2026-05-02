@@ -70,7 +70,8 @@ public class Aero_RenderDistanceTileEntity extends TileEntity {
             stride = Aero_AnimationTickLOD.tickStrideWithMotion(
                 dx*dx + dy*dy + dz*dz, velocityBlocksPerTick);
         }
-        boolean tick = Aero_AnimationTickLOD.shouldTick(stride, aeroTickAge);
+        boolean tick = Aero_AnimationTickBudget.shouldTick(stride, aeroTickAge,
+            this.xCoord, this.yCoord, this.zCoord);
         aeroTickAge++;
         return tick;
     }

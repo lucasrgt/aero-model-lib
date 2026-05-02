@@ -76,6 +76,24 @@ loom {
     }
 }
 
+def aeroExtraJvmArgs = {
+    def raw = project.findProperty('aeroJvmArgs')
+    if (raw == null) return []
+    return raw.toString()
+        .split(/\s+/)
+        .findAll { it != null && !it.trim().isEmpty() }
+}
+
+tasks.named('runClient') {
+    doFirst {
+        def extra = aeroExtraJvmArgs()
+        if (!extra.isEmpty()) {
+            jvmArgs(extra)
+            println '[runClient] extra Aero JVM args: ' + extra.join(' ')
+        }
+    }
+}
+
 // Profile-enabled client run. Adds:
 //   • -Daero.profiler=true       — turns on the lib's own section profiler
 //                                  (Aero_Profiler) which a test-mod hook
@@ -228,6 +246,7 @@ tasks.register('runClientEmpty') {
         runClient.jvmArgs(
             '-Daero.testmod.disabled=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:+UnlockExperimentalVMOptions',
             '-XX:+UseZGC',
@@ -272,6 +291,7 @@ tasks.register('runClientFactoryEmpty') {
             '-Daero.factory=true',
             '-Daero.factoryEmpty=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-factory-empty',
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
@@ -294,6 +314,7 @@ tasks.register('runClientMegaDefault') {
         runClient.jvmArgs(
             '-Daero.mega=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-mega',
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
@@ -316,6 +337,7 @@ tasks.register('runClientMegaSmooth') {
         runClient.jvmArgs(
             '-Daero.mega=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:+UnlockExperimentalVMOptions',
             '-XX:+UseZGC',
@@ -324,6 +346,30 @@ tasks.register('runClientMegaSmooth') {
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
         )
         println '[runClientMegaSmooth] 16-floor 3x3 stacks · ZGC + C1-only · JFR -> ' + jfrFile
+    }
+}
+
+tasks.register('runClientMegaSpikeClean') {
+    group = 'fabric'
+    description = 'MEGA visual spike isolation: sparse terrain, no JFR, no benchmark autosave, no keyframe side effects.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        runClient.jvmArgs(
+            '-Daero.mega=true',
+            '-Daero.benchmark.skipNonForcedSaves=true',
+            '-Daero.spikelog=true',
+            '-Daero.spikelog.ms=30',
+            '-Daero.spikelog.flushMs=4',
+            '-Daero.spikelog.gc=true',
+            '-Xms2G',
+            '-Xmx4G',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:TieredStopAtLevel=1'
+        )
+        println '[runClientMegaSpikeClean] MEGA sparse · no JFR · skip non-forced saves · side effects off by default'
     }
 }
 
@@ -341,6 +387,7 @@ tasks.register('runClientFactoryDefault') {
         runClient.jvmArgs(
             '-Daero.factory=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-factory',
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
@@ -363,6 +410,7 @@ tasks.register('runClientRealisticDefault') {
         runClient.jvmArgs(
             '-Daero.realistic=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-realistic-default',
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
@@ -385,6 +433,7 @@ tasks.register('runClientRealistic') {
         runClient.jvmArgs(
             '-Daero.realistic=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:+UnlockExperimentalVMOptions',
             '-XX:+UseZGC',
@@ -410,6 +459,8 @@ tasks.register('runClientStress') {
         runClient.jvmArgs(
             '-Daero.stresstest=true',
             '-Daero.profiler=true',
+            '-Xms2G',
+            '-Xmx4G',
             '-XX:StartFlightRecording=filename=' + jfrFile + ',settings=profile,dumponexit=true,name=aero-stress',
             '-XX:FlightRecorderOptions=repository=' + jfrRepo
         )
@@ -441,6 +492,7 @@ tasks.register('runClientStressG1') {
         runClient.jvmArgs(
             '-Daero.stresstest=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:+UseG1GC',
             '-XX:MaxGCPauseMillis=10',
@@ -470,6 +522,7 @@ tasks.register('runClientStressZGC') {
         runClient.jvmArgs(
             '-Daero.stresstest=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:+UnlockExperimentalVMOptions',
             '-XX:+UseZGC',
@@ -509,6 +562,7 @@ tasks.register('runClientStressSmooth') {
         runClient.jvmArgs(
             '-Daero.stresstest=true',
             '-Daero.profiler=true',
+            '-Xms2G',
             '-Xmx4G',
             '-XX:+UnlockExperimentalVMOptions',
             '-XX:+UseZGC',

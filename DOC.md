@@ -2604,6 +2604,10 @@ Everything else (loading, `Aero_AnimationDefinition`, `Aero_AnimationState`, NBT
 
 ### Performance
 - **Too many triangles:** Triangles are bucketed by brightness and drawn through `GL_TRIANGLES`; simplify very dense models if frame time still spikes
+- **StationAPI texture binds:** In dense `BlockEntityRenderer` scenes, prefer
+  `Aero_TextureBinder.bind("/models/foo.png")` over vanilla
+  `bindTexture(String)`. The helper caches path-to-texture-id lookup and avoids
+  repeated `TextureManager.getTextureId(String)` allocation on every BE/frame.
 - **Smooth lighting:** Light is sampled once per unique XZ column in the model footprint, then interpolated from cached metadata
 - **Animation sampling:** Use `renderAnimated()` and the `sample*Into` path; it avoids per-frame vector allocation
 - **Animation LOD:** In dense scenes, use `Aero_RenderDistance.lodRelative(...)` and `renderModelAtRest(...)` so distant models skip keyframe sampling and per-bone GL transforms
