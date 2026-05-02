@@ -2,6 +2,8 @@ package aero.modellib.mixin;
 
 import aero.modellib.Aero_AnimatedBatcher;
 import aero.modellib.Aero_BECellRenderer;
+import aero.modellib.Aero_ChunkCompileBudget;
+import aero.modellib.Aero_FrameSpikeLogger;
 import aero.modellib.Aero_SoundCoalesce;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
@@ -11,6 +13,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Drains the {@link Aero_AnimatedBatcher} queue at the tail of vanilla's
@@ -39,6 +42,82 @@ public abstract class WorldRendererBatchFlushMixin {
 
     @Inject(
         method = "renderEntities(Lnet/minecraft/util/math/Vec3d;Lnet/minecraft/client/render/Culler;F)V",
+        at = @At("HEAD"),
+        require = 0,
+        expect = 0
+    )
+    private void aeroModelLib_beginRenderEntitiesTiming(
+            net.minecraft.util.math.Vec3d cameraPos,
+            net.minecraft.client.render.Culler culler,
+            float partialTick,
+            CallbackInfo ci) {
+        Aero_FrameSpikeLogger.beginRenderEntities();
+    }
+
+    @Inject(
+        method = "compileChunks(Lnet/minecraft/entity/LivingEntity;Z)Z",
+        at = @At("HEAD"),
+        cancellable = true,
+        require = 0,
+        expect = 0
+    )
+    private void aeroModelLib_beginChunkCompileTiming(
+            net.minecraft.entity.LivingEntity entity,
+            boolean flag,
+            CallbackInfoReturnable<Boolean> cir) {
+        if (Aero_ChunkCompileBudget.shouldSkip(flag)) {
+            Aero_FrameSpikeLogger.skipChunkCompile();
+            cir.setReturnValue(Boolean.FALSE);
+            return;
+        }
+        Aero_FrameSpikeLogger.beginChunkCompile();
+    }
+
+    @Inject(
+        method = "compileChunks(Lnet/minecraft/entity/LivingEntity;Z)Z",
+        at = @At("TAIL"),
+        require = 0,
+        expect = 0
+    )
+    private void aeroModelLib_endChunkCompileTiming(
+            net.minecraft.entity.LivingEntity entity,
+            boolean flag,
+            CallbackInfoReturnable<Boolean> cir) {
+        Aero_FrameSpikeLogger.endChunkCompile();
+    }
+
+    @Inject(
+        method = "renderChunks(IIID)I",
+        at = @At("HEAD"),
+        require = 0,
+        expect = 0
+    )
+    private void aeroModelLib_beginRenderChunksTiming(
+            int start,
+            int end,
+            int pass,
+            double tickDelta,
+            CallbackInfoReturnable<Integer> cir) {
+        Aero_FrameSpikeLogger.beginRenderChunks();
+    }
+
+    @Inject(
+        method = "renderChunks(IIID)I",
+        at = @At("TAIL"),
+        require = 0,
+        expect = 0
+    )
+    private void aeroModelLib_endRenderChunksTiming(
+            int start,
+            int end,
+            int pass,
+            double tickDelta,
+            CallbackInfoReturnable<Integer> cir) {
+        Aero_FrameSpikeLogger.endRenderChunks();
+    }
+
+    @Inject(
+        method = "renderEntities(Lnet/minecraft/util/math/Vec3d;Lnet/minecraft/client/render/Culler;F)V",
         at = @At("TAIL"),
         require = 0,
         expect = 0
@@ -48,21 +127,27 @@ public abstract class WorldRendererBatchFlushMixin {
             net.minecraft.client.render.Culler culler,
             float partialTick,
             CallbackInfo ci) {
-        Aero_AnimatedBatcher.flush();
-        Aero_BECellRenderer.flush(cameraPos.x, cameraPos.y, cameraPos.z);
-        // Sound coalesce drains here too — cameraPos is already in
-        // world coords (from PlayerEntity.getCameraPos), so we pass it
-        // straight to the coalescer for distance-to-camera selection.
-        // World handle comes from Minecraft#world; if absent (very early
-        // init) the dispatcher silently no-ops because the queue is empty.
-        Object game = FabricLoader.getInstance().getGameInstance();
-        if (game instanceof Minecraft) {
-            World w = ((Minecraft) game).world;
-            if (w != null) {
-                Aero_SoundCoalesce.flush(
-                    cameraPos.x, cameraPos.y, cameraPos.z,
-                    new SoundDispatcher(w));
+        Aero_FrameSpikeLogger.endRenderEntitiesBeforeAeroFlush();
+        long spikeStartNs = Aero_FrameSpikeLogger.beginWorldFlush();
+        try {
+            Aero_AnimatedBatcher.flush();
+            Aero_BECellRenderer.flush(cameraPos.x, cameraPos.y, cameraPos.z);
+            // Sound coalesce drains here too — cameraPos is already in
+            // world coords (from PlayerEntity.getCameraPos), so we pass it
+            // straight to the coalescer for distance-to-camera selection.
+            // World handle comes from Minecraft#world; if absent (very early
+            // init) the dispatcher silently no-ops because the queue is empty.
+            Object game = FabricLoader.getInstance().getGameInstance();
+            if (game instanceof Minecraft) {
+                World w = ((Minecraft) game).world;
+                if (w != null) {
+                    Aero_SoundCoalesce.flush(
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        new SoundDispatcher(w));
+                }
             }
+        } finally {
+            Aero_FrameSpikeLogger.endWorldFlush(spikeStartNs);
         }
     }
 

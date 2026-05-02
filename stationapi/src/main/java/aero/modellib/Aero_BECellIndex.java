@@ -133,7 +133,9 @@ public final class Aero_BECellIndex {
             Iterator<Cell> cells = maps.next().values().iterator();
             while (cells.hasNext()) {
                 Cell cell = cells.next();
-                if (Aero_ChunkVisibility.isBlockChunkVisible(cell.minBlockX(), cell.minBlockZ())) {
+                if (Aero_ChunkVisibility.isBlockAreaChunkVisible(
+                        cell.minBlockX(), cell.minBlockZ(),
+                        cell.maxBlockX(), cell.maxBlockZ())) {
                     out.add(cell);
                 }
             }
@@ -213,6 +215,14 @@ public final class Aero_BECellIndex {
 
         public int minBlockZ() {
             return cellZ * CELL_SIZE;
+        }
+
+        public int maxBlockX() {
+            return minBlockX() + CELL_SIZE - 1;
+        }
+
+        public int maxBlockZ() {
+            return minBlockZ() + CELL_SIZE - 1;
         }
     }
 

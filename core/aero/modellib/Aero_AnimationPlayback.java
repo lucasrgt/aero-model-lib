@@ -165,6 +165,19 @@ public class Aero_AnimationPlayback {
         return lo;
     }
 
+    private static float normalizePlaybackTime(Aero_AnimationClip clip, float timeSeconds) {
+        if (clip == null || clip.length <= 0f || Float.isNaN(timeSeconds)
+            || Float.isInfinite(timeSeconds)) {
+            return 0f;
+        }
+        if (clip.loop == Aero_AnimationLoop.LOOP) {
+            float time = timeSeconds % clip.length;
+            return time < 0f ? time + clip.length : time;
+        }
+        if (timeSeconds <= 0f) return 0f;
+        return timeSeconds >= clip.length ? clip.length : timeSeconds;
+    }
+
     /**
      * True when the active clip has reached its final keyframe AND its
      * loop type is {@link Aero_AnimationLoop#PLAY_ONCE}. HOLD
@@ -177,6 +190,37 @@ public class Aero_AnimationPlayback {
         if (clip == null) return false;
         return clip.loop == Aero_AnimationLoop.PLAY_ONCE
             && playbackTime >= clip.length;
+    }
+
+    /**
+     * Seeks the active clip without firing keyframe events. Both current and
+     * previous playback times are updated so the next render frame does not
+     * interpolate across the old position.
+     *
+     * <p>This is useful when many identical machines are placed together and
+     * should start at deterministic but different phases. Call after
+     * {@link #setState(int)} selects the looping state.
+     */
+    public void setPlaybackTime(float timeSeconds) {
+        Aero_AnimationClip clip = getCurrentClip();
+        float time = normalizePlaybackTime(clip, timeSeconds);
+        playbackTime = time;
+        prevPlaybackTime = time;
+        resetSampleCursors();
+    }
+
+    /**
+     * Seeks the active clip to a normalized phase in [0, 1). Values outside
+     * that range wrap, so callers can feed a hash-derived float directly.
+     */
+    public void setLoopPhase(float phase01) {
+        Aero_AnimationClip clip = getCurrentClip();
+        if (clip == null || clip.length <= 0f) {
+            setPlaybackTime(0f);
+            return;
+        }
+        float phase = phase01 - (float) Math.floor(phase01);
+        setPlaybackTime(phase * clip.length);
     }
 
     /**

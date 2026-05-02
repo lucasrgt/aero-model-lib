@@ -58,10 +58,13 @@ public abstract class PalettedContainerCacheMixin<T> {
     @Shadow private volatile PalettedContainer.Data<T> data;
 
     /**
-     * <strong>Default OFF</strong> in v3.0. Bench measurements showed the
-     * @Inject HEAD/RETURN overhead per call (~30 ns × millions of calls in
-     * steady state) outweighed the savings from cache hits — net regression
-     * of ~20% FPS in the stress test (160 → 120-130 FPS sustained).
+     * <strong>Default OFF</strong> in v3.0, and now gated by
+     * {@link AeroMixinPlugin#shouldApplyMixin(String, String)} so the mixin is
+     * not applied at all unless one of the opt-in flags is present. Bench
+     * measurements showed the @Inject HEAD/RETURN overhead per call
+     * (~30 ns × millions of calls in steady state) outweighed the savings from
+     * cache hits — net regression of ~20% FPS in the stress test
+     * (160 → 120-130 FPS sustained).
      * The cache <em>was</em> intended to help world-entry chunk-meshing
      * (where the call rate spikes for a few seconds), but the steady-state
      * cost is too high to justify a default-on optimization. Opt in with

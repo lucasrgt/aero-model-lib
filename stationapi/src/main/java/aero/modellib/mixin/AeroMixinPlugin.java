@@ -46,6 +46,8 @@ public class AeroMixinPlugin implements IMixinConfigPlugin {
         "net/modificationstation/stationapi/impl/world/chunk/PalettedContainer.class";
 
     private boolean palettedContainerAvailable;
+    private boolean palettedCacheOptedIn;
+    private boolean palettedChunkScopeOptedIn;
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -58,8 +60,9 @@ public class AeroMixinPlugin implements IMixinConfigPlugin {
         boolean found = this.getClass().getClassLoader()
             .getResource(PALETTED_CONTAINER_RESOURCE) != null;
         palettedContainerAvailable = found;
-        boolean optedIn = "true".equalsIgnoreCase(System.getProperty("aero.palettedcache"));
-        boolean scopedOptedIn =
+        palettedCacheOptedIn =
+            "true".equalsIgnoreCase(System.getProperty("aero.palettedcache"));
+        palettedChunkScopeOptedIn =
             "true".equalsIgnoreCase(System.getProperty("aero.palettedcache.chunkScope"));
         if (!found) {
             LOGGER.warning("[aero-model-lib] StationAPI PalettedContainer NOT FOUND"
@@ -69,20 +72,20 @@ public class AeroMixinPlugin implements IMixinConfigPlugin {
                 + " If you DO have StationAPI loaded, this likely indicates a"
                 + " version mismatch — the internal class may have been renamed or"
                 + " moved. File an issue with your StationAPI version.");
-        } else if (optedIn) {
+        } else if (palettedCacheOptedIn) {
             LOGGER.info("[aero-model-lib] StationAPI PalettedContainer detected"
                 + " — paletted-cache mixin OPTED IN (-Daero.palettedcache=true)."
                 + " Note: bench measurements show this is a net regression in steady"
                 + " state (~20% FPS loss). Useful only for world-entry trava A/B testing.");
-        } else if (scopedOptedIn) {
+        } else if (palettedChunkScopeOptedIn) {
             LOGGER.info("[aero-model-lib] StationAPI PalettedContainer detected"
                 + " — paletted-cache mixin CHUNK-SCOPED"
                 + " (-Daero.palettedcache.chunkScope=true). Cache activates only"
                 + " during ChunkBuilder.rebuild().");
         } else {
             LOGGER.info("[aero-model-lib] StationAPI PalettedContainer detected"
-                + " — paletted-cache mixin DEFAULT-OFF in v3.0 (net regression in"
-                + " steady-state benchmark). Opt in with"
+                + " — paletted-cache mixin NOT APPLIED by default in v3.0"
+                + " (the injection itself is too hot for steady state). Opt in with"
                 + " -Daero.palettedcache.chunkScope=true for chunk-rebuild"
                 + " experimentation, or -Daero.palettedcache=true for the old"
                 + " global A/B mode.");
@@ -97,7 +100,11 @@ public class AeroMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         if (mixinClassName.endsWith(".PalettedContainerCacheMixin")) {
-            return palettedContainerAvailable;
+            return palettedContainerAvailable
+                && (palettedCacheOptedIn || palettedChunkScopeOptedIn);
+        }
+        if (mixinClassName.endsWith(".ChunkBuilderPalettedCacheScopeMixin")) {
+            return palettedContainerAvailable && palettedChunkScopeOptedIn;
         }
         // All other mixins apply unconditionally — they target vanilla MC
         // classes which are guaranteed to be present at load time.

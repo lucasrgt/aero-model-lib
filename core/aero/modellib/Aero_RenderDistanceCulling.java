@@ -49,7 +49,8 @@ public final class Aero_RenderDistanceCulling {
                                                double maxRenderDistanceBlocks) {
         requireNonNegativeFinite("visualRadiusBlocks", visualRadiusBlocks);
         requirePositiveFinite("maxRenderDistanceBlocks", maxRenderDistanceBlocks);
-        double baseRadius = Math.min(blockRadiusForViewDistance(viewDistance), maxRenderDistanceBlocks);
+        double governedMax = governedMaxRenderDistance(maxRenderDistanceBlocks);
+        double baseRadius = Math.min(blockRadiusForViewDistance(viewDistance), governedMax);
         return baseRadius + visualRadiusBlocks;
     }
 
@@ -101,7 +102,8 @@ public final class Aero_RenderDistanceCulling {
         requireNonNegativeFinite("animatedDistanceBlocks", animatedDistanceBlocks);
         requirePositiveFinite("maxRenderDistanceBlocks", maxRenderDistanceBlocks);
 
-        double viewRadius = Math.min(blockRadiusForViewDistance(viewDistance), maxRenderDistanceBlocks);
+        double governedMax = governedMaxRenderDistance(maxRenderDistanceBlocks);
+        double viewRadius = Math.min(blockRadiusForViewDistance(viewDistance), governedMax);
         double staticRadius = viewRadius + visualRadiusBlocks;
         double distanceSq = effectiveDistanceSq(x, y, z);
         if (distanceSq > staticRadius * staticRadius) return Aero_RenderLod.CULLED;
@@ -173,6 +175,10 @@ public final class Aero_RenderDistanceCulling {
         return Aero_LODConfig.ENABLED
             ? biasedDistanceSq(x, y, z, Aero_LODConfig.Y_BIAS)
             : squaredDistance(x, y, z);
+    }
+
+    private static double governedMaxRenderDistance(double maxRenderDistanceBlocks) {
+        return Aero_RenderLoadGovernor.scaleRadius(maxRenderDistanceBlocks);
     }
 
     private static double biasedDistanceSq(double x, double y, double z, double yBias) {

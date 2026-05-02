@@ -4,9 +4,11 @@ import aero.modellib.Aero_AnimationBundle;
 import aero.modellib.Aero_AnimationDefinition;
 import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
+import aero.modellib.Aero_CellPageRenderableBE;
+import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
 
-public class ConveyorBlockEntity extends Aero_RenderDistanceBlockEntity {
+public class ConveyorBlockEntity extends Aero_RenderDistanceBlockEntity implements Aero_CellPageRenderableBE {
 
     public static final int STATE_SCROLL = 1;
 
@@ -17,14 +19,44 @@ public class ConveyorBlockEntity extends Aero_RenderDistanceBlockEntity {
         new Aero_AnimationDefinition().state(STATE_SCROLL, "scroll");
 
     public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+    private boolean phaseSeeded;
 
     @Override protected double getAeroRenderRadius() { return 1.0d; }
+
+    @Override
+    public Aero_MeshModel aeroCellModel() {
+        return ConveyorBlockEntityRenderer.MODEL;
+    }
+
+    @Override
+    public String aeroCellTexturePath() {
+        return ConveyorBlockEntityRenderer.TEXTURE;
+    }
+
+    @Override
+    public float aeroCellBrightness() {
+        return AeroLight.brightnessAbove(world, x, y, z);
+    }
+
+    @Override
+    public double aeroCellVisualRadius() {
+        return 1.0d;
+    }
+
+    @Override
+    public double aeroCellAnimatedDistance() {
+        return AeroTestMod.demoAnimatedLodDistance();
+    }
 
     @Override
     public void tick() {
         super.tick();
         if (!shouldTickAnimation()) return;
         animState.setState(STATE_SCROLL);
+        if (!phaseSeeded) {
+            AeroTestMod.seedMegaLoopPhase(animState, STATE_SCROLL, x, y, z);
+            phaseSeeded = true;
+        }
         animState.tick();
     }
 }

@@ -45,7 +45,8 @@ import java.util.Map;
 public class Aero_ObjLoader {
 
     private static final int MAX_CACHE_ENTRIES =
-        Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
+        Aero_PerfConfig.intProperty("aero.modellib.cache.maxEntries",
+            512, -1, -1, Integer.MAX_VALUE);
     private static final int HIDDEN_FACE_GRID =
         Math.max(1, Integer.getInteger("aero.obj.cullhidden.grid", 4096).intValue());
 

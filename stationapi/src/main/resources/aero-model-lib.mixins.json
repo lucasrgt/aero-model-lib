@@ -8,9 +8,11 @@
     "BlockRenderManagerChunkBakeMixin",
     "ChunkBuilderPalettedCacheScopeMixin",
     "GameRendererMixin",
+    "MinecraftFrameStageMixin",
     "PalettedContainerCacheMixin",
     "WorldRendererBatchFlushMixin",
-    "WorldRendererChunksAccessor"
+    "WorldRendererChunksAccessor",
+    "WorldSaveSpikeMixin"
   ],
   "injectors": {
     "defaultRequire": 1

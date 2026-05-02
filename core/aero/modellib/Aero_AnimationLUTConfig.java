@@ -29,9 +29,10 @@ package aero.modellib;
  *
  * <h2>Toggle</h2>
  * <ul>
- *   <li>{@code -Daero.anim.lut=true} enables. <strong>Default OFF</strong>
- *       so the 210 unit tests keep exercising the exact (non-baked) path
- *       and parity is guaranteed.</li>
+ *   <li>{@code -Daero.anim.lut=true} enables. Default OFF, or ON under
+ *       {@code -Daero.perf.memory=high}, so the normal path keeps exercising
+ *       the exact non-baked evaluator unless the performance preset is
+ *       explicitly selected.</li>
  *   <li>{@code -Daero.anim.lut.samples=N} (default 64, clamped to
  *       [{@value #MIN_SAMPLES}, {@value #MAX_SAMPLES}]) sets the bake
  *       resolution.</li>
@@ -44,13 +45,12 @@ package aero.modellib;
 public final class Aero_AnimationLUTConfig {
 
     /**
-     * Default <strong>OFF</strong>. Opt-in until accuracy is verified
-     * against representative clips for downstream mods. The non-LUT
-     * path stays the canonical reference so tests aren't dependent on
-     * sample resolution.
+     * Default <strong>OFF</strong>, high-memory preset <strong>ON</strong>.
+     * The non-LUT path stays the canonical reference so tests aren't
+     * dependent on sample resolution unless the preset/property is enabled.
      */
     public static final boolean ENABLED =
-        "true".equalsIgnoreCase(System.getProperty("aero.anim.lut"));
+        Aero_PerfConfig.booleanProperty("aero.anim.lut", false, true);
 
     public static final int MIN_SAMPLES = 4;
     public static final int MAX_SAMPLES = 1024;

@@ -6,6 +6,92 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
 
 ## [3.x] — Smart LOD + occlusion default-on
 
+### Fixed
+- **Chunk-bake registry pre-warm.** `Aero_MeshChunkBaker` now exposes
+  `prewarmAll()` and `Aero_RenderDistance.beginRenderFrame()` calls it
+  idempotently until every registered entry is baked or has hit a permanent
+  bake failure. The previous lazy bake landed mid `BlockRenderManager.render`
+  during chunk rebuild — the first chunk-compile to encounter a registered
+  block paid for `float[4][][]` + `float[15]` per triangle on the same stack
+  as vanilla's Tessellator buffers. The pre-warm pass moves that allocation
+  cost out of chunk compile. Atlas-not-ready resolves are deferred (no
+  poison) so the pass converges naturally on the first few render frames
+  after world load. No consumer changes required.
+
+- **IK chain solver no longer allocates per chain per frame.**
+  `Aero_MeshRenderer.runIkChains` now reuses static scratch buffers for the
+  `target` (`float[3]`), `boneIdx` (`int[]`) and `pivots` (`float[][]`)
+  inputs. `boneIdx` and `pivots` use a same-size cache: chains of identical
+  length reuse the buffer; chain-length changes realloc once and steady
+  state returns to zero allocations. The CCD solver consumes the inputs
+  synchronously and does not retain references, so reuse is safe.
+
+- **PalettedContainer cache is now truly opt-in.** The StationAPI
+  `PalettedContainerCacheMixin` is no longer applied when both
+  `-Daero.palettedcache` and `-Daero.palettedcache.chunkScope` are off.
+  Previously the cache logic returned immediately, but the hot
+  `PalettedContainer.get(int)` injection still allocated
+  `CallbackInfoReturnable` for every block-state read. Dense tower JFRs showed
+  this as the dominant heap churn and FPS degradation source. Default runs now
+  skip the mixin entirely; the global and chunk-scoped A/B flags still opt in.
+
+- **MEGA stress terrain no longer dominates the BE benchmark by default.**
+  The `-Daero.mega=true` showcase now builds sparse support pads/cross-walks
+  instead of full 16×16 cobblestone slabs on every floor. The old solid terrain
+  path is still available with `-Daero.mega.solidTerrain=true` when we
+  intentionally want to reproduce vanilla `WorldRenderer.renderChunks` /
+  driver display-list stalls.
+
+- **StationAPI model texture binds can now avoid per-frame `getTextureId`
+  allocation.** Added `Aero_TextureBinder.bind(path)` and migrated the dense
+  showcase renderers plus internal batch/cell-page texture binds to the cached
+  path. This targets the old rhythmic heap-growth / GC pressure seen near
+  large BE towers, where resolving the same model texture string for every
+  block entity could dominate allocation samples.
+
+- **BE cell tracking avoids full per-frame revalidation from
+  `distanceFrom()`.** `Aero_RenderDistanceBlockEntity` still performs full
+  `Aero_BECellIndex.track(...)` validation during tick/lifecycle hooks, but
+  render-distance checks now only reattach when the BE changes world or block
+  position. This cuts repeated state-hash and cell-index work from the vanilla
+  BE dispatcher hot path in dense towers.
+
+- **MEGA spike isolation can now remove benchmark-only autosave/event
+  noise.** The StationAPI test mod disables MEGA keyframe side effects by
+  default unless `-Daero.mega.sideEffects=true` is set, and the opt-in
+  `-Daero.benchmark.skipNonForcedSaves=true` flag cancels non-forced world
+  saves during benchmark runs. `runClientMegaSpikeClean` combines those with
+  ZGC/C1 and no JFR for visual spike checks.
+
+- **Managed Cell Pages no longer consume the animation budget inside
+  `distanceFrom()`.** The distance gate now uses unbudgeted LOD when deciding
+  whether a BE is truly far/static enough to skip its individual renderer.
+  Budget downgrades stay in the renderer path, so nearby animated blocks can
+  still tick and draw correctly instead of getting locked into at-rest pages.
+
+- **UV-animated OBJ groups use the exact Tessellator path again.** The
+  animated batcher now detects non-identity `uv_offset` / `uv_scale` poses and
+  drains those instances through the unbatched renderer; bone-page display
+  lists also fall back per group when UV animation is active. This restores
+  conveyor-belt scroll and spell/rune channel effects while preserving the
+  optimized paths for ordinary rigid bone animation.
+
+- **UV-channel clips are excluded from animated fast paths up front.** Clips
+  now expose `hasUvAnimation()`, letting StationAPI bypass the animated
+  batcher and bone-page lists before any frame samples happen. This avoids the
+  first-frame/identity-pose case where a UV-only clip could still enter a
+  display-list path and appear frozen.
+
+- **Added `Aero_MeshRenderer.renderAnimatedPrecise(...)`.** This StationAPI
+  entry point restores the pre-optimization animated Tessellator path for
+  UV-sensitive clips. The conveyor and spell/rune showcases now bind their
+  texture before direct animated rendering again, matching the old behavior
+  that predates the animated batcher queue.
+
+- **Animated batcher opt-out/fallback paths bind their texture.** Disabling
+  `-Daero.animatedbatch` or falling back from a non-batchable queued model no
+  longer renders against whichever atlas happened to be bound previously.
+
 ### Changed
 - **Bone-page display lists for rigid animated groups.** Animated renders can
   now cache static geometry plus eligible named groups as per-bone display-list
@@ -54,6 +140,56 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
   and existing `Aero_AnimatedBatcher`. Toggle the skip path with
   `-Daero.becell.skipIndividual=false`. Cell page timings now appear in
   `Aero_Profiler` as `aero.becell.flush`, `compile`, `call`, and `direct`.
+
+- **High-memory performance preset and display-list guardrails.**
+  `-Daero.perf.memory=high` now raises conservative cache defaults for heavy
+  BE scenes: Cell Page TTL becomes `1800`, Cell Page rebuild budget becomes
+  `16`, animation LUT defaults on, runtime model caches become unbounded, and
+  StationAPI display lists get live-count caps/warnings through
+  `Aero_DisplayListBudget`. Explicit `-D` flags still override the preset.
+
+- **Cell Page fragmentation controls.** StationAPI Cell Pages can now reduce
+  churn caused by lighting and unstable membership order. New opt-in flags:
+  `-Daero.becell.perInstanceLight=true` stores per-BE brightness in the page
+  display list, `-Daero.becell.lightBuckets=N` quantizes page-key brightness
+  when per-instance light is off, `-Daero.becell.stableMembership=true` sorts
+  page members by stable world-position key before hashing, and
+  `-Daero.becell.maxCachedPages=N` caps cached pages with LRU-style eviction.
+  Defaults remain conservative and visually exact.
+
+- **Render-thread prewarm queue.** `Aero_Prewarm.enqueueModel(model)` lets
+  consumers gradually compile at-rest model lists and bone pages on render
+  frames instead of paying the full cost on first visibility. It is opt-in via
+  `-Daero.prewarm=true` or enabled by the high-memory preset; tune with
+  `-Daero.prewarm.perFrame=N` and `-Daero.prewarm.maxMsPerFrame=N`.
+
+- **Benchmark tasks accept extra Aero JVM flags.** The StationAPI test mod's
+  `runClient*` Gradle tasks now accept `-PaeroJvmArgs="..."`, making A/B runs
+  such as `-Daero.becell.pages=false` or `-Daero.perf.memory=high` possible
+  without editing `build.gradle`.
+
+- **Benchmark stress tasks reserve a larger initial heap.** The dense-tower
+  spike logger captured frames where committed heap stayed around `240 MB`
+  despite a much larger max heap, producing rhythmic F3 memory climb/drop and
+  GC pauses near heavy BE scenes. StationAPI benchmark/stress tasks that use
+  the 4 GB heap now also pass `-Xms2G`, reducing heap growth/collection churn
+  during visual stress runs.
+
+- **Dense-tower spike diagnostics now separate new render paths from legacy
+  stalls.** The opt-in spike logger records per-frame CPU time plus
+  `renderWorld`, Aero prep, entity dispatch, Aero flush, chunk compile, and
+  terrain render timings. Captured `196-272 ms` spikes showed BPDL, Cell
+  Pages, animation budget, batch flush, and Aero chunk visibility all below
+  `1-2 ms` with no Cell Page rebuilds, shifting the remaining investigation to
+  older chunk/terrain/driver stalls rather than the new optimization paths.
+
+- **Reduced near-tower GC spikes from render hot-path allocation.** The
+  StationAPI animation budget now uses a primitive long-key path for
+  per-frame hysteresis decisions, avoiding `Long`/`Integer` boxing for every
+  animated BE near dense towers. Animated batches and Cell Page queues also use
+  reusable lookup keys instead of allocating temporary render keys for every
+  queued BE. This targets the rhythmic F3 memory climb/drop seen only near
+  heavy BE stress scenes.
 
 - **PERF roadmap implementation pass.** Animated batches now sort by a
   composite render-state key instead of texture alone; OBJ load can opt into

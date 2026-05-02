@@ -8,6 +8,7 @@ import aero.modellib.Aero_ProceduralPose;
 import aero.modellib.Aero_RenderDistance;
 import aero.modellib.Aero_RenderLod;
 import aero.modellib.Aero_RenderOptions;
+import aero.modellib.Aero_TextureBinder;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 
@@ -42,7 +43,7 @@ public class PlasmaCrystalBlockEntityRenderer extends BlockEntityRenderer {
             x, y, z, 2d, AeroTestMod.demoAnimatedLodDistance());
         if (!lod.shouldRender()) return;
 
-        bindTexture("/models/aerotest_crystal.png");
+        Aero_TextureBinder.bind("/models/aerotest_crystal.png");
         float brightness = AeroLight.brightnessAbove(be.world, be.x, be.y, be.z);
 
         if (lod.shouldAnimate()) {

@@ -21,7 +21,8 @@ import java.util.Map;
 public class Aero_JsonModelLoader {
 
     private static final int MAX_CACHE_ENTRIES =
-        Integer.getInteger("aero.modellib.cache.maxEntries", 512).intValue();
+        Aero_PerfConfig.intProperty("aero.modellib.cache.maxEntries",
+            512, -1, -1, Integer.MAX_VALUE);
 
     private static final Map cache = new LinkedHashMap(16, 0.75f, true) {
         protected boolean removeEldestEntry(Map.Entry eldest) {

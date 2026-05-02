@@ -18,13 +18,16 @@ import aero.modellib.Aero_RenderDistanceBlockEntity;
  * <p>Doubles as the keyframe-event smoke test: the {@code working} clip
  * carries {@code sound}, {@code particle} and {@code custom} entries that
  * are routed to {@link #eventListener} on every cross. They print to the
- * server log so testers can verify the listener is firing without needing
- * sound/particle infrastructure on the consumer side.
+ * server log when {@code -Daero.test.events.log=true}; sound / particle
+ * side-effects are opt-in with {@code -Daero.test.events.sideEffects=true}.
+ * Perf runs keep both disabled so the benchmark measures model rendering.
  */
 public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity implements Aero_CellPageRenderableBE {
 
     public static final int STATE_IDLE = 0;
     public static final int STATE_SPIN = 1;
+    private static final boolean LOG_EVENTS =
+        "true".equalsIgnoreCase(System.getProperty("aero.test.events.log"));
 
     public static final Aero_AnimationBundle BUNDLE =
         Aero_AnimationLoader.load("/models/MegaCrusher.anim.json");
@@ -38,6 +41,7 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
             .state(STATE_SPIN, "working");
 
     public final Aero_AnimationState animState = ANIM_DEF.createState(BUNDLE);
+    private boolean phaseSeeded;
 
     public AnimatedMegaModelBlockEntity() {
         // Route the clip's keyframe events into actual MC sound + particle
@@ -59,12 +63,18 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
         animState.setEventListener(new Aero_AnimationEventListener() {
             @Override
             public void onEvent(String channel, String data, String locator, float time) {
-                if (!AeroTestMod.MEGA_TEST) {
-                    // The println is hot under MEGA load (144 BEs × 2-3
-                    // events / cycle = stdout backpressure). Keep it for
-                    // dev / debug runs only.
+                if (AeroTestMod.MEGA_TEST && !AeroTestMod.MEGA_SIDE_EFFECTS) {
+                    return;
+                }
+                if (LOG_EVENTS) {
+                    // The println is hot under dense BE load (hundreds of
+                    // BEs × 2-3 events / cycle = stdout backpressure). Keep
+                    // it opt-in for focused event-listener debugging only.
                     System.out.println("[aerotest:event] " + channel + "=" + data
                         + " @ t=" + time + "s loc=" + locator);
+                }
+                if (!AeroTestMod.TEST_EVENT_SIDE_EFFECTS) {
+                    return;
                 }
                 if (world == null) return;
 
@@ -146,6 +156,10 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
         super.tick();
         if (!shouldTickAnimation()) return;
         animState.setState(STATE_SPIN);
+        if (!phaseSeeded) {
+            AeroTestMod.seedMegaLoopPhase(animState, STATE_SPIN, x, y, z);
+            phaseSeeded = true;
+        }
         animState.tick();
     }
 }

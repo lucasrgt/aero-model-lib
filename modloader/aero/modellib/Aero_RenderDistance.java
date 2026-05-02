@@ -42,6 +42,9 @@ public final class Aero_RenderDistance {
             return false;
         }
         updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isBlockEntityViewVisible(x, y, z, visualRadiusBlocks)) {
+            return false;
+        }
         return Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks);
     }
 
@@ -61,6 +64,9 @@ public final class Aero_RenderDistance {
             animatedDistanceBlocks, maxRenderDistanceBlocks);
         if (!lod.shouldRender()) return lod;
         updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isBlockEntityViewVisible(x, y, z, visualRadiusBlocks)) {
+            return Aero_RenderLod.CULLED;
+        }
         if (!Aero_FrustumCull.isLikelyVisibleWithRadius(x, y, z, visualRadiusBlocks)) {
             return Aero_RenderLod.CULLED;
         }
@@ -100,6 +106,7 @@ public final class Aero_RenderDistance {
                 double hHalfDeg = Math.toDegrees(hHalfRad);
                 double coneHalf = Math.max(75.0d, hHalfDeg + 20.0d);
                 Aero_FrustumCull.setConeHalfAngleDegrees(coneHalf);
+                Aero_FrustumCull.setViewportHalfAnglesDegrees(hHalfDeg, 35.0d);
             }
         } catch (Throwable ignored) {
             Aero_FrustumCull.clearCamera();
@@ -127,6 +134,13 @@ public final class Aero_RenderDistance {
                                                 double cameraX, double cameraY, double cameraZ,
                                                 double visualRadiusBlocks,
                                                 double maxRenderDistanceBlocks) {
+        double dx = tile.xCoord + 0.5d - cameraX;
+        double dy = tile.yCoord + 0.5d - cameraY;
+        double dz = tile.zCoord + 0.5d - cameraZ;
+        updateCameraForwardFromPlayer();
+        if (!Aero_FrustumCull.isBlockEntityViewVisible(dx, dy, dz, visualRadiusBlocks)) {
+            return Double.POSITIVE_INFINITY;
+        }
         return Aero_RenderDistanceCulling.blockEntityDistanceFrom(
             tile.xCoord, tile.yCoord, tile.zCoord,
             cameraX, cameraY, cameraZ,

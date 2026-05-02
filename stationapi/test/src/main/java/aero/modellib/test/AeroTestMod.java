@@ -11,6 +11,8 @@ import net.modificationstation.stationapi.api.mod.entrypoint.EntrypointManager;
 import net.modificationstation.stationapi.api.util.Identifier;
 import net.modificationstation.stationapi.api.util.Namespace;
 
+import aero.modellib.Aero_AnimationState;
+
 import java.lang.invoke.MethodHandles;
 
 /**
@@ -127,6 +129,38 @@ public class AeroTestMod {
         && !TEST_MOD_DISABLED;
 
     /**
+     * Legacy MEGA terrain used full 16x16 cobblestone slabs on all 16 floors.
+     * That is useful when intentionally stress-testing vanilla terrain chunk
+     * display lists, but it pollutes the BlockEntity renderer benchmark with
+     * huge {@code WorldRenderer.renderChunks} / driver stalls. Keep it opt-in
+     * so the default MEGA mode isolates modellib's BE path.
+     */
+    static final boolean MEGA_SOLID_TERRAIN =
+        Boolean.getBoolean("aero.mega.solidTerrain");
+
+    /**
+     * Dense benchmark scenes should isolate model rendering, not particle /
+     * audio / event-system pressure. Keep keyframe side effects disabled by
+     * default in all perf runs. Re-enable with
+     * {@code -Daero.test.events.sideEffects=true} when validating event
+     * routing, or the legacy {@code -Daero.mega.sideEffects=true} in MEGA.
+     */
+    static final boolean MEGA_SIDE_EFFECTS =
+        Boolean.getBoolean("aero.mega.sideEffects");
+    static final boolean TEST_EVENT_SIDE_EFFECTS =
+        Boolean.getBoolean("aero.test.events.sideEffects")
+        || (MEGA_TEST && MEGA_SIDE_EFFECTS);
+
+    /**
+     * Dense benchmark scenes should not make every identical machine wrap its
+     * animation on the same tick. Real bases are placed/loaded over time, so
+     * default MEGA to deterministic per-position phase spreading. Disable with
+     * {@code -Daero.mega.phaseSpread=false} when testing synchronized loops.
+     */
+    static final boolean MEGA_PHASE_SPREAD =
+        !"false".equalsIgnoreCase(System.getProperty("aero.mega.phaseSpread", "true"));
+
+    /**
      * Realistic mode — turn on with `-Daero.realistic=true` (test build's
      * `runClientRealistic` task wires this). Simulates a typical tech-mod
      * player base: each qualifying chunk gets ~5 BEs (mix of static
@@ -174,6 +208,22 @@ public class AeroTestMod {
                 aero.modellib.Aero_RenderDistance.currentViewDistance());
         }
         return 48d;
+    }
+
+    static void seedMegaLoopPhase(Aero_AnimationState state, int stateId, int x, int y, int z) {
+        if (!MEGA_TEST || !MEGA_PHASE_SPREAD || state == null) return;
+        state.setState(stateId);
+        state.setLoopPhase(hashToPhase(x, y, z, stateId));
+    }
+
+    private static float hashToPhase(int x, int y, int z, int salt) {
+        int h = x * 73428767 ^ y * 912931 ^ z * 42317861 ^ salt * 1103515245;
+        h ^= (h >>> 16);
+        h *= 0x7feb352d;
+        h ^= (h >>> 15);
+        h *= 0x846ca68b;
+        h ^= (h >>> 16);
+        return (h & 0x00FFFFFF) * (1.0f / 16777216.0f);
     }
 
     static {
@@ -537,13 +587,7 @@ public class AeroTestMod {
         for (int floor = 0; floor < NUM_FLOORS; floor++) {
             int floorY = baseY + floor * FLOOR_HEIGHT;
 
-            // Cobblestone slab — full 16×16 floor + ceiling.
-            for (int dx = 0; dx < 16; dx++) {
-                for (int dz = 0; dz < 16; dz++) {
-                    event.world.setBlockWithoutNotifyingNeighbors(
-                        event.x + dx, floorY, event.z + dz, COBBLESTONE_ID);
-                }
-            }
+            placeMegaFloor(event, floorY, COBBLESTONE_ID, CLUSTER_ORIGINS);
 
             int machineY = floorY + 1;
 
@@ -586,13 +630,49 @@ public class AeroTestMod {
             }
         }
 
-        // Top cap.
+        // Top cap. Sparse by default for the same reason as each floor:
+        // keep the benchmark about animated BEs, not terrain display-list
+        // throughput. Opt back into the old full slab with
+        // -Daero.mega.solidTerrain=true.
         int topY = baseY + NUM_FLOORS * FLOOR_HEIGHT;
-        for (int dx = 0; dx < 16; dx++) {
-            for (int dz = 0; dz < 16; dz++) {
-                event.world.setBlockWithoutNotifyingNeighbors(
-                    event.x + dx, topY, event.z + dz, COBBLESTONE_ID);
+        placeMegaFloor(event, topY, COBBLESTONE_ID, CLUSTER_ORIGINS);
+    }
+
+    private static void placeMegaFloor(WorldGenEvent.ChunkDecoration event,
+                                       int y, int blockId,
+                                       int[][] clusterOrigins) {
+        if (MEGA_SOLID_TERRAIN) {
+            for (int dx = 0; dx < 16; dx++) {
+                for (int dz = 0; dz < 16; dz++) {
+                    event.world.setBlockWithoutNotifyingNeighbors(
+                        event.x + dx, y, event.z + dz, blockId);
+                }
             }
+            return;
+        }
+
+        // Sparse support pads directly under the 3x3 BE clusters. This keeps
+        // the tower readable and walkable without turning each chunk into a
+        // giant terrain display list.
+        for (int c = 0; c < clusterOrigins.length; c++) {
+            int ox = clusterOrigins[c][0];
+            int oz = clusterOrigins[c][1];
+            for (int sx = 0; sx < 3; sx++) {
+                for (int sz = 0; sz < 3; sz++) {
+                    event.world.setBlockWithoutNotifyingNeighbors(
+                        event.x + ox + sx, y, event.z + oz + sz, blockId);
+                }
+            }
+        }
+
+        // A small central cross lets the player climb/fly through the tower
+        // and gives visual depth, while still being far cheaper than 256
+        // terrain blocks per floor.
+        for (int i = 0; i < 16; i++) {
+            event.world.setBlockWithoutNotifyingNeighbors(event.x + i, y, event.z + 7, blockId);
+            event.world.setBlockWithoutNotifyingNeighbors(event.x + i, y, event.z + 8, blockId);
+            event.world.setBlockWithoutNotifyingNeighbors(event.x + 7, y, event.z + i, blockId);
+            event.world.setBlockWithoutNotifyingNeighbors(event.x + 8, y, event.z + i, blockId);
         }
     }
 
