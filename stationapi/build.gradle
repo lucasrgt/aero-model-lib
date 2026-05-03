@@ -37,7 +37,7 @@ dependencies {
     // `net.fabricmc:fabric-loader` collides with StationAPI's transitive
     // `babric:fabric-loader` at runtime when this lib is consumed via a
     // composite build (see stationapi/test/).
-    modImplementation "babric:fabric-loader:0.15.6-babric.1"
+    modImplementation "babric:fabric-loader:0.15.6-babric.2"
     // StationAPI compile-only — the v3.0 PalettedContainerCacheMixin
     // targets a StationAPI internal class. The library DOES NOT ship
     // StationAPI; it's expected to be present at runtime when this lib
