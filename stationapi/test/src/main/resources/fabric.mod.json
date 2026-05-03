@@ -9,6 +9,9 @@
   "license": "MIT",
 
   "environment": "*",
+  "mixins": [
+    "aerotest.mixins.json"
+  ],
   "entrypoints": {
     "stationapi:event_bus": [
       "aero.modellib.test.AeroTestMod"
