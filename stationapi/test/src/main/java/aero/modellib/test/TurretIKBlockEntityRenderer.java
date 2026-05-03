@@ -1,17 +1,17 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_IkChain;
-import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_MeshRenderer;
-import aero.modellib.Aero_ObjLoader;
-import aero.modellib.Aero_ProceduralPose;
 import aero.modellib.Aero_RenderDistance;
-import aero.modellib.Aero_RenderLod;
-import aero.modellib.Aero_RenderOptions;
 import aero.modellib.Aero_TextureBinder;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 import net.minecraft.entity.player.PlayerEntity;
+
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.model.Aero_ObjLoader;
+import aero.modellib.render.Aero_RenderLod;
+import aero.modellib.render.Aero_RenderOptions;
+import aero.modellib.skeletal.Aero_IkChain;
+import aero.modellib.skeletal.Aero_ProceduralPose;
 
 public class TurretIKBlockEntityRenderer extends BlockEntityRenderer {
 

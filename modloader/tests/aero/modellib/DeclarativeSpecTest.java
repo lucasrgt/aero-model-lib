@@ -5,6 +5,20 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoop;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.animation.Aero_AnimationPredicate;
+import aero.modellib.animation.Aero_AnimationSpec;
+import aero.modellib.animation.Aero_AnimationStateRouter;
+import aero.modellib.model.Aero_JsonModel;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.model.Aero_ModelSpec;
+import aero.modellib.render.Aero_RenderDistanceCulling;
+import aero.modellib.render.Aero_RenderLod;
+import aero.modellib.render.Aero_RenderOptions;
+
 import static org.junit.Assert.*;
 
 public class DeclarativeSpecTest {

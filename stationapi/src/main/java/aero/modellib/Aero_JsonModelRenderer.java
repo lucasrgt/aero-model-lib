@@ -3,6 +3,9 @@ package aero.modellib;
 import net.minecraft.client.render.Tessellator;
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.model.Aero_JsonModel;
+import aero.modellib.util.Aero_Profiler;
+
 /**
  * AeroModel JSON Renderer (StationAPI/Yarn port).
  * Same algorithm as the ModLoader version, with Yarn-mapped Tessellator API.

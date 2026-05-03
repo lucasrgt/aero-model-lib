@@ -3,6 +3,11 @@ package aero.modellib;
 import java.util.HashMap;
 import java.util.Map;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoop;
+import aero.modellib.animation.Aero_Easing;
+
 final class TestClips {
 
     private TestClips() {}

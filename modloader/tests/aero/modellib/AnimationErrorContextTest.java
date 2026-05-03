@@ -2,6 +2,10 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.animation.Aero_Easing;
+
 import static org.junit.Assert.*;
 
 /**

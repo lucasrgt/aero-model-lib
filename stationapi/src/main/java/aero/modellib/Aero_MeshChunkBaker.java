@@ -3,6 +3,9 @@ package aero.modellib;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.world.BlockView;
 
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.render.Aero_RenderOptions;
+
 /**
  * Static-mesh chunk-bake registry — the v0.2.5 fast-path for blocks whose
  * geometry never changes per-frame.

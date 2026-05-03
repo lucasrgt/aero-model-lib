@@ -3,6 +3,8 @@ package aero.modellib;
 import net.minecraft.client.render.Frustum;
 import net.minecraft.client.render.FrustumData;
 
+import aero.modellib.render.Aero_FrustumCull;
+
 /**
  * Real 6-plane frustum culling backed by Beta 1.7.3's vanilla
  * {@link Frustum} / {@link FrustumData}. Replaces (or augments) the cone

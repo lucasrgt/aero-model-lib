@@ -2,6 +2,18 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.animation.Aero_Easing;
+import aero.modellib.animation.graph.Aero_AnimationGraph;
+import aero.modellib.animation.graph.Aero_GraphAdditiveNode;
+import aero.modellib.animation.graph.Aero_GraphBlend1DNode;
+import aero.modellib.animation.graph.Aero_GraphClipNode;
+import aero.modellib.animation.graph.Aero_GraphNode;
+import aero.modellib.animation.graph.Aero_GraphParams;
+
 import static org.junit.Assert.*;
 
 /**

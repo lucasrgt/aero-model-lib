@@ -3,6 +3,9 @@ package aero.modellib;
 import net.minecraft.src.*;
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.model.Aero_JsonModel;
+import aero.modellib.util.Aero_Profiler;
+
 /**
  * AeroModel Renderer API by lucasrgt - aerocoding.dev
  * Handles high-performance rendering of Aero_JsonModels.

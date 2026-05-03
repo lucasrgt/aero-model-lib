@@ -4,7 +4,6 @@ import aero.modellib.Aero_AnimatedBatcher;
 import aero.modellib.Aero_BECellRenderer;
 import aero.modellib.Aero_ChunkCompileBudget;
 import aero.modellib.Aero_FrameSpikeLogger;
-import aero.modellib.Aero_SoundCoalesce;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.render.WorldRenderer;
@@ -14,6 +13,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import aero.modellib.util.Aero_SoundCoalesce;
 
 /**
  * Drains the {@link Aero_AnimatedBatcher} queue at the tail of vanilla's

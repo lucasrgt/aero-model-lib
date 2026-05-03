@@ -5,6 +5,8 @@ import net.minecraft.block.material.Material;
 import net.modificationstation.stationapi.api.template.block.TemplateBlockWithEntity;
 import net.modificationstation.stationapi.api.util.Identifier;
 
+import aero.modellib.animation.graph.Aero_AnimationGraph;
+
 /** Showcase: Aero_AnimationGraph Blend1D between slow/fast spin clips. */
 public class GraphPoweredBlock extends TemplateBlockWithEntity {
 

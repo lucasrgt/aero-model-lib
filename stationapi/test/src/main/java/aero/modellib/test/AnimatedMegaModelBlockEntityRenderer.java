@@ -2,13 +2,14 @@ package aero.modellib.test;
 
 import aero.modellib.Aero_AnimatedBatcher;
 import aero.modellib.Aero_BECellRenderer;
-import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_ObjLoader;
 import aero.modellib.Aero_RenderDistance;
-import aero.modellib.Aero_RenderLod;
-import aero.modellib.Aero_RenderOptions;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
+
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.model.Aero_ObjLoader;
+import aero.modellib.render.Aero_RenderLod;
+import aero.modellib.render.Aero_RenderOptions;
 
 /**
  * Renderer for {@link AnimatedMegaModelBlockEntity} — calls

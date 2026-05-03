@@ -2,6 +2,9 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.skeletal.Aero_BoneFK;
+import aero.modellib.skeletal.Aero_BoneRenderPose;
+
 import static org.junit.Assert.*;
 
 /**

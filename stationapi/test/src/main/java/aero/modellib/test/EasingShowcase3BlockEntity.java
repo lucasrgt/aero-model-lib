@@ -1,10 +1,10 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_AnimationBundle;
-import aero.modellib.Aero_AnimationDefinition;
-import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
+
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationLoader;
 
 public class EasingShowcase3BlockEntity extends Aero_RenderDistanceBlockEntity {
     public static final int STATE_WAVE = 1;

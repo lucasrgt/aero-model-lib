@@ -1,11 +1,11 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_AnimationBundle;
-import aero.modellib.Aero_AnimationDefinition;
-import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
-import aero.modellib.Aero_MorphState;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
+
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.skeletal.Aero_MorphState;
 
 public class MorphCrystalBlockEntity extends Aero_RenderDistanceBlockEntity {
 

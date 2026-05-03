@@ -1,6 +1,12 @@
 package aero.modellib;
 
 import net.minecraft.client.Minecraft;
+import aero.modellib.model.Aero_ModelSpec;
+import aero.modellib.render.Aero_EntityModelTransform;
+import aero.modellib.render.Aero_FrustumCull;
+import aero.modellib.render.Aero_RenderDistanceCulling;
+import aero.modellib.render.Aero_RenderLod;
+
 import net.minecraft.src.*;
 
 /**

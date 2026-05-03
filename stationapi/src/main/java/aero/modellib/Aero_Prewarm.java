@@ -3,6 +3,9 @@ package aero.modellib;
 import java.util.ArrayDeque;
 import java.util.IdentityHashMap;
 
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.util.Aero_PerfConfig;
+
 /**
  * Opt-in render-thread prewarm queue for display-list caches. Consumers can
  * enqueue models after loading them; the queue drains gradually during render

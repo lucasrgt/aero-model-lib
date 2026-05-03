@@ -2,6 +2,9 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.render.Aero_AnimationRenderBudget;
+import aero.modellib.render.Aero_RenderLod;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 

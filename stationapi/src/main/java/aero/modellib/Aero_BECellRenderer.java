@@ -10,6 +10,13 @@ import java.util.Map;
 import net.minecraft.block.entity.BlockEntity;
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.model.Aero_MeshBlendMode;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.render.Aero_CellRenderableBE;
+import aero.modellib.render.Aero_RenderOptions;
+import aero.modellib.util.Aero_PerfConfig;
+import aero.modellib.util.Aero_Profiler;
+
 /**
  * At-rest BlockEntity cell pages. Renderers can queue static/LOD-overflow
  * meshes here instead of drawing each BE immediately; the flush compiles one

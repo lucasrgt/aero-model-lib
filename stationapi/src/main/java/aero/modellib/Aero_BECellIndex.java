@@ -8,6 +8,8 @@ import java.util.Map;
 
 import net.minecraft.block.entity.BlockEntity;
 
+import aero.modellib.render.Aero_CellRenderableBE;
+
 /**
  * Spatial index for Aero-managed BlockEntities. This is the infrastructure
  * layer for future BE Cell Pages: keep renderable BEs grouped by small world

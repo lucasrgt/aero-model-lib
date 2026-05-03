@@ -6,6 +6,11 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoop;
+import aero.modellib.model.Aero_MeshModel;
+
 import static org.junit.Assert.*;
 
 public class MeshModelTest {

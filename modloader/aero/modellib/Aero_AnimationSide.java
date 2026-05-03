@@ -2,6 +2,9 @@ package aero.modellib;
 
 import net.minecraft.src.World;
 
+import aero.modellib.animation.Aero_AnimationEventListener;
+import aero.modellib.animation.Aero_AnimationPlayback;
+
 /**
  * Helper for gating animation event side-effects per server/client side
  * in Beta 1.7.3 (ModLoader/Forge runtime).
