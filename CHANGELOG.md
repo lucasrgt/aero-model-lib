@@ -6,6 +6,34 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
 
 ## [3.x] — Smart LOD + occlusion default-on
 
+### Removed
+- **`aero.modellib.mixin.WorldSaveSpikeMixin` is gone from the published
+  lib.** Cancelling vanilla world saves had no business in a model-rendering
+  library — the only purpose was a benchmark convenience flag
+  (`-Daero.benchmark.skipNonForcedSaves`). The same mixin lives in the test
+  mod now (`aero.modellib.test.mixin.WorldSaveSpikeMixin`), so the dev
+  benchmark flag still works when running through `runClient` / `runClientDev`,
+  but the published jar no longer ships a save-cancelling mixin.
+- **Diagnostic-only frame-stage hooks moved out of the lib.** The lib's
+  `MinecraftFrameStageMixin` previously injected into `Minecraft.tick TAIL`
+  and `renderProfilerChart HEAD/TAIL` purely to populate the spike log's
+  per-stage breakdown. Those three hooks moved to
+  `aero.modellib.test.mixin.MinecraftFrameSpikeMixin` in the test mod. The
+  lib's mixin keeps only the three hooks that drive production opt-in
+  features (animation tick budget, frame pacer, frame-pacer adaptive
+  backoff). When the test mod isn't loaded and `-Daero.spikelog=true` is on,
+  the spike log line just shows `clientTickMs=0` / `profilerChartMs=0` —
+  zero crash, slightly degraded breakdown.
+
+### Changed
+- **`runClient` task is now bare ("modpack user with default Loom JVM"
+  simulation).** The previous `runClient` quietly bumped heap to 4 GB and
+  cancelled vanilla autosave so dev sessions felt smoother — that hid GC
+  spikes and autosave hitches that real users actually hit. The bumped /
+  skip-saves combination moved to the new `runClientDev` task. Use
+  `runClient` to validate end-user perception, `runClientDev` to focus on
+  perf signal without dev-JVM noise.
+
 ### Changed (breaking — pre-1.0 internal restructure, no external consumers yet)
 - **`core/aero/modellib/` split into 6 subpackages** for navigability. The
   flat package with 52 `Aero_*` classes was a navigability red flag; classes

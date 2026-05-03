@@ -84,6 +84,11 @@ def aeroExtraJvmArgs = {
         .findAll { it != null && !it.trim().isEmpty() }
 }
 
+// Bare runClient. NO heap bump, NO benchmark flags, NO spike logger.
+// This is the "modpack user with default Loom JVM settings" simulation —
+// what someone with Prism / Modrinth Launcher / etc gets out of the box.
+// Use it to validate how the library behaves for end users. If you want
+// a smooth dev session instead, use runClientDev.
 tasks.named('runClient') {
     doFirst {
         def extra = aeroExtraJvmArgs()
@@ -91,6 +96,32 @@ tasks.named('runClient') {
             jvmArgs(extra)
             println '[runClient] extra Aero JVM args: ' + extra.join(' ')
         }
+        println '[runClient] PRODUCTION-LIKE: default Loom JVM (~2G heap), '
+            + 'vanilla autosave on, no spike logger. Use runClientDev for '
+            + 'a tuned dev session.'
+    }
+}
+
+// Developer convenience runner. Bumps heap so vanilla allocation doesn't
+// trigger constant young-gen GC, and skips vanilla's periodic autosave
+// (Ctrl+S and save-on-exit still fire — only the every-N-tick timer is
+// canceled). Use this for manual playtesting / FPS tuning so the JVM
+// shoestring doesn't dominate the perf signal you're trying to read.
+//
+// Why not bake these into runClient: a "production-like" task should
+// reflect what an end user actually experiences. Hiding GC pressure /
+// autosave hitches behind dev defaults made it impossible to notice
+// regressions until shipping.
+tasks.register('runClientDev') {
+    group = 'fabric'
+    description = 'Dev-tuned client run: bumped heap + vanilla autosave skip.'
+    finalizedBy tasks.named('runClient')
+    outputs.upToDateWhen { false }
+    doLast {
+        def runClient = tasks.named('runClient').get()
+        runClient.jvmArgs('-Xms2G', '-Xmx4G',
+                          '-Daero.benchmark.skipNonForcedSaves=true')
+        println '[runClientDev] heap 2-4G + autosave skip enabled'
     }
 }
 

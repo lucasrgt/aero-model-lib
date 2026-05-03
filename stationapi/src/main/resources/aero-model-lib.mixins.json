@@ -11,8 +11,7 @@
     "MinecraftFrameStageMixin",
     "PalettedContainerCacheMixin",
     "WorldRendererBatchFlushMixin",
-    "WorldRendererChunksAccessor",
-    "WorldSaveSpikeMixin"
+    "WorldRendererChunksAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
