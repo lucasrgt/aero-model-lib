@@ -5,6 +5,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.model.Aero_MeshBlendMode;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.render.Aero_RenderOptions;
+
 /**
  * Per-frame collector for animated BlockEntity renders. Coalesces multiple
  * instances of the same {@link Aero_MeshModel} into a single Tessellator

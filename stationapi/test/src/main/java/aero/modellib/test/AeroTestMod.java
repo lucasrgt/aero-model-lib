@@ -15,6 +15,8 @@ import aero.modellib.Aero_AnimationState;
 
 import java.lang.invoke.MethodHandles;
 
+import aero.modellib.render.Aero_AnimationTickLOD;
+
 /**
  * Common-bus entrypoint: registers the test block + its BlockEntity class.
  * Wired in fabric.mod.json under {@code stationapi:event_bus} (not
@@ -196,7 +198,7 @@ public class AeroTestMod {
      * <ul>
      *   <li>{@code -Daero.animatedLOD=N}: explicit override</li>
      *   <li>else, stress mode: scaled via
-     *       {@link aero.modellib.Aero_AnimationTickLOD#recommendedAnimatedDistance}</li>
+     *       {@link aero.modellib.render.Aero_AnimationTickLOD#recommendedAnimatedDistance}</li>
      *   <li>else: 48 blocks (the historical default for showcase density)</li>
      * </ul>
      */
@@ -204,7 +206,7 @@ public class AeroTestMod {
         String override = System.getProperty("aero.animatedLOD");
         if (override != null) return Double.parseDouble(override);
         if (STRESS_TEST) {
-            return aero.modellib.Aero_AnimationTickLOD.recommendedAnimatedDistance(
+            return aero.modellib.render.Aero_AnimationTickLOD.recommendedAnimatedDistance(
                 aero.modellib.Aero_RenderDistance.currentViewDistance());
         }
         return 48d;

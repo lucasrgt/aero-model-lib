@@ -2,12 +2,13 @@ package aero.modellib.mixin;
 
 import aero.modellib.Aero_FrameSpikeLogger;
 import aero.modellib.Aero_FramePacer;
-import aero.modellib.Aero_AnimationTickBudget;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import aero.modellib.render.Aero_AnimationTickBudget;
 
 @Mixin(Minecraft.class)
 public abstract class MinecraftFrameStageMixin {

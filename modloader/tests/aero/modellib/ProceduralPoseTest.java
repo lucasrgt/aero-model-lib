@@ -2,6 +2,15 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.animation.Aero_AnimationPoseResolver;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.skeletal.Aero_BoneRenderPose;
+import aero.modellib.skeletal.Aero_ProceduralPose;
+
 import static org.junit.Assert.*;
 
 /**

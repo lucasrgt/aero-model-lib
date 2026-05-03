@@ -1,8 +1,9 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_CellPageRenderableBE;
-import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
+
+import aero.modellib.model.Aero_MeshModel;
 
 /**
  * Empty BlockEntity — exists only so the renderer dispatcher attaches.

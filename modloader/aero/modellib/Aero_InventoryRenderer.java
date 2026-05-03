@@ -3,6 +3,9 @@ package aero.modellib;
 import net.minecraft.src.*;
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.model.Aero_JsonModel;
+import aero.modellib.model.Aero_MeshModel;
+
 /**
  * Centralized inventory thumbnail rendering for all Aero model types.
  *

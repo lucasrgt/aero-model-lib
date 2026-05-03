@@ -5,6 +5,12 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.skeletal.Aero_MorphState;
+import aero.modellib.skeletal.Aero_MorphTarget;
+
 import static org.junit.Assert.*;
 
 /**

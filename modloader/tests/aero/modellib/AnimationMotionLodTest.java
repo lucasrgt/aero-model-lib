@@ -2,6 +2,8 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.render.Aero_AnimationTickLOD;
+
 import static org.junit.Assert.assertEquals;
 
 public class AnimationMotionLodTest {

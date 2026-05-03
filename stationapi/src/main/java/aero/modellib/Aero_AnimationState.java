@@ -2,6 +2,10 @@ package aero.modellib;
 
 import net.minecraft.nbt.NbtCompound;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationPlayback;
+
 /**
  * Mutable animation state per BlockEntity (StationAPI/Yarn port).
  *
@@ -36,11 +40,11 @@ public class Aero_AnimationState extends Aero_AnimationPlayback {
     private final String timeKey;
 
     /** Built by Aero_AnimationDefinition.createState(). */
-    Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle) {
+    public Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle) {
         this(def, bundle, DEFAULT_NBT_KEY_PREFIX);
     }
 
-    Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle,
+    public Aero_AnimationState(Aero_AnimationDefinition def, Aero_AnimationBundle bundle,
                         String nbtKeyPrefix) {
         super(def, bundle);
         if (nbtKeyPrefix == null || nbtKeyPrefix.length() == 0) {

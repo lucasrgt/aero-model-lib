@@ -1,6 +1,4 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_AnimationSpec;
 import aero.modellib.Aero_AnimationState;
 import aero.modellib.Aero_RenderDistance;
 import net.minecraft.entity.Entity;
@@ -8,6 +6,8 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.world.World;
 
 import java.util.Random;
+
+import aero.modellib.animation.Aero_AnimationSpec;
 
 /**
  * In-game smoke-test entity for Aero_EntityModelRenderer. Walks around in

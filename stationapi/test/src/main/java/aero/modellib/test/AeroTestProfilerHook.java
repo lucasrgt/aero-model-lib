@@ -1,6 +1,6 @@
 package aero.modellib.test;
 
-import aero.modellib.Aero_Profiler;
+import aero.modellib.util.Aero_Profiler;
 
 /**
  * Test-mod-only hook that installs two {@link Aero_Profiler#dump()} drivers

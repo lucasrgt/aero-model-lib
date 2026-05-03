@@ -7,6 +7,14 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.fabricmc.loader.api.FabricLoader;
 
+import aero.modellib.model.Aero_ModelSpec;
+import aero.modellib.render.Aero_AnimationRenderBudget;
+import aero.modellib.render.Aero_EntityModelTransform;
+import aero.modellib.render.Aero_FrustumCull;
+import aero.modellib.render.Aero_RenderDistanceCulling;
+import aero.modellib.render.Aero_RenderLod;
+import aero.modellib.render.Aero_SmallObjectCull;
+
 /**
  * StationAPI render-distance helpers for Aero models.
  */

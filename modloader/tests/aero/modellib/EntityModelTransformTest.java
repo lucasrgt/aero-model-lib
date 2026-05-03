@@ -2,6 +2,9 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.render.Aero_EntityModelTransform;
+import aero.modellib.render.Aero_RenderDistanceCulling;
+
 import static org.junit.Assert.*;
 
 public class EntityModelTransformTest {

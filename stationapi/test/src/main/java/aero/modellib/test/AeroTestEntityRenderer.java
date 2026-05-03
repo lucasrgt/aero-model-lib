@@ -1,11 +1,12 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_EntityModelRenderer;
-import aero.modellib.Aero_ModelSpec;
 import aero.modellib.Aero_TextureBinder;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.entity.Entity;
 import org.lwjgl.opengl.GL11;
+
+import aero.modellib.model.Aero_ModelSpec;
 
 public class AeroTestEntityRenderer extends EntityRenderer {
 

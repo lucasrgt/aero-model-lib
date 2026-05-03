@@ -3,6 +3,9 @@ package aero.modellib;
 import org.junit.Before;
 import org.junit.Test;
 
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoop;
+
 import static org.junit.Assert.*;
 
 public class AnimClipTest {

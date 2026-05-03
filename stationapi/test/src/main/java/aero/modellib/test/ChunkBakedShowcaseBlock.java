@@ -1,13 +1,14 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_MeshChunkBaker;
-import aero.modellib.Aero_MeshModel;
-import aero.modellib.Aero_ObjLoader;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.modificationstation.stationapi.api.client.texture.atlas.Atlas;
 import net.modificationstation.stationapi.api.template.block.TemplateBlock;
 import net.modificationstation.stationapi.api.util.Identifier;
+
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.model.Aero_ObjLoader;
 
 /**
  * Showcase for the v0.2.5 chunk-baked rendering path. Pure block — no

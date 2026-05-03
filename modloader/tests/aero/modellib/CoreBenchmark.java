@@ -3,6 +3,18 @@ package aero.modellib;
 import java.util.Arrays;
 import java.util.HashMap;
 
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoop;
+import aero.modellib.animation.Aero_Easing;
+import aero.modellib.model.Aero_JsonModel;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.render.Aero_EntityModelTransform;
+import aero.modellib.render.Aero_RenderDistanceCulling;
+import aero.modellib.render.Aero_RenderLod;
+import aero.modellib.skeletal.Aero_BoneFK;
+import aero.modellib.skeletal.Aero_BoneRenderPose;
+import aero.modellib.skeletal.Aero_CCDSolver;
+
 /**
  * Small deterministic microbenchmark for core hot-path data structures.
  *

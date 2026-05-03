@@ -8,6 +8,11 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
 
+import aero.modellib.render.Aero_AnimationRenderBudget;
+import aero.modellib.render.Aero_AnimationTickBudget;
+import aero.modellib.render.Aero_FrustumCull;
+import aero.modellib.render.Aero_RenderLoadGovernor;
+
 /**
  * Opt-in frame spike logger for dense BE scenes. It samples once per render
  * frame and prints a compact diagnostic line when the previous frame exceeded

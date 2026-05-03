@@ -1,12 +1,13 @@
 package aero.modellib.test;
 
 import aero.modellib.Aero_EntityModelRenderer;
-import aero.modellib.Aero_ModelSpec;
-import aero.modellib.Aero_RenderOptions;
 import aero.modellib.Aero_TextureBinder;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.entity.Entity;
 import org.lwjgl.opengl.GL11;
+
+import aero.modellib.model.Aero_ModelSpec;
+import aero.modellib.render.Aero_RenderOptions;
 
 /**
  * Renderer for {@link AeroRobotEntity}. Drives the model via

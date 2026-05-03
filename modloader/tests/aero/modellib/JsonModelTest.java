@@ -2,6 +2,8 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.model.Aero_JsonModel;
+
 import static org.junit.Assert.*;
 
 public class JsonModelTest {

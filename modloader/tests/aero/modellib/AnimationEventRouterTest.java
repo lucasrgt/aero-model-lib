@@ -5,6 +5,9 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+import aero.modellib.animation.Aero_AnimationEventListener;
+import aero.modellib.animation.Aero_AnimationEventRouter;
+
 import static org.junit.Assert.*;
 
 public class AnimationEventRouterTest {

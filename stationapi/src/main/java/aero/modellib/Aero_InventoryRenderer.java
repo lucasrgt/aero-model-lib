@@ -4,6 +4,9 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.block.BlockRenderManager;
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.model.Aero_JsonModel;
+import aero.modellib.model.Aero_MeshModel;
+
 /**
  * Centralized inventory thumbnail rendering for all Aero model types
  * (StationAPI/Yarn port).

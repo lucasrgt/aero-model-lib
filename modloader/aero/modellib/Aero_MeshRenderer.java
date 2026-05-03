@@ -3,6 +3,27 @@ package aero.modellib;
 import net.minecraft.src.*;
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.animation.Aero_AnimationPoseResolver;
+import aero.modellib.animation.Aero_AnimationStack;
+import aero.modellib.animation.graph.Aero_AnimationGraph;
+import aero.modellib.model.Aero_MeshBlendMode;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.render.Aero_AnimationTickLOD;
+import aero.modellib.render.Aero_FrustumCull;
+import aero.modellib.render.Aero_RenderOptions;
+import aero.modellib.skeletal.Aero_BonePageLists;
+import aero.modellib.skeletal.Aero_BoneRenderPose;
+import aero.modellib.skeletal.Aero_CCDSolver;
+import aero.modellib.skeletal.Aero_IkChain;
+import aero.modellib.skeletal.Aero_MorphState;
+import aero.modellib.skeletal.Aero_MorphTarget;
+import aero.modellib.skeletal.Aero_ProceduralPose;
+import aero.modellib.util.Aero_Profiler;
+
 /**
  * AeroMesh Renderer by lucasrgt - aerocoding.dev
  * Renders OBJ models (Aero_MeshModel) using GL_TRIANGLES.

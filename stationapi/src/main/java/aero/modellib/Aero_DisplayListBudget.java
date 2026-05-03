@@ -2,6 +2,8 @@ package aero.modellib;
 
 import org.lwjgl.opengl.GL11;
 
+import aero.modellib.util.Aero_PerfConfig;
+
 /**
  * Small guardrail around OpenGL display-list allocation. Driver memory is not
  * visible in Java heap graphs, so high-memory mode still needs a hard ceiling

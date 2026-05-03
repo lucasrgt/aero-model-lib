@@ -5,6 +5,15 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationLayer;
+import aero.modellib.animation.Aero_AnimationLoop;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.animation.Aero_AnimationStack;
+import aero.modellib.animation.Aero_Easing;
+
 import static org.junit.Assert.*;
 
 /**

@@ -1,16 +1,17 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_BoneRenderPose;
-import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_MeshRenderer;
-import aero.modellib.Aero_ObjLoader;
-import aero.modellib.Aero_ProceduralPose;
 import aero.modellib.Aero_RenderDistance;
-import aero.modellib.Aero_RenderLod;
-import aero.modellib.Aero_RenderOptions;
 import aero.modellib.Aero_TextureBinder;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
+
+import aero.modellib.model.Aero_MeshBlendMode;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.model.Aero_ObjLoader;
+import aero.modellib.render.Aero_RenderLod;
+import aero.modellib.render.Aero_RenderOptions;
+import aero.modellib.skeletal.Aero_BoneRenderPose;
+import aero.modellib.skeletal.Aero_ProceduralPose;
 
 /**
  * Renderer showcasing two features composed in one call:
@@ -32,7 +33,7 @@ public class PlasmaCrystalBlockEntityRenderer extends BlockEntityRenderer {
     private static final Aero_RenderOptions GLOW = Aero_RenderOptions.builder()
         .tint(0.6f, 0.85f, 1f)            // cool plasma blue
         .alpha(0.85f)
-        .blend(aero.modellib.Aero_MeshBlendMode.ADDITIVE)
+        .blend(aero.modellib.model.Aero_MeshBlendMode.ADDITIVE)
         .depthTest(true)
         .build();
 

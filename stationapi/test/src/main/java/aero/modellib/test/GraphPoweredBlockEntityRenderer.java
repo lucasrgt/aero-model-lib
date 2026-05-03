@@ -1,13 +1,13 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_MeshRenderer;
-import aero.modellib.Aero_ObjLoader;
 import aero.modellib.Aero_RenderDistance;
-import aero.modellib.Aero_RenderLod;
 import aero.modellib.Aero_TextureBinder;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.render.block.entity.BlockEntityRenderer;
+
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.model.Aero_ObjLoader;
+import aero.modellib.render.Aero_RenderLod;
 
 public class GraphPoweredBlockEntityRenderer extends BlockEntityRenderer {
 

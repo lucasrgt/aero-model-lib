@@ -1,13 +1,14 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_AnimationBundle;
-import aero.modellib.Aero_AnimationDefinition;
-import aero.modellib.Aero_AnimationEventListener;
-import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
 import aero.modellib.Aero_CellPageRenderableBE;
-import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
+
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationEventListener;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.model.Aero_MeshModel;
+import aero.modellib.util.Aero_SoundCoalesce;
 
 /**
  * BlockEntity that exposes an {@link Aero_AnimationState} driven by tick().
@@ -52,7 +53,7 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
         // to the BE — so a particle declared on the "turbine_l" bone fires
         // from the actual turbine position, not the block centre.
         //
-        // Sound calls go through {@link aero.modellib.Aero_SoundCoalesce}
+        // Sound calls go through {@link aero.modellib.util.Aero_SoundCoalesce}
         // — under MEGA load (144 identical BEs per chunk all firing the
         // same sound on the same tick) raw {@code world.playSound} hits
         // a sub-frame stutter as Paul Lamb's SoundSystem churns through
@@ -94,7 +95,7 @@ public class AnimatedMegaModelBlockEntity extends Aero_RenderDistanceBlockEntity
                 double cx = x + ox, cy = y + oy, cz = z + oz;
 
                 if ("sound".equals(channel)) {
-                    aero.modellib.Aero_SoundCoalesce.queue(cx, cy, cz, data, 0.6f, 1.0f);
+                    aero.modellib.util.Aero_SoundCoalesce.queue(cx, cy, cz, data, 0.6f, 1.0f);
                 } else if ("particle".equals(channel)) {
                     // Particle cap: under MEGA load skip the 5-particle
                     // burst and emit a single particle (still visible

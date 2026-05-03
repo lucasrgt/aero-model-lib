@@ -2,6 +2,13 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationClip;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.animation.Aero_AnimationLoop;
+import aero.modellib.model.Aero_JsonModelLoader;
+import aero.modellib.model.Aero_ObjLoader;
+
 import static org.junit.Assert.*;
 
 public class AnimationLoaderStrictSchemaTest {

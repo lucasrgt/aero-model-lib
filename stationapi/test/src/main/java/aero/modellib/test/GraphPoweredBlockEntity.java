@@ -1,15 +1,15 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_AnimationBundle;
-import aero.modellib.Aero_AnimationDefinition;
-import aero.modellib.Aero_AnimationGraph;
-import aero.modellib.Aero_AnimationLoader;
-import aero.modellib.Aero_AnimationPlayback;
-import aero.modellib.Aero_GraphBlend1DNode;
-import aero.modellib.Aero_GraphClipNode;
-import aero.modellib.Aero_GraphNode;
-import aero.modellib.Aero_GraphParams;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
+
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.animation.Aero_AnimationPlayback;
+import aero.modellib.animation.graph.Aero_AnimationGraph;
+import aero.modellib.animation.graph.Aero_GraphBlend1DNode;
+import aero.modellib.animation.graph.Aero_GraphClipNode;
+import aero.modellib.animation.graph.Aero_GraphNode;
+import aero.modellib.animation.graph.Aero_GraphParams;
 
 public class GraphPoweredBlockEntity extends Aero_RenderDistanceBlockEntity {
 

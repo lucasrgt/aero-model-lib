@@ -3,6 +3,12 @@ package aero.modellib;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
 
+import aero.modellib.render.Aero_AnimationTickBudget;
+import aero.modellib.render.Aero_AnimationTickLOD;
+import aero.modellib.render.Aero_CellRenderableBE;
+import aero.modellib.render.Aero_RenderDistanceCulling;
+import aero.modellib.render.Aero_RenderLod;
+
 /**
  * Optional BlockEntity base class that makes vanilla's hardcoded 64 block
  * special-renderer limit scale with the player's render distance under a cap,

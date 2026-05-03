@@ -1,12 +1,12 @@
 package aero.modellib.test;
-
-import aero.modellib.Aero_AnimationBundle;
-import aero.modellib.Aero_AnimationDefinition;
-import aero.modellib.Aero_AnimationLoader;
 import aero.modellib.Aero_AnimationState;
 import aero.modellib.Aero_CellPageRenderableBE;
-import aero.modellib.Aero_MeshModel;
 import aero.modellib.Aero_RenderDistanceBlockEntity;
+
+import aero.modellib.animation.Aero_AnimationBundle;
+import aero.modellib.animation.Aero_AnimationDefinition;
+import aero.modellib.animation.Aero_AnimationLoader;
+import aero.modellib.model.Aero_MeshModel;
 
 public class SpellCircleBlockEntity extends Aero_RenderDistanceBlockEntity implements Aero_CellPageRenderableBE {
 

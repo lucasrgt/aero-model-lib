@@ -6,6 +6,33 @@ correspond to `mod_version` in `stationapi/gradle.properties`.
 
 ## [3.x] — Smart LOD + occlusion default-on
 
+### Changed (breaking — pre-1.0 internal restructure, no external consumers yet)
+- **`core/aero/modellib/` split into 6 subpackages** for navigability. The
+  flat package with 52 `Aero_*` classes was a navigability red flag; classes
+  are now grouped by responsibility. All `import aero.modellib.<Class>;` in
+  consumer code becomes `import aero.modellib.<sub>.<Class>;`. New layout:
+  - `aero.modellib.animation` — clip / definition / bundle / loader /
+    playback / spec / layer / stack / state-router / predicate / LUT-config /
+    pose-resolver / event-listener / event-router / easing
+  - `aero.modellib.animation.graph` — graph nodes (`AnimationGraph`,
+    `Graph{Additive,Blend1D,Clip,}Node`, `GraphParams`)
+  - `aero.modellib.skeletal` — bone FK / IK / morph / quaternion / procedural
+    pose / bone render pose / bone page lists / CCD solver
+  - `aero.modellib.model` — `MeshModel`, `MeshBlendMode`, `JsonModel`,
+    `JsonModelLoader`, `ObjLoader`, `ModelSpec`
+  - `aero.modellib.render` — render LOD / culling / budgets / load governor /
+    options / entity transform / `CellRenderableBE` interface
+  - `aero.modellib.util` — `Profiler`, `SoundCoalesce`, `PerfConfig`
+- Promoted several package-private members to `public` that were already
+  cross-class API in spirit: `Aero_AnimationBundle.pivotOrZero`,
+  `Aero_AnimationClip.boneNames` + `sample{Rot,Pos,Scl,UvOffset,UvScale}Into`
+  (cursor overloads), `Aero_BoneRenderPose.{reset,setPivot}`,
+  `Aero_BonePageLists` constructor, `Aero_AnimationState` constructor (all
+  3 platform variants — modloader, stationapi, test stub),
+  `Aero_AnimationLoader.{loadFromString,cacheSize}`,
+  `Aero_{Json,Obj}Loader.cacheSize`, `Aero_ObjLoader.parseObjForTest`,
+  `Aero_AnimationPoseResolver` and its static `resolve{Clip,Stack}` methods.
+
 ### Fixed
 - **Chunk-bake registry pre-warm.** `Aero_MeshChunkBaker` now exposes
   `prewarmAll()` and `Aero_RenderDistance.beginRenderFrame()` calls it

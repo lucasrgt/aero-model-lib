@@ -2,6 +2,9 @@ package aero.modellib;
 
 import org.junit.Test;
 
+import aero.modellib.model.Aero_MeshBlendMode;
+import aero.modellib.render.Aero_RenderOptions;
+
 import static org.junit.Assert.*;
 
 public class RenderOptionsTest {
