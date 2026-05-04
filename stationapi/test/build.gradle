@@ -33,7 +33,7 @@ dependencies {
     // Babric fork — StationAPI transitively pulls this in, declaring the
     // upstream `net.fabricmc:fabric-loader` here causes a duplicate-loader
     // class-path collision at runtime.
-    modImplementation "babric:fabric-loader:0.15.6-babric.1"
+    modImplementation "babric:fabric-loader:0.15.6-babric.2"
 
     // StationAPI provides the BlockRegistryEvent / BlockEntityRegisterEvent /
     // BlockEntityRendererRegisterEvent we listen to.
